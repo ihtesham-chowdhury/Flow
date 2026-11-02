@@ -7,9 +7,9 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.1.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/flow-android/releases/download/v3.1.0/Flow-v3.1.0.apk)**  
+* **[Flow-v3.1.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.1.0/Flow-v3.1.0.apk)**  
   *(Gemini 3.x Unified Architecture, Active Model Discovery, Wispr Flow Cursor Awareness, 3-Stage Connectivity Lab, Groq Whisper Fallback)*
-* View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/flow-android/releases)**.
+* View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
 
 ---
 
