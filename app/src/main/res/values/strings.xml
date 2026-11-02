@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Flow</string>
+    <string name="accessibility_service_description">Flow uses accessibility to directly insert polished voice dictations (English and Bengali) into active text input fields across your apps.</string>
+    <string name="notification_channel_name">Flow Dictation</string>
+    <string name="notification_channel_desc">Active background status for the floating dictation button.</string>
+    <string name="notification_title">Flow is Active</string>
+    <string name="notification_text">Floating mic is ready to dictate.</string>
+</resources>

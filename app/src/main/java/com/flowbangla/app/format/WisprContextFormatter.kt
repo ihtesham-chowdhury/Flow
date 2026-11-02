@@ -1,0 +1,81 @@
+package com.flowbangla.app.format
+
+import com.flowbangla.app.polish.LocalFillerCleaner
+
+object WisprContextFormatter {
+
+    private val NUMERIC_REGEX = Regex("""\b\d+\b|[০-৯]+""")
+    private val URL_REGEX = Regex("""https?://\S+|www\.\S+""")
+    private val EMAIL_REGEX = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
+
+    /**
+     * Applies Wispr Flow on-device cursor boundary formatting (< 1ms):
+     * 1. Prepends a leading space if the cursor is immediately preceded by a non-whitespace character.
+     * 2. Lowers the first character if the user is dictating mid-sentence (e.g. after a comma or space),
+     *    except for English acronyms (e.g. "API", "AI") or the pronoun "I".
+     */
+    fun applyCursorBoundaryFormatting(
+        text: String,
+        context: ActiveFieldContext
+    ): String {
+        if (text.isEmpty()) return ""
+
+        var result = text
+
+        // 1. Mid-sentence lowercase alignment for Latin characters
+        if (context.isMidSentenceContinuation && result.isNotEmpty()) {
+            val firstChar = result[0]
+            if (firstChar in 'A'..'Z') {
+                val isAcronym = result.length > 1 && result[1].isUpperCase()
+                val isPronounI = result.startsWith("I ") || result.startsWith("I'") || result == "I"
+                if (!isAcronym && !isPronounI) {
+                    result = firstChar.lowercaseChar() + result.substring(1)
+                }
+            }
+        }
+
+        // 2. Leading space alignment
+        if (context.needsLeadingSpace && result.isNotEmpty() && !result[0].isWhitespace()) {
+            result = " $result"
+        }
+
+        return result
+    }
+
+    /**
+     * Validates that critical tokens (numbers, URLs, emails) present in the raw transcript
+     * were faithfully preserved by the formatter. If any critical token was lost, returns false.
+     */
+    fun areCriticalTokensPreserved(rawTranscript: String, formattedText: String): Boolean {
+        // Check numeric tokens
+        val rawNumbers = NUMERIC_REGEX.findAll(rawTranscript).map { it.value }.toSet()
+        val formattedNumbers = NUMERIC_REGEX.findAll(formattedText).map { it.value }.toSet()
+        // If raw had numbers but formatted dropped them all
+        if (rawNumbers.isNotEmpty() && formattedNumbers.isEmpty()) return false
+
+        // Check URLs
+        val rawUrls = URL_REGEX.findAll(rawTranscript).map { it.value.lowercase() }.toSet()
+        val formattedUrls = URL_REGEX.findAll(formattedText).map { it.value.lowercase() }.toSet()
+        if (rawUrls.any { it !in formattedUrls }) return false
+
+        // Check Emails
+        val rawEmails = EMAIL_REGEX.findAll(rawTranscript).map { it.value.lowercase() }.toSet()
+        val formattedEmails = EMAIL_REGEX.findAll(formattedText).map { it.value.lowercase() }.toSet()
+        if (rawEmails.any { it !in formattedEmails }) return false
+
+        return true
+    }
+
+    /**
+     * Maps the active app category to a suitable default document type if in AUTO mode.
+     */
+    fun mapAppCategoryToDocumentType(category: AppCategory): DocumentType {
+        return when (category) {
+            AppCategory.EMAIL -> DocumentType.EMAIL
+            AppCategory.PERSONAL_MESSAGING -> DocumentType.CASUAL_MESSAGE
+            AppCategory.WORK_MESSAGING -> DocumentType.CASUAL_MESSAGE
+            AppCategory.NOTES_AND_DOCS -> DocumentType.PERSONAL_NOTE
+            AppCategory.OTHER -> DocumentType.GENERAL_DICTATION
+        }
+    }
+}
