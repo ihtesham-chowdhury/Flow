@@ -233,7 +233,7 @@ class GeminiInteractionsAdapter(
                 put("store", false)
                 put("system_instruction", systemInstruction)
                 put("input", userEnvelope)
-                put("generation_config", JSONObject().put("temperature", 0.1))
+                put("generation_config", JSONObject().put("temperature", 0.0))
             }
 
             try {

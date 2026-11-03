@@ -1,4 +1,4 @@
-# Flow v3.1.0 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
+# Flow v3.1.1 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,28 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.1.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.1.0/Flow-v3.1.0.apk)**  
-  *(Gemini 3.x Unified Architecture, Active Model Discovery, Wispr Flow Cursor Awareness, 3-Stage Connectivity Lab, Groq Whisper Fallback)*
+* **[Flow-v3.1.1.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.1.1/Flow-v3.1.1.apk)**  
+  *(Anti-Rewriting Polish Guard, Zero Stray Leading Space, Messenger-Style Drag Dismiss, Instant Short-Voice Fast-Path)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🌟 What's New in v3.1.1 (Dictation Fidelity, Zero Leading Space & Dismiss Target)
+
+1. **Strict Anti-Rewriting & Prompt Execution Guard**:
+   - Resolved the issue where speaking commands like *"write me the draft email"* caused the LLM to invent an email template with synthetic headers (`To:`, `Subject:`, `Dear Sir`, `Regards`).
+   - Flow now treats all dictation as raw speech data: prompts and queries to AI are faithfully transcribed and punctuated verbatim without ever fulfilling, answering, or rewriting the text.
+   - `FormatValidator` strictly rejects hallucinated headers, placeholders (`[Your Name]`), or unprompted sign-offs.
+2. **Eliminated Stray Leading Space on Text Insertion**:
+   - Fixed cursor position detection in `ActiveAppContextExtractor`. When dictating at the beginning of an empty field or new line, Flow strictly sets `needsLeadingSpace = false`.
+   - `WisprContextFormatter` trims accidental leading whitespace, ensuring text begins seamlessly flush with the cursor.
+3. **Messenger-Style Bottom Drag-to-Dismiss**:
+   - Dragging the floating mic down towards the bottom center reveals a circular dismiss target (`✕ Remove`).
+   - Dropping the mic inside the target smoothly hides the overlay.
+   - Restoring the mic is effortless: tap **[Show Mic / মাইক দেখান]** directly in the ongoing notification, or toggle from the settings screen.
+4. **Instant Fast-Path for Short Voices & Speed Optimizations**:
+   - Short dictations ($\le$ 7 words) now format locally in **< 1 millisecond**, delivering instant output just like Wispr Flow without waiting for an extra cloud round-trip.
+   - Long dictation generation latency is significantly reduced via greedy temperature `0.0` and adaptive token ceilings.
 
 ---
 

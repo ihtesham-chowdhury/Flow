@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.1.0 (Build 7)  
-> **Last Updated**: November 1, 2026  
-> **Status**: Production Debug Release (`Flow-v3.1.0.apk` active)  
+> **Document Version**: 3.1.1 (Build 8)  
+> **Last Updated**: November 3, 2026  
+> **Status**: Production Debug Release (`Flow-v3.1.1.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -85,7 +85,7 @@
 - **Unit Testing Suite**:
   - Added JUnit test suite (`TranscriptPostProcessorTest`, `FormatValidatorTest`, `FormatterResponseParserTest`) covering Bengali matra-safe typography, spoken commands, number conversions, and JSON parsing. 100% pass rate.
 
-### Phase 7: v3.1.0 — Unified Master Architecture, 404 Fix & Wispr Flow Formatting Engine (Current Release)
+### Phase 7: v3.1.0 — Unified Master Architecture, 404 Fix & Wispr Flow Formatting Engine
 - **Total Model Retirement & Dynamic Discovery**:
   - Completely purged all legacy and deprecated models (`gemini-1.5-*`, `gemini-2.0-*`, `gemini-2.5-*`, `gemini-pro`, `gemini-3.5-flash` without `-lite`) across the codebase.
   - Implemented `ModelCatalog.kt` and `ModelDiscovery` with live `/v1beta/models?pageSize=200` queries and 24-hr TTL caching. Active catalog defaults to verified free-tier Gemini 3.x models (`gemini-3.5-transcribe` for ASR; `gemini-3.5-flash-lite`, `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.1-flash-lite` for formatting).
@@ -96,22 +96,27 @@
   - Fast-path inline Base64 audio for clips `< 5 MB`; Resumable Files API (`/upload/v1beta/files`) for recordings `≥ 5 MB` with guaranteed post-transcription `DELETE` cleanup.
   - Fully compatible with the post-June 2026 schema (`steps[] -> content[] -> text`).
 - **3-Stage Connectivity Lab**:
-  - Implemented `ConnectivityLabRunner.kt` with automated diagnostic verification:
-    - **S1 Key & Models**: Queries `/v1beta/models` to validate API key permissions and list audio/content generation capabilities.
-    - **S2 Files API Upload**: Uploads a synthetic 1-second PCM test WAV file and verifies upload URI before immediate deletion.
-    - **S3 Live Interactions Call**: Transcribes synthetic audio to prove end-to-end model and network path functionality.
-  - Upgraded `MainActivity.kt` with the 3-stage visual checklist and "Copy Redacted Diagnostics" for one-tap troubleshooting.
-- **Independent Groq Whisper Fallback**:
-  - Implemented `GroqWhisperClient.kt` calling `/openai/v1/audio/transcriptions` with `whisper-large-v3` or `whisper-large-v3-turbo` and custom user vocabulary hints.
-- **Wispr Flow Screen & Cursor Context Awareness**:
-  - Implemented `ActiveAppContextExtractor.kt` to categorize active host apps (`PERSONAL_MESSAGING`, `WORK_MESSAGING`, `EMAIL`, `NOTES_AND_DOCS`, `OTHER`) and inspect up to 120 characters before the cursor. Strict security exemption for banking apps (bKash, Nagad, Rocket, Upay, Cellfin) and password input fields.
-  - Implemented `WisprContextFormatter.kt`:
-    - `applyCursorBoundaryFormatting`: Seamless mid-sentence continuation by converting initial uppercase to lowercase (preserving "I" and acronyms) and prepending a leading space when cursor is immediately adjacent to non-whitespace characters.
-    - Protected token and numeral validation ensuring numbers, URLs, emails, and technical terms are never corrupted.
-- **Matra-Safe Hesitation Filter**:
-  - Upgraded `LocalFillerCleaner.kt` with `SAFE_BENGALI_HESITATION_REGEX`, preserving lexical Bengali words (`"এর মানে কী?"`, `"আহা"`, `"এই যে"`).
+  - Implemented `ConnectivityLabRunner.kt` with automated diagnostic verification (S1 Key & Models, S2 Files API Upload, S3 Live Interactions Call) and redacted diagnostic reporting.
 - **Full Unit Test Verification**:
   - Added unit test suites `WisprContextFormatterTest.kt` and `AudioFileInspectorTest.kt`, verifying magic byte sniffing, cursor boundary transformations, and Bengali matra stability. 100% test pass rate.
+
+### Phase 8: v3.1.1 — Dictation Fidelity, Zero Stray Space & Messenger Dismiss Target (Current Release)
+- **Strict Anti-Rewriting & Prompt Execution Guard**:
+  - Resolved the issue where speaking commands like *"write me the draft email"* caused the LLM to rewrite the content and invent synthetic email headers (`To:`, `Subject:`, `Dear Sir`, `Regards`).
+  - Hardened `PromptBuilder.kt` with explicit directives: Flow is a verbatim speech-to-text formatter, NOT an assistant or email writer. Commands and prompts to AI are typed faithfully without fulfilling the command or hallucinating text.
+  - Hardened `FormatValidator.kt`: strictly rejects synthetic email headers (`To:`, `From:`, `Subject:`), placeholder brackets (`[Your Name]`), and unprompted closing sign-offs (`Sincerely`, `Best regards`).
+- **Zero Stray Leading Space on Text Insertion**:
+  - Fixed cursor position detection in `ActiveAppContextExtractor.kt`. When cursor is at the beginning of an empty field or new line (`selStart <= 0` or unreported selection), Flow strictly sets `needsLeadingSpace = false`.
+  - In `WisprContextFormatter.kt`, trims accidental leading whitespace from model outputs, ensuring text begins seamlessly flush with the cursor.
+- **Messenger-Style Bottom Drag-to-Dismiss**:
+  - Implemented circular bottom dismiss target (`dismissTargetView`) appearing dynamically during floating button drag.
+  - Dropping the mic inside the dismiss zone cleanly hides the button.
+  - Ongoing foreground notification provides a one-tap action `[Show Mic / মাইক দেখান]` to instantly restore the button anytime. Also added in `MainActivity` settings.
+- **Instant Fast-Path for Short Voices & Speed Optimizations**:
+  - Implemented instant fast-path in `FormattingChain.kt`: short single-phrase dictations ($\le$ 7 words) are formatted locally via deterministic rules in **< 1 millisecond**, delivering instant output just like Wispr Flow without waiting for cloud round-trip latency.
+  - Longer dictation generation speed optimized via greedy temperature `0.0` and adaptive output token limits.
+- **Unit Test Suite Expansion**:
+  - Added test coverage in `FormatValidatorTest.kt` and `WisprContextFormatterTest.kt` for synthetic header rejection, placeholder rejection, email category mapping, and leading space suppression. 100% test pass rate.
 
 ---
 

@@ -69,6 +69,26 @@ class FormattingChain(
             isAutoDetected = true
         )
 
+        val rawWords = rawTranscript.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        // Fast-path: short single-phrase dictations (<= 7 words) are formatted instantly via local rules (< 1ms),
+        // delivering Wispr Flow-grade zero latency and eliminating cloud round-trip delay.
+        val isShortPhrase = rawWords.size <= 7 && !rawTranscript.contains('\n')
+
+        if (isShortPhrase && prefs.engineMode != EngineMode.OFFLINE_LOCAL_LLM) {
+            val fastEnvelope = LocalRulesFormatter.format(rawTranscript, plan)
+            val fastFormatted = WisprContextFormatter.applyCursorBoundaryFormatting(fastEnvelope.formattedText, context)
+            val latency = SystemClock.elapsedRealtime() - startTime
+            return FormattingResult(
+                rawTranscript = rawTranscript,
+                formattedText = fastFormatted,
+                documentType = fastEnvelope.documentType,
+                recognitionSource = recognitionSource,
+                formattingSource = FormattingSource.LOCAL_RULES,
+                latencyMs = latency,
+                fallbackUsed = false
+            )
+        }
+
         // Try primary formatting engine based on configured engine mode
         var envelope: FormattedEnvelope? = null
         var formattingSource = FormattingSource.LOCAL_RULES

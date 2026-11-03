@@ -49,6 +49,12 @@ class FloatingBubbleService : Service() {
     private var previewWindowParams: WindowManager.LayoutParams? = null
     private var lastPreviewUpdateMs = 0L
 
+    // Messenger-style dismiss target at bottom of screen
+    private var dismissTargetView: TextView? = null
+    private var dismissTargetParams: WindowManager.LayoutParams? = null
+    private var isNearDismissTarget = false
+    var isManuallyDismissed = false
+
     // Transcription & Formatting engines
     private lateinit var audioRecorder: AudioRecorder
     private lateinit var geminiInteractionsAdapter: GeminiInteractionsAdapter
@@ -87,6 +93,7 @@ class FloatingBubbleService : Service() {
         initializeEngines()
         startForeground(NOTIFICATION_ID, createForegroundNotification())
         setupFloatingBubble()
+        setupDismissTargetView()
         setupLivePreviewPill()
         setupKeyboardListener()
     }
@@ -139,8 +146,24 @@ class FloatingBubbleService : Service() {
                 updateDimensionsAndOpacity()
                 refreshLanguageBadge()
             }
+            ACTION_TOGGLE_MIC -> {
+                isManuallyDismissed = !isManuallyDismissed
+                applyVisibilityRule()
+                updateNotification()
+            }
+            ACTION_SHOW_MIC -> {
+                isManuallyDismissed = false
+                applyVisibilityRule()
+                updateNotification()
+            }
         }
         return START_STICKY
+    }
+
+    fun updateNotification() {
+        val notification = createForegroundNotification()
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+        notificationManager?.notify(NOTIFICATION_ID, notification)
     }
 
     override fun onDestroy() {
@@ -164,11 +187,22 @@ class FloatingBubbleService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val toggleIntent = Intent(this, FloatingBubbleService::class.java).apply {
+            action = ACTION_TOGGLE_MIC
+        }
+        val togglePendingIntent = PendingIntent.getService(
+            this, 1, toggleIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val actionTitle = if (isManuallyDismissed) "Show Mic / মাইক দেখান" else "Hide Mic / মাইক লুকান"
+
         return NotificationCompat.Builder(this, FlowBanglaApp.CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
+            .setContentText(if (isManuallyDismissed) "Flow running (Mic hidden) / মাইক লুকানো আছে" else getString(R.string.notification_text))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, actionTitle, togglePendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()
@@ -301,6 +335,119 @@ class FloatingBubbleService : Service() {
         previewTextView?.visibility = View.GONE
     }
 
+    private fun setupDismissTargetView() {
+        val density = resources.displayMetrics.density
+        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val targetSizePx = (64 * density).toInt()
+
+        dismissTargetParams = WindowManager.LayoutParams(
+            targetSizePx,
+            targetSizePx,
+            layoutType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = (48 * density).toInt()
+        }
+
+        dismissTargetView = TextView(this).apply {
+            text = "✕"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            background = createDismissBackground(isNear = false)
+            visibility = View.GONE
+        }
+
+        try {
+            windowManager?.addView(dismissTargetView, dismissTargetParams)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to add dismiss target view: ${e.message}")
+        }
+    }
+
+    private fun createDismissBackground(isNear: Boolean): GradientDrawable {
+        val density = resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            if (isNear) {
+                setColor(Color.parseColor("#E11D48")) // Crimson red
+                setStroke((2.5f * density).toInt(), Color.parseColor("#FDA4AF"))
+            } else {
+                setColor(Color.parseColor("#D90F172A")) // Dark slate
+                setStroke((1.5f * density).toInt(), Color.parseColor("#64748B"))
+            }
+        }
+    }
+
+    private fun showDismissTarget() {
+        dismissTargetView?.apply {
+            scaleX = 1.0f
+            scaleY = 1.0f
+            background = createDismissBackground(isNear = false)
+            visibility = View.VISIBLE
+            alpha = 0f
+            animate().alpha(1f).setDuration(160).start()
+        }
+    }
+
+    private fun hideDismissTarget() {
+        dismissTargetView?.animate()?.alpha(0f)?.setDuration(150)?.withEndAction {
+            dismissTargetView?.visibility = View.GONE
+        }?.start()
+    }
+
+    private fun updateDismissTargetProximity(sizePx: Int, displayMetrics: DisplayMetrics) {
+        val density = displayMetrics.density
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+
+        val bubbleCenterX = windowParams.x + sizePx / 2f
+        val bubbleCenterY = windowParams.y + sizePx / 2f
+
+        val targetCenterX = screenWidth / 2f
+        val targetCenterY = screenHeight - (48 * density) - (32 * density)
+
+        val dist = Math.hypot((bubbleCenterX - targetCenterX).toDouble(), (bubbleCenterY - targetCenterY).toDouble())
+        val threshold = 85 * density
+
+        if (dist < threshold) {
+            if (!isNearDismissTarget) {
+                isNearDismissTarget = true
+                vibrateShort()
+                dismissTargetView?.background = createDismissBackground(isNear = true)
+                dismissTargetView?.animate()?.scaleX(1.22f)?.scaleY(1.22f)?.setDuration(120)?.start()
+                bubbleContainer?.alpha = 0.4f
+            }
+        } else {
+            if (isNearDismissTarget) {
+                isNearDismissTarget = false
+                dismissTargetView?.background = createDismissBackground(isNear = false)
+                dismissTargetView?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(120)?.start()
+                val prefs = FlowBanglaApp.instance.preferencesManager
+                bubbleContainer?.alpha = prefs.bubbleOpacity.coerceIn(0.2f, 1.0f)
+            }
+        }
+    }
+
+    private fun dismissBubbleToBottom() {
+        isNearDismissTarget = false
+        isManuallyDismissed = true
+        bubbleContainer?.visibility = View.GONE
+        vibrateDouble()
+        Toast.makeText(this, "Flow mic hidden. Tap notification or open app to restore. / মাইক লুকানো হয়েছে।", Toast.LENGTH_SHORT).show()
+        updateNotification()
+    }
+
     private fun refreshLanguageBadge() {
         val prefs = FlowBanglaApp.instance.preferencesManager
         val badge = if (prefs.engineMode == EngineMode.CLOUD_AUDIO) {
@@ -346,6 +493,10 @@ class FloatingBubbleService : Service() {
 
     fun applyVisibilityRule() {
         val prefs = FlowBanglaApp.instance.preferencesManager
+        if (isManuallyDismissed) {
+            bubbleContainer?.visibility = View.GONE
+            return
+        }
         val shouldShow = if (prefs.showOnlyWithKeyboard) {
             isKeyboardActive || currentState !is TranscriptionState.Idle
         } else {
@@ -406,6 +557,7 @@ class FloatingBubbleService : Service() {
 
                 if (!isDragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
                     isDragging = true
+                    showDismissTarget()
                 }
 
                 if (isDragging) {
@@ -415,14 +567,23 @@ class FloatingBubbleService : Service() {
                         windowManager?.updateViewLayout(bubbleContainer, windowParams)
                     } catch (_: Exception) {
                     }
+                    updateDismissTargetProximity(sizePx, displayMetrics)
                 }
                 return true
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val duration = System.currentTimeMillis() - touchDownTime
+                hideDismissTarget()
 
-                if (!isDragging && duration < 500 && prefs.interactionMode == InteractionMode.TAP_TO_TALK) {
+                if (isDragging) {
+                    if (isNearDismissTarget) {
+                        dismissBubbleToBottom()
+                    } else {
+                        snapToEdge(sizePx, displayMetrics)
+                    }
+                    return true
+                } else if (duration < 500 && prefs.interactionMode == InteractionMode.TAP_TO_TALK) {
                     if (currentState is TranscriptionState.Recording) {
                         // Instant stop on tap while recording (no double-tap delay needed during speech)
                         stopRecordingAndProcess()
@@ -711,6 +872,10 @@ class FloatingBubbleService : Service() {
                 windowManager?.removeView(previewTextView)
                 previewTextView = null
             }
+            if (dismissTargetView != null) {
+                windowManager?.removeView(dismissTargetView)
+                dismissTargetView = null
+            }
             if (bubbleContainer != null) {
                 windowManager?.removeView(bubbleContainer)
                 bubbleContainer = null
@@ -728,6 +893,8 @@ class FloatingBubbleService : Service() {
         const val ACTION_START_SERVICE = "com.flowbangla.action.START"
         const val ACTION_STOP_SERVICE = "com.flowbangla.action.STOP"
         const val ACTION_REFRESH_SETTINGS = "com.flowbangla.action.REFRESH_SETTINGS"
+        const val ACTION_TOGGLE_MIC = "com.flowbangla.action.TOGGLE_MIC"
+        const val ACTION_SHOW_MIC = "com.flowbangla.action.SHOW_MIC"
 
         var instance: FloatingBubbleService? = null
             private set

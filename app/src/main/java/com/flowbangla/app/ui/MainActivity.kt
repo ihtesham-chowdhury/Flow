@@ -206,6 +206,11 @@ object L10n {
         "haptic_desc" to "Vibrate on recording start and stop.",
         "bubble_size" to "Floating Button Size:",
         "bubble_opacity" to "Button Opacity / Transparency:",
+        "mic_visibility" to "Floating Button Visibility",
+        "mic_hidden_desc" to "Mic button is hidden. Tap here or notification to restore.",
+        "mic_visible_desc" to "Drag mic to bottom screen target (✕) to hide, or toggle here.",
+        "show_mic" to "Show Mic",
+        "hide_mic" to "Hide Mic",
         "only_keyboard" to "Show only when typing (Wispr Flow style)",
         "only_keyboard_desc" to "Automatically shows button when keyboard/input is active, and hides it when not in use.",
         "history_title" to "Recent Dictations",
@@ -272,6 +277,11 @@ object L10n {
         "haptic_desc" to "রেকর্ডিং শুরু ও শেষ হলে মৃদু ভাইব্রেশন দেবে।",
         "bubble_size" to "ফ্লোটিং বাটনের সাইজ:",
         "bubble_opacity" to "বাটনের স্বচ্ছতা (Opacity):",
+        "mic_visibility" to "ভাসমান মাইকের দৃশ্যমানতা",
+        "mic_hidden_desc" to "মাইক লুকানো আছে। দেখতে এখানে অথবা নোটিফিকেশনে ট্যাপ করুন।",
+        "mic_visible_desc" to "স্ক্রিনের নিচে (✕) টেনে লুকান অথবা এখানে ট্যাপ করুন।",
+        "show_mic" to "মাইক দেখান",
+        "hide_mic" to "মাইক লুকান",
         "only_keyboard" to "শুধুমাত্র কিবোর্ড চালু থাকলে বাটন দেখাবে",
         "only_keyboard_desc" to "টাইপ করার সময় স্বয়ংক্রিয়ভাবে বাটন ভেসে উঠবে এবং অন্য সময় লুকিয়ে থাকবে।",
         "history_title" to "সাম্প্রতিক ডিক্টেশন হিস্ট্রি",
@@ -354,6 +364,7 @@ fun MainScreen(
     var bubbleSize by remember { mutableFloatStateOf(prefs.bubbleSizeDp.toFloat()) }
     var bubbleOpacity by remember { mutableFloatStateOf(prefs.bubbleOpacity) }
     var showOnlyWithKeyboard by remember { mutableStateOf(prefs.showOnlyWithKeyboard) }
+    var isMicDismissed by remember { mutableStateOf(FloatingBubbleService.instance?.isManuallyDismissed == true) }
 
     var recentHistory by remember { mutableStateOf(historyManager.getRecentRecords()) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -1368,6 +1379,43 @@ fun MainScreen(
                                     valueRange = 0.30f..1.0f,
                                     steps = 7
                                 )
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
+
+                            // Quick Hide/Show button matching Messenger drag-to-dismiss behavior
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(str("mic_visibility"), color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        if (isMicDismissed) str("mic_hidden_desc") else str("mic_visible_desc"),
+                                        color = TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        val service = FloatingBubbleService.instance
+                                        if (service != null) {
+                                            service.isManuallyDismissed = !service.isManuallyDismissed
+                                            service.applyVisibilityRule()
+                                            service.updateNotification()
+                                            isMicDismissed = service.isManuallyDismissed
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isMicDismissed) AccentCyan else SurfaceCard
+                                    )
+                                ) {
+                                    Text(
+                                        if (isMicDismissed) str("show_mic") else str("hide_mic"),
+                                        color = if (isMicDismissed) Color.Black else TextPrimary
+                                    )
+                                }
                             }
                         }
                     }

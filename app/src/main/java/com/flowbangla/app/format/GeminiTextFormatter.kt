@@ -70,8 +70,8 @@ class GeminiTextFormatter(
                 put("parts", JSONArray().put(JSONObject().put("text", userPrompt)))
             }))
             put("generationConfig", JSONObject().apply {
-                put("temperature", 0.1)
-                put("maxOutputTokens", 2048)
+                put("temperature", 0.0)
+                put("maxOutputTokens", (rawTranscript.length * 3 + 128).coerceIn(256, 1024))
                 put("responseMimeType", "application/json")
             })
         }

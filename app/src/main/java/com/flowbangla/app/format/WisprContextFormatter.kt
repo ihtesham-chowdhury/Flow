@@ -20,7 +20,9 @@ object WisprContextFormatter {
     ): String {
         if (text.isEmpty()) return ""
 
-        var result = text
+        // Trim any accidental leading whitespace from model/transcription output
+        var result = text.trimStart()
+        if (result.isEmpty()) return ""
 
         // 1. Mid-sentence lowercase alignment for Latin characters
         if (context.isMidSentenceContinuation && result.isNotEmpty()) {
@@ -34,7 +36,7 @@ object WisprContextFormatter {
             }
         }
 
-        // 2. Leading space alignment
+        // 2. Leading space alignment: ONLY if cursor is reliably confirmed to be preceded by non-whitespace
         if (context.needsLeadingSpace && result.isNotEmpty() && !result[0].isWhitespace()) {
             result = " $result"
         }
@@ -67,11 +69,13 @@ object WisprContextFormatter {
     }
 
     /**
-     * Maps the active app category to a suitable default document type if in AUTO mode.
+     * Maps the active app category to a safe default document type.
+     * Note: EMAIL app category maps to GENERAL_DICTATION to ensure Flow never inserts
+     * synthetic headers (To/Subject/Dear) into email body fields.
      */
     fun mapAppCategoryToDocumentType(category: AppCategory): DocumentType {
         return when (category) {
-            AppCategory.EMAIL -> DocumentType.EMAIL
+            AppCategory.EMAIL -> DocumentType.GENERAL_DICTATION
             AppCategory.PERSONAL_MESSAGING -> DocumentType.CASUAL_MESSAGE
             AppCategory.WORK_MESSAGING -> DocumentType.CASUAL_MESSAGE
             AppCategory.NOTES_AND_DOCS -> DocumentType.PERSONAL_NOTE

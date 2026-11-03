@@ -45,4 +45,24 @@ class FormatValidatorTest {
         val result = FormatValidator.validate(raw, formattedWithoutEmail, setOf("user@example.com"))
         assertTrue(result is ValidationResult.Invalid)
     }
+
+    @Test
+    fun testHallucinatedEmailHeadersRejected() {
+        val raw = "write me the draft email describing what I see on a daily basis"
+        val formattedHallucinated = "To: manager@example.com\nSubject: Daily Log\nDear Sir,\nHere is my report.\nBest regards,\nJohn"
+        val result = FormatValidator.validate(raw, formattedHallucinated)
+        assertTrue("Synthetic email template must be rejected", result is ValidationResult.Invalid)
+
+        val formattedFaithful = "Write me the draft email describing what I see on a daily basis."
+        val resultFaithful = FormatValidator.validate(raw, formattedFaithful)
+        assertTrue("Faithful query formatting must be valid", resultFaithful is ValidationResult.Valid)
+    }
+
+    @Test
+    fun testSyntheticPlaceholdersRejected() {
+        val raw = "draft a letter to the landlord"
+        val formatted = "Dear [Landlord],\nPlease review the lease.\nSincerely,\n[Your Name]"
+        val result = FormatValidator.validate(raw, formatted)
+        assertTrue(result is ValidationResult.Invalid)
+    }
 }

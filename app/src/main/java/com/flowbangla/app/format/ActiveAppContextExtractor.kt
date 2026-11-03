@@ -67,17 +67,25 @@ object ActiveAppContextExtractor {
         val fullText = node.text?.toString() ?: ""
         val selStart = node.textSelectionStart
 
-        val textBeforeCursor = when {
-            selStart in 1..fullText.length -> fullText.substring(0, selStart).takeLast(120)
-            fullText.isNotEmpty() -> fullText.takeLast(120)
-            else -> ""
+        // Reliable cursor detection:
+        // Only inspect text before cursor if selStart is confirmed to be > 0.
+        // If selStart is 0 (start of field/line) or -1 (unreported cursor or empty field),
+        // we DO NOT have confirmed text before cursor.
+        val textBeforeCursor = if (selStart > 0 && selStart <= fullText.length) {
+            fullText.substring(0, selStart).takeLast(120)
+        } else {
+            ""
         }
 
-        val needsLeadingSpace = textBeforeCursor.isNotEmpty() && !textBeforeCursor.last().isWhitespace()
+        // Needs leading space ONLY if confirmed preceding text exists and does NOT end in whitespace or newline
+        val needsLeadingSpace = textBeforeCursor.isNotEmpty() &&
+                !textBeforeCursor.last().isWhitespace() &&
+                textBeforeCursor.last() != '\n' &&
+                textBeforeCursor.last() != '\r'
 
         val isMidSentenceContinuation = if (textBeforeCursor.isNotBlank()) {
             val lastNonWhitespace = textBeforeCursor.trimEnd().last()
-            lastNonWhitespace !in listOf('।', '॥', '.', '?', '!', '\n')
+            lastNonWhitespace !in listOf('।', '॥', '.', '?', '!', '\n', '\r')
         } else false
 
         return ActiveFieldContext(

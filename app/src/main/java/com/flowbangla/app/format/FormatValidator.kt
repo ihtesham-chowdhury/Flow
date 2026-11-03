@@ -16,6 +16,10 @@ object FormatValidator {
         Regex("(?i)^the formatted text is:?")
     )
 
+    private val SYNTHETIC_HEADER_REGEX = Regex("(?i)(?:^|\\n)\\s*(?:To|From|Subject|Date|Cc|Bcc):\\s*")
+    private val SYNTHETIC_CLOSING_REGEX = Regex("(?i)\\b(?:Sincerely,|Best regards,|Warm regards,|Yours faithfully,|Yours truly,|Kind regards,)\\b")
+    private val SYNTHETIC_PLACEHOLDER_REGEX = Regex("\\[(?:Your Name|Recipient|Name|Company|Date|Insert|Sender)\\]", RegexOption.IGNORE_CASE)
+
     fun validate(
         rawTranscript: String,
         formattedText: String,
@@ -30,23 +34,43 @@ object FormatValidator {
             return ValidationResult.Invalid("Formatted text contains only punctuation.")
         }
 
-        // Check for chatty assistant prefixes
+        // 1. Check for chatty assistant prefixes
         for (pattern in CHATTY_PREAMBLE_PATTERNS) {
             if (pattern.containsMatchIn(formattedText.trim())) {
                 return ValidationResult.Invalid("Output contains conversational AI preamble.")
             }
         }
 
-        // Sanity check against hallucinated answers:
-        // Dictation formatting should never expand word count by > 4x unless raw transcript is extremely short (< 4 words)
+        // 2. Reject hallucinated synthetic headers (e.g. "To:", "Subject:") unless explicitly dictated
+        if (SYNTHETIC_HEADER_REGEX.containsMatchIn(formattedText)) {
+            val rawLower = rawTranscript.lowercase()
+            if (!rawLower.contains("subject") && !rawLower.contains("to:") && !rawLower.contains("from:")) {
+                return ValidationResult.Invalid("Output hallucinated synthetic email/memo headers (To/Subject).")
+            }
+        }
+
+        // 3. Reject hallucinated sign-offs unless explicitly dictated
+        if (SYNTHETIC_CLOSING_REGEX.containsMatchIn(formattedText)) {
+            val rawLower = rawTranscript.lowercase()
+            if (!rawLower.contains("regards") && !rawLower.contains("sincerely") && !rawLower.contains("faithfully")) {
+                return ValidationResult.Invalid("Output hallucinated synthetic email sign-off.")
+            }
+        }
+
+        // 4. Reject placeholder brackets like "[Your Name]"
+        if (SYNTHETIC_PLACEHOLDER_REGEX.containsMatchIn(formattedText)) {
+            return ValidationResult.Invalid("Output hallucinated placeholder template.")
+        }
+
+        // 5. Sanity check against hallucinated answers or rewrites
         val rawWords = rawTranscript.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         val formattedWords = formattedText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
 
-        if (rawWords.size in 4..40 && formattedWords.size > rawWords.size * 3.5) {
-            return ValidationResult.Invalid("Output appears to answer the query rather than formatting dictation.")
+        if (rawWords.size >= 4 && formattedWords.size > (rawWords.size * 1.5 + 4)) {
+            return ValidationResult.Invalid("Output appears to answer/expand the query rather than formatting dictation.")
         }
 
-        // Check that critical protected tokens (if specified) were not dropped
+        // 6. Check that critical protected tokens (if specified) were not dropped
         for (token in protectedTokens) {
             if (rawTranscript.contains(token, ignoreCase = true) &&
                 !formattedText.contains(token, ignoreCase = true)

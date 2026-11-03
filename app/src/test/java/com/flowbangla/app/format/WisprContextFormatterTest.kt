@@ -64,4 +64,25 @@ class WisprContextFormatterTest {
         assertFalse(WisprContextFormatter.areCriticalTokensPreserved(raw, formattedMissingNumber))
         assertFalse(WisprContextFormatter.areCriticalTokensPreserved(raw, formattedMissingEmail))
     }
+
+    @Test
+    fun testNoLeadingSpaceAtStartOfFieldOrLine() {
+        val emptyFieldContext = ActiveFieldContext(
+            appCategory = AppCategory.OTHER,
+            textBeforeCursor = "",
+            isMidSentenceContinuation = false,
+            needsLeadingSpace = false
+        )
+
+        // Raw input with leading spaces must be stripped and never output leading space
+        val inputWithSpace = "   Hello world."
+        val result = WisprContextFormatter.applyCursorBoundaryFormatting(inputWithSpace, emptyFieldContext)
+        assertEquals("Hello world.", result)
+    }
+
+    @Test
+    fun testEmailAppCategoryMapsToGeneralDictation() {
+        val docType = WisprContextFormatter.mapAppCategoryToDocumentType(AppCategory.EMAIL)
+        assertEquals(DocumentType.GENERAL_DICTATION, docType)
+    }
 }
