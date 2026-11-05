@@ -33,6 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.flowbangla.app.util.PermissionHelper
+import com.flowbangla.app.util.FlowPermissionState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -369,9 +374,46 @@ fun MainScreen(
     var recentHistory by remember { mutableStateOf(historyManager.getRecentRecords()) }
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
-    val hasAccessibility = TextInjectorAccessibilityService.isEnabled(context)
-    val hasMic = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var permissionState by remember {
+        mutableStateOf(PermissionHelper.checkAllPermissions(context))
+    }
+
+    // 1. Re-evaluate immediately on ON_RESUME / ON_START (when returning from Settings)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME || event == Lifecycle.Event.ON_START) {
+                permissionState = PermissionHelper.checkAllPermissions(context)
+                isServiceRunning = FloatingBubbleService.isRunning()
+                if (permissionState.allCriticalGranted) {
+                    FloatingBubbleService.startIfPermitted(context)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // 2. Poll every 800ms while permissions are missing (catches delayed accessibility binding)
+    LaunchedEffect(permissionState.allCriticalGranted) {
+        while (!permissionState.allCriticalGranted) {
+            kotlinx.coroutines.delay(800L)
+            val latest = PermissionHelper.checkAllPermissions(context)
+            if (latest != permissionState) {
+                permissionState = latest
+                isServiceRunning = FloatingBubbleService.isRunning()
+                if (latest.allCriticalGranted) {
+                    FloatingBubbleService.startIfPermitted(context)
+                }
+            }
+        }
+    }
+
+    val hasOverlay = permissionState.hasOverlayPermission
+    val hasAccessibility = permissionState.hasAccessibilityPermission
+    val hasMic = permissionState.hasRecordAudioPermission
 
     Scaffold(
         topBar = {
@@ -585,7 +627,7 @@ fun MainScreen(
 
                                 PermissionRowItem(
                                     title = str("perm_battery"),
-                                    isGranted = true,
+                                    isGranted = permissionState.isIgnoringBatteryOptimizations,
                                     buttonLabel = str("enable"),
                                     onGrant = onRequestBatteryExemption
                                 )

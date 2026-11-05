@@ -1,4 +1,4 @@
-# Flow v3.1.1 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
+# Flow v3.2.0 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,37 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.1.1.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.1.1/Flow-v3.1.1.apk)**  
-  *(Anti-Rewriting Polish Guard, Zero Stray Leading Space, Messenger-Style Drag Dismiss, Instant Short-Voice Fast-Path)*
+* **[Flow-v3.2.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.2.0/Flow-v3.2.0.apk)**  
+  *(Holistic Multi-Window Injection, Decoy Comment Box Resolution, Zero-Loss 1-Tap Recovery Pill, Reactive Permission State)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🌟 What's New in v3.2.0 (Multi-Window Injection, Service Persistence & Permission Reactivity)
+
+1. **5-Tier Live Target Node Resolver for YouTube & Facebook Comments**:
+   - Solved intermittent injection failures in YouTube comments, Facebook posts/comments, Chrome WebViews, and Meta Litho / React Native views.
+   - Decoy non-editable comment boxes are resolved by searching interactive windows (`TYPE_APPLICATION` / `TYPE_INPUT_METHOD` bottom-sheet dialogs) rather than caching stale decoy nodes.
+   - Live candidate detection verifies `isEditable`, action capabilities (`ACTION_PASTE`, `ACTION_SET_TEXT`), and known class names (`EditText`, `AutoCompleteTextView`, `WebView`).
+2. **4-Tier Resilient Injection Pipeline & Deferred Auto-Paste**:
+   - **Tier 1 (Native Paste)**: Executes direct `ACTION_PASTE` on focused input fields.
+   - **Tier 2 (Focus + Retry)**: Dispatches `ACTION_FOCUS`, waits 65ms for bottom sheets to mount editors, re-resolves the node, and pastes.
+   - **Tier 3 (Hint-Safe Cursor Splicing)**: `TextSpliceHelper` splices at cursor selection without corrupting or duplicating placeholder hint text (`isShowingHintText`).
+   - **Tier 4 (Deferred Auto-Paste on Tap)**: If speech ends before a comment box is tapped, text is held on the privileged clipboard with a 45s TTL. The moment the user taps any comment box, Flow pastes immediately!
+3. **Zero Word Loss & Bilingual 1-Tap Recovery Pill**:
+   - Dictations are permanently backed up in `HistoryManager` and pre-loaded on the system clipboard.
+   - If direct injection is deferred or accessibility temporarily unbound, a non-focusable floating pill appears:
+     - Bangla: `"📋 লেখাটি কপি হয়েছে — কমেন্ট বক্সে ট্যাপ করলেই বসে যাবে"`
+     - English: `"📋 Copied — Tap text box to paste"`
+     - Tapping the pill immediately triggers manual paste retry.
+4. **Bengali NFC Unicode & Matra Protection**:
+   - Injected text is normalized via `Normalizer.normalize(text, Normalizer.Form.NFC)` before injection, preventing split vowel matras (ে, ৈ, ো, ৌ) and hasanta (্) in social media comment feeds.
+5. **Overlay Focus Hygiene & Background Persistence**:
+   - Overlay layout params strictly include `FLAG_NOT_FOCUSABLE or FLAG_NOT_TOUCH_MODAL or FLAG_WATCH_OUTSIDE_TOUCH`, ensuring tapping the mic never steals focus from YouTube/Facebook comment bottom sheets.
+   - Overrides `onStartCommand` with `START_STICKY` and implements `onTaskRemoved` with an `AlarmManager` 500ms restart intent so closing Flow from Recent Apps never kills the floating mic.
+6. **Reactive Permission State in `MainActivity`**:
+   - Created `PermissionHelper` checking `instance != null`, `AccessibilityManager.getEnabledAccessibilityServiceList`, and `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`.
+   - Wired to `LifecycleEventObserver(ON_RESUME, ON_START)` and 800ms live polling. Permission warnings clear immediately upon returning from system settings without needing to toggle the UI language.
 
 ---
 

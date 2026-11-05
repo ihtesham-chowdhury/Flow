@@ -1,11 +1,16 @@
 package com.flowbangla.app.service
 
 import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -55,6 +60,11 @@ class FloatingBubbleService : Service() {
     private var isNearDismissTarget = false
     var isManuallyDismissed = false
 
+    // 1-Tap Recovery Banner for father-friendly zero text loss
+    private var pendingPasteBannerView: TextView? = null
+    private var pendingPasteBannerParams: WindowManager.LayoutParams? = null
+    private var pendingPasteBannerDismissJob: Job? = null
+
     // Transcription & Formatting engines
     private lateinit var audioRecorder: AudioRecorder
     private lateinit var geminiInteractionsAdapter: GeminiInteractionsAdapter
@@ -95,6 +105,7 @@ class FloatingBubbleService : Service() {
         setupFloatingBubble()
         setupDismissTargetView()
         setupLivePreviewPill()
+        setupPendingPasteBanner()
         setupKeyboardListener()
     }
 
@@ -156,8 +167,40 @@ class FloatingBubbleService : Service() {
                 applyVisibilityRule()
                 updateNotification()
             }
+            ACTION_RETRY_PASTE -> {
+                val pending = TextInjectorAccessibilityService.pendingDeferredText
+                if (!pending.isNullOrBlank()) {
+                    serviceScope.launch {
+                        val outcome = TextInjectorAccessibilityService.instance?.injectTextSuspend(pending)
+                        if (outcome?.status == InjectionStatus.INJECTED_PASTE || outcome?.status == InjectionStatus.INJECTED_SET_TEXT) {
+                            hidePendingPasteBanner()
+                            vibrateSuccess()
+                        }
+                    }
+                }
+            }
         }
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Keep foreground overlay alive when user swipes Flow away from Recents
+        val restartIntent = Intent(applicationContext, FloatingBubbleService::class.java).apply {
+            setPackage(packageName)
+        }
+        val pendingIntent = PendingIntent.getService(
+            applicationContext,
+            1001,
+            restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        alarmManager?.set(
+            AlarmManager.ELAPSED_REALTIME,
+            SystemClock.elapsedRealtime() + 500L,
+            pendingIntent
+        )
     }
 
     fun updateNotification() {
@@ -233,7 +276,9 @@ class FloatingBubbleService : Service() {
             sizePx,
             layoutType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -404,6 +449,108 @@ class FloatingBubbleService : Service() {
         dismissTargetView?.animate()?.alpha(0f)?.setDuration(150)?.withEndAction {
             dismissTargetView?.visibility = View.GONE
         }?.start()
+    }
+
+    private fun setupPendingPasteBanner() {
+        val density = resources.displayMetrics.density
+        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val pillBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 20f * density
+            setColor(Color.parseColor("#EE0F172A"))
+            setStroke((1.5f * density).toInt(), Color.parseColor("#06B6D4"))
+        }
+
+        pendingPasteBannerView = TextView(this).apply {
+            background = pillBg
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            val padH = (16 * density).toInt()
+            val padV = (10 * density).toInt()
+            setPadding(padH, padV, padH, padV)
+            maxLines = 3
+            maxWidth = (320 * density).toInt()
+            elevation = 16f
+            visibility = View.GONE
+        }
+
+        pendingPasteBannerParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = (60 * density).toInt()
+        }
+
+        try {
+            windowManager?.addView(pendingPasteBannerView, pendingPasteBannerParams)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to add pendingPasteBannerView window: ${e.message}")
+        }
+    }
+
+    fun showPendingPasteBanner(text: String, isServiceDisconnected: Boolean = false) {
+        val prefs = FlowBanglaApp.instance.preferencesManager
+        val isBengali = prefs.sttLanguage == com.flowbangla.app.model.SttLanguage.BENGALI ||
+            text.any { it in '\u0980'..'\u09FF' }
+
+        val bannerMessage = if (isServiceDisconnected) {
+            if (isBengali) "📋 লেখাটি কপি হয়েছে — কমেন্ট বক্সে ট্যাপ করে পেস্ট করুন"
+            else "📋 Copied to clipboard — Tap to paste"
+        } else {
+            if (isBengali) "📋 লেখাটি কপি হয়েছে — কমেন্ট বক্সে ট্যাপ করলেই বসে যাবে"
+            else "📋 Copied — Tap comment box to paste"
+        }
+
+        serviceScope.launch(Dispatchers.Main) {
+            pendingPasteBannerView?.apply {
+                this.text = bannerMessage
+                setOnClickListener {
+                    val a11y = TextInjectorAccessibilityService.instance
+                    if (a11y != null) {
+                        serviceScope.launch {
+                            val outcome = a11y.injectTextSuspend(text)
+                            if (outcome.status == InjectionStatus.INJECTED_PASTE || outcome.status == InjectionStatus.INJECTED_SET_TEXT) {
+                                hidePendingPasteBanner()
+                                vibrateSuccess()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(this@FloatingBubbleService, "ক্লিপবোর্ডে কপি আছে (Copied to clipboard)", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                visibility = View.VISIBLE
+                alpha = 0f
+                animate().alpha(1f).setDuration(200).start()
+            }
+
+            pendingPasteBannerDismissJob?.cancel()
+            pendingPasteBannerDismissJob = serviceScope.launch {
+                delay(45_000L)
+                hidePendingPasteBanner()
+            }
+        }
+    }
+
+    fun hidePendingPasteBanner() {
+        serviceScope.launch(Dispatchers.Main) {
+            pendingPasteBannerDismissJob?.cancel()
+            pendingPasteBannerDismissJob = null
+            pendingPasteBannerView?.animate()?.alpha(0f)?.setDuration(200)?.withEndAction {
+                pendingPasteBannerView?.visibility = View.GONE
+            }?.start()
+        }
     }
 
     private fun updateDismissTargetProximity(sizePx: Int, displayMetrics: DisplayMetrics) {
@@ -736,10 +883,10 @@ class FloatingBubbleService : Service() {
                     if (rawTranscript.isNotBlank()) {
                         // Step 2 & 3: Decoupled formatting through FormattingChain with Screen/Cursor Context
                         val formatResult = formattingChain.format(rawTranscript, recognitionSource, fieldContext)
-                        handleSuccess(
-                            text = formatResult.formattedText,
-                            durationSec = (durationMs / 1000).toInt(),
+                        deliverFormattedTextToTargetApp(
                             rawTranscript = rawTranscript,
+                            formattedText = formatResult.formattedText,
+                            durationSec = (durationMs / 1000).toInt(),
                             provenance = formatResult.displaySummary
                         )
                     } else {
@@ -770,12 +917,76 @@ class FloatingBubbleService : Service() {
 
             // Step 2 & 3: Format the on-device transcript through FormattingChain with Screen/Cursor Context
             val formatResult = formattingChain.format(rawTranscript, RecognitionSource.ANDROID_STT, fieldContext)
-            handleSuccess(
-                text = formatResult.formattedText,
-                durationSec = 0,
+            deliverFormattedTextToTargetApp(
                 rawTranscript = rawTranscript,
+                formattedText = formatResult.formattedText,
+                durationSec = 0,
                 provenance = formatResult.displaySummary
             )
+        }
+    }
+
+    private suspend fun deliverFormattedTextToTargetApp(
+        rawTranscript: String,
+        formattedText: String,
+        durationSec: Int = 0,
+        provenance: String = ""
+    ) {
+        val a11y = TextInjectorAccessibilityService.instance
+        var injected = false
+
+        if (a11y == null) {
+            // Unbound / background restart: copy to clipboard directly as fallback
+            try {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("FlowDictation", formattedText)
+                clipboard.setPrimaryClip(clip)
+            } catch (e: Exception) {
+                Log.e(TAG, "Direct clipboard copy failed: ${e.message}")
+            }
+            showPendingPasteBanner(
+                text = formattedText,
+                isServiceDisconnected = true
+            )
+        } else {
+            val outcome = a11y.injectTextSuspend(formattedText)
+            when (outcome.status) {
+                InjectionStatus.INJECTED_PASTE,
+                InjectionStatus.INJECTED_SET_TEXT -> {
+                    injected = true
+                    hidePendingPasteBanner()
+                }
+                InjectionStatus.DEFERRED_WAITING_FOR_TAP,
+                InjectionStatus.FAILED -> {
+                    injected = false
+                    showPendingPasteBanner(
+                        text = formattedText,
+                        isServiceDisconnected = false
+                    )
+                }
+            }
+        }
+
+        // Always save to History first so zero words are ever lost for user's father!
+        FlowBanglaApp.instance.historyManager.addRecord(
+            DictationRecord(
+                text = formattedText,
+                durationSeconds = durationSec,
+                isSuccess = injected,
+                rawTranscript = rawTranscript,
+                provenance = provenance
+            )
+        )
+
+        vibrateSuccess()
+        currentState = TranscriptionState.Success(formattedText)
+        updateUiState(currentState)
+
+        serviceScope.launch {
+            delay(1200)
+            currentState = TranscriptionState.Idle
+            updateUiState(currentState)
+            applyVisibilityRule()
         }
     }
 
@@ -785,27 +996,13 @@ class FloatingBubbleService : Service() {
         rawTranscript: String = "",
         provenance: String = ""
     ) {
-        vibrateSuccess()
-        currentState = TranscriptionState.Success(text)
-        updateUiState(currentState)
-
-        val injected = TextInjectorAccessibilityService.instance?.injectText(text) ?: false
-
-        FlowBanglaApp.instance.historyManager.addRecord(
-            DictationRecord(
-                text = text,
-                durationSeconds = durationSec,
-                isSuccess = injected,
+        serviceScope.launch {
+            deliverFormattedTextToTargetApp(
                 rawTranscript = rawTranscript,
+                formattedText = text,
+                durationSec = durationSec,
                 provenance = provenance
             )
-        )
-
-        serviceScope.launch {
-            delay(1200)
-            currentState = TranscriptionState.Idle
-            updateUiState(currentState)
-            applyVisibilityRule()
         }
     }
 
@@ -872,6 +1069,10 @@ class FloatingBubbleService : Service() {
                 windowManager?.removeView(previewTextView)
                 previewTextView = null
             }
+            if (pendingPasteBannerView != null) {
+                windowManager?.removeView(pendingPasteBannerView)
+                pendingPasteBannerView = null
+            }
             if (dismissTargetView != null) {
                 windowManager?.removeView(dismissTargetView)
                 dismissTargetView = null
@@ -895,10 +1096,26 @@ class FloatingBubbleService : Service() {
         const val ACTION_REFRESH_SETTINGS = "com.flowbangla.action.REFRESH_SETTINGS"
         const val ACTION_TOGGLE_MIC = "com.flowbangla.action.TOGGLE_MIC"
         const val ACTION_SHOW_MIC = "com.flowbangla.action.SHOW_MIC"
+        const val ACTION_RETRY_PASTE = "com.flowbangla.action.RETRY_PASTE"
 
         var instance: FloatingBubbleService? = null
             private set
 
         fun isRunning(): Boolean = instance != null
+
+        fun startIfPermitted(context: Context) {
+            val prefs = FlowBanglaApp.instance.preferencesManager
+            val hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
+            if (hasOverlay && prefs.isConfigured && !isRunning()) {
+                val intent = Intent(context, FloatingBubbleService::class.java).apply {
+                    action = ACTION_START_SERVICE
+                }
+                try {
+                    ContextCompat.startForegroundService(context, intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start FloatingBubbleService", e)
+                }
+            }
+        }
     }
 }

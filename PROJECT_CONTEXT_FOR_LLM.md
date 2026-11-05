@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.1.1 (Build 8)  
-> **Last Updated**: November 3, 2026  
-> **Status**: Production Debug Release (`Flow-v3.1.1.apk` active)  
+> **Document Version**: 3.2.0 (Build 9)  
+> **Last Updated**: November 5, 2026  
+> **Status**: Production Debug Release (`Flow-v3.2.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -100,7 +100,7 @@
 - **Full Unit Test Verification**:
   - Added unit test suites `WisprContextFormatterTest.kt` and `AudioFileInspectorTest.kt`, verifying magic byte sniffing, cursor boundary transformations, and Bengali matra stability. 100% test pass rate.
 
-### Phase 8: v3.1.1 — Dictation Fidelity, Zero Stray Space & Messenger Dismiss Target (Current Release)
+### Phase 8: v3.1.1 — Dictation Fidelity, Zero Stray Space & Messenger Dismiss Target
 - **Strict Anti-Rewriting & Prompt Execution Guard**:
   - Resolved the issue where speaking commands like *"write me the draft email"* caused the LLM to rewrite the content and invent synthetic email headers (`To:`, `Subject:`, `Dear Sir`, `Regards`).
   - Hardened `PromptBuilder.kt` with explicit directives: Flow is a verbatim speech-to-text formatter, NOT an assistant or email writer. Commands and prompts to AI are typed faithfully without fulfilling the command or hallucinating text.
@@ -117,6 +117,34 @@
   - Longer dictation generation speed optimized via greedy temperature `0.0` and adaptive output token limits.
 - **Unit Test Suite Expansion**:
   - Added test coverage in `FormatValidatorTest.kt` and `WisprContextFormatterTest.kt` for synthetic header rejection, placeholder rejection, email category mapping, and leading space suppression. 100% test pass rate.
+
+### Phase 9: v3.2.0 — Holistic Multi-Window Injection, Service Persistence & Permission State Reactivity (Current Release)
+- **5-Tier Live Target Node Resolver across Complex Apps**:
+  - Solved intermittent injection failures in YouTube comments, Facebook posts/comments, Chrome WebViews, and Meta Litho (`ComponentHost`) / React Native containers.
+  - Resolved decoy comment bars by searching across all interactive windows (`TYPE_APPLICATION` and `TYPE_INPUT_METHOD` bottom-sheet dialogs) rather than caching stale non-editable views.
+  - Implemented candidate node heuristic checking `isEditable`, `actionList.contains(ACTION_SET_TEXT / ACTION_PASTE)`, and known class names (`EditText`, `AutoCompleteTextView`, `TextInput`, `WebView`).
+- **4-Tier Resilient Injection Engine**:
+  - **Tier 1 (Native Paste)**: Direct `ACTION_PASTE` if node already has input focus.
+  - **Tier 2 (Focus + Retry Paste)**: Requests `ACTION_FOCUS`, waits 65ms for bottom sheets to mount the real editor, re-resolves node, and executes `ACTION_PASTE`.
+  - **Tier 3 (Hint-Safe Cursor Splicing)**: `TextSpliceHelper` splices text at `selectionStart..selectionEnd` or appends with spacing. Ignores placeholder hint text (`node.isShowingHintText` / `node.hintText`) so prompts like *"Add a comment..."* are never concatenated.
+  - **Tier 4 (Deferred Auto-Paste on Tap)**: If no input field is focused when speech ends, text is pre-loaded on clipboard and armed with 45s TTL. The moment the user taps any comment box, Flow pastes immediately without re-speaking!
+- **Zero Word Loss Guarantee & 1-Tap Recovery Pill**:
+  - Every dictation is saved to `HistoryManager` and pre-loaded onto the privileged system clipboard.
+  - If direct injection is deferred or accessibility service bridge temporarily disconnected, a floating non-focusable recovery pill is displayed:
+    - Bangla: `"📋 লেখাটি কপি হয়েছে — কমেন্ট বক্সে ট্যাপ করলেই বসে যাবে"`
+    - English: `"📋 Copied — Tap text box to paste"`
+    - Tapping the pill immediately triggers manual paste retry.
+- **Bengali NFC Unicode Safeguards**:
+  - All injected text is normalized via `java.text.Normalizer.normalize(text, Normalizer.Form.NFC)` before injection, preventing split matras (ে, ৈ, ো, ৌ) or orphaned hasanta (্) circles in third-party comment sections.
+- **Overlay Window Hygiene & Service Persistence**:
+  - Strictly enforces `FLAG_NOT_FOCUSABLE or FLAG_NOT_TOUCH_MODAL or FLAG_WATCH_OUTSIDE_TOUCH` on all overlays, preventing mic touches from stealing window focus from YouTube/Facebook bottom-sheet comment dialogs.
+  - Overrides `onStartCommand` returning `START_STICKY` and implements `onTaskRemoved(rootIntent)` with an `AlarmManager` 500ms restart intent so closing Flow from Recent Apps never kills background dictation.
+- **Reactive Permission State in `MainActivity`**:
+  - Created `PermissionHelper.kt` with a 3-way check (`instance != null`, `AccessibilityManager.getEnabledAccessibilityServiceList`, and `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`).
+  - Replaced non-reactive Composable checks with `mutableStateOf` observing `Lifecycle.Event.ON_RESUME` / `ON_START` and 800ms live polling.
+  - Permission status updates instantly when returning from Android System Settings without requiring a language switch.
+- **Full Unit Test Verification**:
+  - Added `TextSpliceHelperTest.kt` verifying hint suppression, cursor splicing, selection replacement, and Bengali matra preservation. 34 tests passing with 100% pass rate.
 
 ---
 
