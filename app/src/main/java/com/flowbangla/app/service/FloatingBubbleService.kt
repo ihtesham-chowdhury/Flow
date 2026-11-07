@@ -14,6 +14,10 @@ import androidx.core.content.ContextCompat
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.style.AbsoluteSizeSpan
+import android.text.style.ForegroundColorSpan
 import android.os.*
 import android.util.DisplayMetrics
 import android.util.Log
@@ -238,6 +242,8 @@ class FloatingBubbleService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createForegroundNotification(): Notification {
+        val prefs = FlowBanglaApp.instance.preferencesManager
+        val isBn = prefs.appLanguage == "bn"
         val launchIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, launchIntent,
@@ -252,11 +258,22 @@ class FloatingBubbleService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val actionTitle = if (isManuallyDismissed) "Show Mic / মাইক দেখান" else "Hide Mic / মাইক লুকান"
+        val actionTitle = if (isManuallyDismissed) {
+            if (isBn) "মাইক দেখান" else "Show mic"
+        } else {
+            if (isBn) "মাইক লুকান" else "Hide mic"
+        }
+
+        val notifTitle = if (isBn) "Flow প্রস্তুত" else "Flow is ready"
+        val notifText = if (isManuallyDismissed) {
+            if (isBn) "মাইক লুকানো আছে।" else "Mic is hidden."
+        } else {
+            if (isBn) "কিবোর্ডের উপরে মাইক দেখানো হচ্ছে।" else "Mic is showing above your keyboard."
+        }
 
         val builder = NotificationCompat.Builder(this, FlowBanglaApp.CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(if (isManuallyDismissed) "Flow running (Mic hidden) / মাইক লুকানো আছে" else getString(R.string.notification_text))
+            .setContentTitle(notifTitle)
+            .setContentText(notifText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, actionTitle, togglePendingIntent)
@@ -272,7 +289,8 @@ class FloatingBubbleService : Service() {
                 this, 2, undoIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            builder.addAction(R.drawable.ic_launcher_foreground, "Undo AI Edit / মূল কথা ফিরিয়ে আনুন", undoPendingIntent)
+            val undoTitle = if (isBn) "ফিরিয়ে আনুন" else "Undo edit"
+            builder.addAction(R.drawable.ic_launcher_foreground, undoTitle, undoPendingIntent)
         }
 
         return builder.build()
@@ -360,19 +378,19 @@ class FloatingBubbleService : Service() {
         val pillBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 16f * density
-            setColor(Color.parseColor("#EE0F172A"))
-            setStroke((1.5f * density).toInt(), Color.parseColor("#475569"))
+            setColor(Color.parseColor("#F016181B")) // 94% #16181B surface (§7.2)
+            setStroke((1f * density).toInt(), Color.parseColor("#2A2E33")) // 1dp hairline
         }
 
         previewTextView = TextView(this).apply {
             background = pillBg
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            val padH = (14 * density).toInt()
-            val padV = (8 * density).toInt()
+            setTextColor(Color.parseColor("#EEEBE3")) // Ivory
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            val padH = (16 * density).toInt()
+            val padV = (10 * density).toInt()
             setPadding(padH, padV, padH, padV)
-            maxLines = 3
-            maxWidth = (260 * density).toInt()
+            maxLines = 2 // Two lines maximum (§7.2)
+            maxWidth = (280 * density).toInt()
             visibility = View.GONE
         }
 
@@ -399,12 +417,18 @@ class FloatingBubbleService : Service() {
         if (text.isBlank()) return
         previewTextView?.apply {
             this.text = text
-            if (visibility != View.VISIBLE) visibility = View.VISIBLE
+            if (visibility != View.VISIBLE) {
+                alpha = 0f
+                visibility = View.VISIBLE
+                animate().alpha(1f).setDuration(160).start()
+            }
         }
     }
 
     private fun hideThrottledPreviewText() {
-        previewTextView?.visibility = View.GONE
+        previewTextView?.animate()?.alpha(0f)?.setDuration(300)?.withEndAction {
+            previewTextView?.visibility = View.GONE
+        }?.start()
     }
 
     private fun setupDismissTargetView() {
@@ -434,8 +458,8 @@ class FloatingBubbleService : Service() {
         dismissTargetView = TextView(this).apply {
             text = "✕"
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            setTextColor(Color.parseColor("#66EEEBE3"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
             background = createDismissBackground(isNear = false)
             visibility = View.GONE
         }
@@ -452,11 +476,12 @@ class FloatingBubbleService : Service() {
         return GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             if (isNear) {
-                setColor(Color.parseColor("#E11D48")) // Crimson red
-                setStroke((2.5f * density).toInt(), Color.parseColor("#FDA4AF"))
+                // Fills ivory when mic is close (§7.4)
+                setColor(Color.parseColor("#EEEBE3"))
             } else {
-                setColor(Color.parseColor("#D90F172A")) // Dark slate
-                setStroke((1.5f * density).toInt(), Color.parseColor("#64748B"))
+                // Resting: 1dp ivory outline at 40% alpha, transparent fill
+                setColor(Color.TRANSPARENT)
+                setStroke((1f * density).toInt(), Color.parseColor("#66EEEBE3"))
             }
         }
     }
@@ -465,6 +490,7 @@ class FloatingBubbleService : Service() {
         dismissTargetView?.apply {
             scaleX = 1.0f
             scaleY = 1.0f
+            setTextColor(Color.parseColor("#66EEEBE3"))
             background = createDismissBackground(isNear = false)
             visibility = View.VISIBLE
             alpha = 0f
@@ -489,21 +515,21 @@ class FloatingBubbleService : Service() {
 
         val pillBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = 20f * density
-            setColor(Color.parseColor("#EE0F172A"))
-            setStroke((1.5f * density).toInt(), Color.parseColor("#06B6D4"))
+            cornerRadius = 24f * density // Fully rounded pill (§7.3)
+            setColor(Color.parseColor("#1F2226")) // #1F2226 fill
+            setStroke((1f * density).toInt(), Color.parseColor("#2A2E33")) // 1dp hairline
         }
 
         pendingPasteBannerView = TextView(this).apply {
             background = pillBg
-            setTextColor(Color.WHITE)
+            setTextColor(Color.parseColor("#EEEBE3"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            val padH = (16 * density).toInt()
+            val padH = (18 * density).toInt()
             val padV = (10 * density).toInt()
             setPadding(padH, padV, padH, padV)
-            maxLines = 3
-            maxWidth = (320 * density).toInt()
-            elevation = 16f
+            maxLines = 2
+            maxWidth = (300 * density).toInt()
+            elevation = 6f
             visibility = View.GONE
         }
 
@@ -516,8 +542,9 @@ class FloatingBubbleService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = (60 * density).toInt()
+            gravity = Gravity.TOP or Gravity.START
+            x = windowParams.x
+            y = (windowParams.y - (64 * density)).toInt().coerceAtLeast((24 * density).toInt())
         }
 
         try {
@@ -529,20 +556,37 @@ class FloatingBubbleService : Service() {
 
     fun showPendingPasteBanner(text: String, isServiceDisconnected: Boolean = false) {
         val prefs = FlowBanglaApp.instance.preferencesManager
-        val isBengali = prefs.sttLanguage == com.flowbangla.app.model.SttLanguage.BENGALI ||
+        val isBengali = prefs.appLanguage == "bn" || prefs.sttLanguage == com.flowbangla.app.model.SttLanguage.BENGALI ||
             text.any { it in '\u0980'..'\u09FF' }
 
-        val bannerMessage = if (isServiceDisconnected) {
-            if (isBengali) "📋 লেখাটি কপি হয়েছে — কমেন্ট বক্সে ট্যাপ করে পেস্ট করুন"
-            else "📋 Copied to clipboard — Tap to paste"
-        } else {
-            if (isBengali) "📋 লেখাটি কপি হয়েছে — কমেন্ট বক্সে ট্যাপ করলেই বসে যাবে"
-            else "📋 Copied — Tap comment box to paste"
+        // Clean typography per §7.3 & §8: 8dp ochre dot, Label style ink, Caption style inkMuted
+        val line1 = if (isBengali) "কপি হয়েছে" else "Copied"
+        val line2 = if (isBengali) "লেখার ঘরে ট্যাপ করুন" else "Tap a text box to paste"
+        val bannerMessage = "●  $line1\n    $line2"
+
+        val spannable = SpannableStringBuilder(bannerMessage).apply {
+            // 8dp ochre dot #E3B257
+            setSpan(ForegroundColorSpan(Color.parseColor("#E3B257")), 0, 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            // Line 1 is ivory #EEEBE3
+            setSpan(ForegroundColorSpan(Color.parseColor("#EEEBE3")), 3, 3 + line1.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            // Line 2 is inkMuted #9EA3AB
+            val line2Start = bannerMessage.indexOf(line2)
+            if (line2Start != -1) {
+                setSpan(ForegroundColorSpan(Color.parseColor("#9EA3AB")), line2Start, line2Start + line2.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                setSpan(AbsoluteSizeSpan(11, true), line2Start, line2Start + line2.length, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
         }
 
         serviceScope.launch(Dispatchers.Main) {
+            val density = resources.displayMetrics.density
+            pendingPasteBannerParams?.x = (windowParams.x - (36 * density).toInt()).coerceAtLeast(16)
+            pendingPasteBannerParams?.y = (windowParams.y - (60 * density).toInt()).coerceAtLeast((32 * density).toInt())
+            try {
+                windowManager?.updateViewLayout(pendingPasteBannerView, pendingPasteBannerParams)
+            } catch (_: Exception) {}
+
             pendingPasteBannerView?.apply {
-                this.text = bannerMessage
+                this.text = spannable
                 setOnClickListener {
                     val a11y = TextInjectorAccessibilityService.instance
                     if (a11y != null) {
@@ -554,7 +598,7 @@ class FloatingBubbleService : Service() {
                             }
                         }
                     } else {
-                        Toast.makeText(this@FloatingBubbleService, "ক্লিপবোর্ডে কপি আছে (Copied to clipboard)", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@FloatingBubbleService, if (isBengali) "ক্লিপবোর্ডে কপি আছে" else "Copied to clipboard", Toast.LENGTH_SHORT).show()
                     }
                 }
                 visibility = View.VISIBLE
@@ -574,7 +618,7 @@ class FloatingBubbleService : Service() {
         serviceScope.launch(Dispatchers.Main) {
             pendingPasteBannerDismissJob?.cancel()
             pendingPasteBannerDismissJob = null
-            pendingPasteBannerView?.animate()?.alpha(0f)?.setDuration(200)?.withEndAction {
+            pendingPasteBannerView?.animate()?.alpha(0f)?.setDuration(150)?.withEndAction {
                 pendingPasteBannerView?.visibility = View.GONE
             }?.start()
         }
@@ -598,13 +642,15 @@ class FloatingBubbleService : Service() {
             if (!isNearDismissTarget) {
                 isNearDismissTarget = true
                 vibrateShort()
+                dismissTargetView?.setTextColor(Color.parseColor("#0D0E10")) // Dark glyph when near (§7.4)
                 dismissTargetView?.background = createDismissBackground(isNear = true)
-                dismissTargetView?.animate()?.scaleX(1.22f)?.scaleY(1.22f)?.setDuration(120)?.start()
+                dismissTargetView?.animate()?.scaleX(1.15f)?.scaleY(1.15f)?.setDuration(120)?.start()
                 bubbleContainer?.alpha = 0.4f
             }
         } else {
             if (isNearDismissTarget) {
                 isNearDismissTarget = false
+                dismissTargetView?.setTextColor(Color.parseColor("#66EEEBE3"))
                 dismissTargetView?.background = createDismissBackground(isNear = false)
                 dismissTargetView?.animate()?.scaleX(1.0f)?.scaleY(1.0f)?.setDuration(120)?.start()
                 val prefs = FlowBanglaApp.instance.preferencesManager
@@ -618,7 +664,20 @@ class FloatingBubbleService : Service() {
         isManuallyDismissed = true
         bubbleContainer?.visibility = View.GONE
         vibrateDouble()
-        Toast.makeText(this, "Flow mic hidden. Tap notification or open app to restore. / মাইক লুকানো হয়েছে।", Toast.LENGTH_SHORT).show()
+        val isBn = FlowBanglaApp.instance.preferencesManager.appLanguage == "bn"
+        Toast.makeText(this, if (isBn) "মাইক লুকানো হয়েছে।" else "Flow mic hidden.", Toast.LENGTH_SHORT).show()
+        updateNotification()
+    }
+
+    fun showBubbleFromBottom() {
+        isManuallyDismissed = false
+        applyVisibilityRule()
+        updateNotification()
+    }
+
+    fun hideBubbleDirectly() {
+        isManuallyDismissed = true
+        bubbleContainer?.visibility = View.GONE
         updateNotification()
     }
 
@@ -1113,22 +1172,22 @@ class FloatingBubbleService : Service() {
 
     private fun vibrateShort() {
         if (!FlowBanglaApp.instance.preferencesManager.hapticFeedbackEnabled) return
-        vibrate(40)
+        vibrate(25) // Light tick per §3.6
     }
 
     private fun vibrateDouble() {
         if (!FlowBanglaApp.instance.preferencesManager.hapticFeedbackEnabled) return
-        vibratePattern(longArrayOf(0, 30, 60, 30))
+        vibrate(25) // Light tick per §3.6
     }
 
     private fun vibrateSuccess() {
         if (!FlowBanglaApp.instance.preferencesManager.hapticFeedbackEnabled) return
-        vibrate(60)
+        vibrate(35) // Single soft tick per §3.6
     }
 
     private fun vibrateError() {
         if (!FlowBanglaApp.instance.preferencesManager.hapticFeedbackEnabled) return
-        vibratePattern(longArrayOf(0, 80, 80, 80))
+        vibratePattern(longArrayOf(0, 30, 40, 30)) // Double soft tick, 40ms apart per §3.6
     }
 
     private fun vibrate(durationMs: Long) {

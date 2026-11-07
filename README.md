@@ -1,4 +1,4 @@
-# Flow v3.3.0 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
+# Flow v3.3.1 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,32 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.3.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.2.0/Flow-v3.3.0.apk)**  
+* **[Flow-v3.3.1.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.3.1/Flow-v3.3.1.apk)**  
   *(98-99% Argon ASR Parity, Wispr Flow Backtrack Engine, Auto-Learn Personal Dictionary, Voice Snippets, Command Mode)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🎨 What's New in v3.3.1 ('Ink & Danda' Premium Redesign)
+
+1. **'Ink and Danda' Dark-First Aesthetic**:
+   - Replaced generic AI-template blue/slate cards with an editorial, warm dark palette: DarkCanvas (#0D0E10), DarkSurface (#16181B), DarkSurfaceRaised (#1F2226), and DarkHairline (#2A2E33).
+   - Interaction is driven by ivory (DarkInk #EEEBE3). Vermilion (#E8473A) is reserved strictly for active recording; Ochre (#E3B257) for processing and attention; Sage (#8FBF9F) for success.
+2. **Editorial Typography & Material 3 Cleanup**:
+   - Display headlines, hero status, transcripts, and history entries use native Serif (Noto Serif & Noto Serif Bengali), paired with clean Sans-serif for functional controls.
+   - Eliminated Material 3 purple/violet surface tints (surfaceTint = Color.Transparent) and violet oval pills (indicatorColor = Color.Transparent).
+3. **Layout Bug Fixes & Refinements**:
+   - **History Duration Wrap Bug**: Fixed the squeezed 28 / 2 / sec layout bug with a right-aligned, fixed 48dp width (maxLines = 1).
+   - **Slider Step Accuracy**: Stepped bubble size strictly by 4dp (48..84dp, default 64dp) and opacity by 5% (30..100%, default 90%), eliminating invalid numbers like 63dp.
+   - **Unified Segmented Controls**: Replaced mismatched buttons with custom 44dp FlowSegmentedControl.
+   - **Contrast Fixes**: Replaced cyan on slate with high-contrast ivory DarkInk on DarkSurfaceRaised (16:1 ratio).
+4. **Danda-Mic Geometry & Overlay Refinements**:
+   - Overlay mic drawn mathematically with 1/28 unit scaling: capsule head, cradle arc, and vertical danda stem.
+   - Solid breathing vermilion ring during recording, 90° ochre orbiting arc during processing, 280ms sage fill on insertion.
+   - 22dp language chip at bottom-right (#0D0E10 background, ivory text 'EN' / 'বাং').
+   - Recovery pill positioned directly above the mic with an 8dp ochre dot and clean 2-line copy.
+   - Non-red dismiss target with ivory outline and hover fill.
+   - Adaptive launcher icon and notification small icon upgraded to monochrome Danda-Mic.
 
 ---
 

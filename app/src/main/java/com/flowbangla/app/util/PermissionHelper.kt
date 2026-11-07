@@ -18,6 +18,9 @@ data class FlowPermissionState(
     val hasRecordAudioPermission: Boolean = false,
     val isIgnoringBatteryOptimizations: Boolean = false
 ) {
+    val isRestrictedSettingsPossible: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+
     val allCriticalGranted: Boolean
         get() = hasOverlayPermission && hasAccessibilityPermission && hasRecordAudioPermission
 }

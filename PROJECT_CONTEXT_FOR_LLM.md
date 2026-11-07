@@ -118,6 +118,31 @@
 - **Unit Test Suite Expansion**:
   - Added test coverage in `FormatValidatorTest.kt` and `WisprContextFormatterTest.kt` for synthetic header rejection, placeholder rejection, email category mapping, and leading space suppression. 100% test pass rate.
 
+### Phase 11: v3.3.1 — 'Ink and Danda' Premium Redesign & Layout Bug Fixes (Current Release)
+- **Design Philosophy ('Ink and Danda')**:
+  - Replaced generic Slate/Navy/Cyan theme with an editorial, warm obsidian dark-first theme (DarkCanvas #0D0E10, DarkSurface #16181B, DarkSurfaceRaised #1F2226, DarkSurfaceSunken #111316, DarkHairline #2A2E33, DarkInk #EEEBE3).
+  - Vermilion (#E8473A) is reserved strictly for live recording; Ochre (#E3B257) for processing and attention; Sage (#8FBF9F) for success.
+- **Editorial Typography & M3 Cleanup**:
+  - Display titles, hero status, transcripts, and history entries use native Serif (Noto Serif & Noto Serif Bengali), paired with clean Sans-serif for controls.
+  - Eliminated Material 3 purple/violet surface tints (surfaceTint = Color.Transparent) and violet oval pills (indicatorColor = Color.Transparent).
+- **Layout Bug Fixes**:
+  - History duration wrap bug (28 / 2 / sec): fixed with right-aligned fixed 48dp width, maxLines = 1.
+  - Slider steps: stepped bubble size by 4dp (48..84dp) and opacity by 5% (30..100%), ensuring exact stops (64dp, 90%) and eliminating invalid numbers (63dp).
+  - Replaced mismatched buttons with unified 44dp FlowSegmentedControl.
+  - Contrast fail on selected options replaced with ivory DarkInk on DarkSurfaceRaised (16:1 ratio).
+- **Floating Overlay & Danda-Mic Geometry**:
+  - Unit-based mathematical geometry (1 unit = 1/28 disc radius): capsule mic head + half-circle cradle + vertical danda stem.
+  - Breathing solid vermilion ring during recording; 90° ochre orbiting arc during processing; 280ms sage fill on insertion.
+  - Language chip (22dp circle at bottom-right with obsidian background and ivory text).
+  - Recovery pill positioned directly above mic with 8dp ochre dot and clean 2-line copy.
+  - Dismiss target: resting transparent with 1dp ivory outline; hover fills ivory with dark glyph (never red).
+- **Adaptive Launcher Icon & Notification**:
+  - Background #0D0E10, foreground ivory Danda-Mic glyph, monochrome layer for Android 13 themed icons.
+  - Foreground notification updated to clean copy ('Flow is ready', 'Mic is showing above your keyboard.').
+- **Full Verification**:
+  - 100% preservation of speech recognition, text injection, personal dictionary, and snippets logic.
+  - All 49 unit tests pass. Output APK: Flow-v3.3.1.apk.
+
 ### Phase 10: v3.3.0 — ASR Accuracy Upgrade (98–99% Argon Parity) & Wispr Flow Intelligence Blueprint (Current Release)
 - **98–99% Argon-Parity Studio Audio Capture**:
   - Upgraded `AudioRecorder.kt` to `MediaRecorder.AudioSource.VOICE_RECOGNITION` (with fallback to `MIC`), `24000` Hz sampling rate, and `64000` bps AAC-LC encoding bitrate, matching Wispr Flow / Google Rambler clarity.

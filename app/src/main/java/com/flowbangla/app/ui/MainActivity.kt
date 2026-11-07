@@ -14,12 +14,14 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,51 +35,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.flowbangla.app.util.PermissionHelper
-import com.flowbangla.app.util.FlowPermissionState
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.flowbangla.app.FlowBanglaApp
-import com.flowbangla.app.format.AutoCleanupLevel
 import com.flowbangla.app.diagnostics.ConnectivityLabReport
 import com.flowbangla.app.diagnostics.ConnectivityLabRunner
+import com.flowbangla.app.format.AutoCleanupLevel
 import com.flowbangla.app.model.CloudPolishProvider
 import com.flowbangla.app.model.DictationRecord
 import com.flowbangla.app.model.EngineMode
 import com.flowbangla.app.model.InteractionMode
 import com.flowbangla.app.model.SttLanguage
-import com.flowbangla.app.offline.ModelDownloadManager
-import com.flowbangla.app.offline.ModelDownloadState
 import com.flowbangla.app.service.FloatingBubbleService
-import com.flowbangla.app.service.TextInjectorAccessibilityService
-import com.flowbangla.app.ui.theme.FlowBanglaTheme
-import com.flowbangla.app.ui.theme.PrimaryBlue
-import com.flowbangla.app.ui.theme.PrimaryBlueVariant
-import com.flowbangla.app.ui.theme.AccentCyan
-import com.flowbangla.app.ui.theme.SuccessGreen
-import com.flowbangla.app.ui.theme.RecordingRed
-import com.flowbangla.app.ui.theme.ProcessingAmber
-import com.flowbangla.app.ui.theme.BackgroundDark
-import com.flowbangla.app.ui.theme.SurfaceDark
-import com.flowbangla.app.ui.theme.SurfaceCard
-import com.flowbangla.app.ui.theme.TextPrimary
-import com.flowbangla.app.ui.theme.TextSecondary
-import org.json.JSONObject
-import org.json.JSONArray
-import kotlinx.coroutines.Dispatchers
+import com.flowbangla.app.ui.components.*
+import com.flowbangla.app.ui.mic.drawDandaMic
+import com.flowbangla.app.ui.theme.*
+import com.flowbangla.app.util.FlowPermissionState
+import com.flowbangla.app.util.PermissionHelper
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -98,8 +81,30 @@ class MainActivity : ComponentActivity() {
         checkEssentialPermissions()
 
         setContent {
-            FlowBanglaTheme {
+            val prefs = remember { FlowBanglaApp.instance.preferencesManager }
+            var appearanceTheme by remember { mutableStateOf(prefs.appearanceTheme) }
+            val darkTheme = when (appearanceTheme) {
+                "light" -> false
+                "dark" -> true
+                else -> isSystemInDarkTheme()
+            }
+            var appLanguage by remember { mutableStateOf(prefs.appLanguage) }
+
+            FlowBanglaTheme(
+                darkTheme = darkTheme,
+                isBangla = appLanguage == "bn"
+            ) {
                 MainScreen(
+                    currentAppearance = appearanceTheme,
+                    onAppearanceChange = { newTheme ->
+                        appearanceTheme = newTheme
+                        prefs.appearanceTheme = newTheme
+                    },
+                    currentLanguage = appLanguage,
+                    onLanguageChange = { newLang ->
+                        appLanguage = newLang
+                        prefs.appLanguage = newLang
+                    },
                     onRequestOverlayPermission = { requestOverlayPermission() },
                     onRequestAccessibilityPermission = { requestAccessibilityPermission() },
                     onRequestXiaomiAutostart = { requestXiaomiAutostart() },
@@ -172,7 +177,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Localization dictionary for seamless English <-> Bangla switching
+// Clean Copy Deck Localization Dictionary (§8)
 object L10n {
     fun t(key: String, isBn: Boolean): String {
         return if (isBn) bnMap[key] ?: enMap[key] ?: key else enMap[key] ?: key
@@ -180,150 +185,132 @@ object L10n {
 
     private val enMap = mapOf(
         "app_title" to "Flow",
-        "app_subtitle" to "AI Voice Dictation & Smart Polish",
         "nav_home" to "Home",
         "nav_history" to "History",
-        "master_on" to "Floating Mic is Active",
-        "master_off" to "Floating Mic is Off",
-        "master_desc_on" to "Floating button is active above keyboard. Tap to dictate.",
-        "master_desc_off" to "Turn on the switch to start the floating mic.",
-        "api_title" to "Gemini API Key (Cloud Audio)",
-        "api_desc" to "Enter your free Gemini API key from aistudio.google.com for unlimited daily dictation.",
-        "api_hint" to "Gemini API Key",
-        "paste" to "Paste",
-        "test" to "Test Key",
-        "test_success" to "✅ Connection Successful! Ready to dictate.",
-        "test_fail" to "❌ Invalid API key or network error.",
-        "perm_all_good" to "All Required Permissions Granted",
-        "perm_needed" to "Permissions & Xiaomi Setup",
-        "perm_desc" to "Required to display floating button above keyboard and insert text directly:",
-        "perm_overlay" to "1. Display Pop-up Window (Overlay)",
-        "perm_accessibility" to "2. Accessibility (Auto-typing)",
-        "perm_autostart" to "3. Xiaomi Autostart (Prevent killing)",
-        "perm_battery" to "4. Battery Saver (No restrictions)",
-        "enable" to "Enable",
-        "settings_title" to "Voice & Polish Settings",
-        "smart_polish" to "Smart Polish (Wispr Flow style)",
-        "smart_polish_desc" to "Removes fillers (um/like/মানে) and adds punctuation (., ? / । , ?).",
-        "touch_mode" to "Microphone Interaction Mode:",
-        "mode_tap" to "Single Tap (Start/Stop)",
-        "mode_push" to "Hold to Speak",
-        "haptic" to "Haptic Feedback",
-        "haptic_desc" to "Vibrate on recording start and stop.",
-        "bubble_size" to "Floating Button Size:",
-        "bubble_opacity" to "Button Opacity / Transparency:",
-        "mic_visibility" to "Floating Button Visibility",
-        "mic_hidden_desc" to "Mic button is hidden. Tap here or notification to restore.",
-        "mic_visible_desc" to "Drag mic to bottom screen target (✕) to hide, or toggle here.",
-        "show_mic" to "Show Mic",
-        "hide_mic" to "Hide Mic",
-        "only_keyboard" to "Show only when typing (Wispr Flow style)",
-        "only_keyboard_desc" to "Automatically shows button when keyboard/input is active, and hides it when not in use.",
-        "history_title" to "Recent Dictations",
-        "clear_history" to "Clear All",
-        "copy" to "Copy",
-        "copied" to "Text copied to clipboard",
-        "no_history" to "No dictation history yet",
-        "save_key_first" to "Please save required API Key first",
-        "seconds" to "sec",
-        "engine_mode_title" to "Engine Mode",
-        "engine_mode_desc" to "Choose between cloud audio, hybrid on-device STT, or 100% offline modes.",
-        "lang_gesture_title" to "Language & Gestures",
-        "default_stt_lang" to "Default Dictation Language:",
-        "double_tap_toggle" to "Double-tap floating mic to switch language",
-        "double_tap_toggle_desc" to "Double-tap button while idle to toggle between বাংলা (বাং) and English (EN).",
-        "live_preview" to "Live Transcription Preview",
-        "live_preview_desc" to "Shows words as you speak. Keep OFF for lowest CPU and zero lag on Xiaomi phones.",
-        "offline_voice_setup_btn" to "Open Google Voice Typing Settings",
-        "offline_voice_setup_desc" to "Download বাংলা (বাংলাদেশ) & English offline voice packs for instant offline STT.",
-        "provider_title" to "Cloud Polish Provider (Hybrid Mode)",
-        "provider_desc" to "Choose which ultra-fast LLM cleans fillers and adds punctuation.",
-        "model_downloader_title" to "On-Device Gemma 3 (1B) Model",
-        "model_not_downloaded" to "Gemma 3 model not downloaded (~750 MB).",
-        "model_downloading" to "Downloading Gemma 3 LiteRT model...",
-        "model_downloaded" to "Gemma 3 model is downloaded and ready for 100% offline AI formatting.",
-        "download_model_btn" to "Download Gemma 3 (~750 MB)",
-        "cancel_download_btn" to "Cancel",
-        "delete_model_btn" to "Delete Model",
-        "hf_token_hint" to "Hugging Face Token (optional)",
-        "help_btn" to "Setup Guide"
+        "status_ready" to "Ready.",
+        "status_paused" to "Paused.",
+        "status_setup" to "Needs setup.",
+        "hero_caption_ready" to "The mic shows above your keyboard.",
+        "hero_caption_paused" to "Turn on the switch to start the floating mic.",
+        "hero_caption_setup" to "Turn on access to start.",
+        "show_mic" to "Show mic",
+        "hide_mic" to "Hide mic",
+        "setup" to "Setup",
+        "dictation" to "Dictation",
+        "engine_cloud" to "Cloud audio",
+        "engine_cloud_desc" to "Best for mixed Bangla and English. Needs internet and a key.",
+        "engine_fast" to "Fast cloud",
+        "engine_fast_desc" to "Quick results. Transcribes on the phone, then polishes in the cloud.",
+        "engine_offline" to "Offline",
+        "engine_offline_desc" to "No internet. Basic punctuation and filler removal.",
+        "engine_offline_ai" to "Offline AI",
+        "engine_offline_ai_desc" to "No internet. Larger download. Uses more memory while active.",
+        "recommended" to "Recommended",
+        "keys" to "Keys",
+        "test_connection" to "Test connection",
+        "testing" to "Testing...",
+        "voice_and_polish" to "Voice and polish",
+        "smart_polish" to "Smart polish",
+        "smart_polish_desc" to "Removes fillers like um and uh, and adds punctuation.",
+        "cleanup" to "Clean-up",
+        "cleanup_off_desc" to "Your words exactly as spoken.",
+        "cleanup_light_desc" to "Removes filler words and formats lists.",
+        "cleanup_full_desc" to "Also fixes changes of mind and smooths the wording.",
+        "drop_period" to "Drop the final full stop in chats",
+        "drop_period_desc" to "Short messages in WhatsApp and Messenger finish without a full stop.",
+        "microphone" to "Microphone",
+        "how_to_start" to "How to start",
+        "tap_to_start" to "Tap to start",
+        "hold_to_talk" to "Hold to talk",
+        "size" to "Size",
+        "opacity" to "Opacity",
+        "haptic" to "Haptic feedback",
+        "haptic_desc" to "A short tick when recording starts and stops.",
+        "show_only_typing" to "Show only when typing",
+        "show_only_typing_desc" to "The mic appears when a text box is active and hides when you stop typing.",
+        "vocabulary" to "Vocabulary",
+        "personal_dict" to "Personal dictionary",
+        "personal_dict_desc" to "Words you correct are learned for 15 seconds after you paste.",
+        "snippets" to "Voice snippets",
+        "snippets_desc" to "Short phrases that expand into longer text.",
+        "about" to "About",
+        "appearance" to "Appearance",
+        "guide" to "Guide",
+        "diagnostics" to "Diagnostics",
+        "version" to "Version 3.3.1 (11)",
+        "added" to "Added",
+        "not_added" to "Not added",
+        "save_key_first" to "Please save required API Key first"
     )
 
     private val bnMap = mapOf(
         "app_title" to "Flow",
-        "app_subtitle" to "এআই ভয়েস ডিক্টেশন ও স্মার্ট পলিশ",
         "nav_home" to "হোম",
         "nav_history" to "হিস্ট্রি",
-        "master_on" to "ফ্লোটিং মাইক চালু আছে",
-        "master_off" to "ফ্লোটিং মাইক বন্ধ আছে",
-        "master_desc_on" to "কিবোর্ডের উপরে বাটনটি ভেসে থাকবে। কথা বলতে ট্যাপ করুন।",
-        "master_desc_off" to "চালু করতে ডানের সুইচটি অন করুন।",
-        "api_title" to "Gemini API Key (ক্লাউড অডিও)",
-        "api_desc" to "aistudio.google.com থেকে আপনার ফ্রি API কী দিন। এটি সম্পূর্ণ ফ্রি ও সীমাহীন ব্যবহারের উপযোগী।",
-        "api_hint" to "Gemini API Key",
-        "paste" to "পেস্ট করুন",
-        "test" to "যাচাই করুন",
-        "test_success" to "✅ কানেকশন সফল হয়েছে!",
-        "test_fail" to "❌ ভুল API Key অথবা নেটওয়ার্ক সমস্যা।",
-        "perm_all_good" to "প্রয়োজনীয় সকল পারমিশন সক্রিয় আছে",
-        "perm_needed" to "Xiaomi (MIUI) সেটাপ ও পারমিশন প্রয়োজন",
-        "perm_desc" to "কিবোর্ডের উপর ভাসমান রাখা এবং স্বয়ংক্রিয়ভাবে লেখার জন্য নিচের অপশনগুলো চালু করুন:",
-        "perm_overlay" to "১. ফ্লোটিং উইন্ডো (Display pop-up)",
-        "perm_accessibility" to "২. অ্যাক্সেসিবিলিটি (অটো-টাইপিং)",
-        "perm_autostart" to "৩. Xiaomi Autostart (ব্যাকগ্রাউন্ড বন্ধ হওয়া রোধ)",
-        "perm_battery" to "৪. ব্যাটারি সেভার বন্ধ (No restrictions)",
-        "enable" to "অন করুন",
-        "settings_title" to "ভয়েস ও ফরম্যাটিং সেটিংস",
-        "smart_polish" to "স্মার্ট পলিশ (Wispr Flow স্টাইল)",
-        "smart_polish_desc" to "তোতলামি ও 'উম/মানে' বাদ দিয়ে দাঁড়ি, কমা ও প্রশ্নবোধক চিহ্ন যোগ করে।",
-        "touch_mode" to "বাটন স্পর্শ করার ধরন:",
-        "mode_tap" to "১ বার ট্যাপ (শুরু/থামুন)",
-        "mode_push" to "চেপে ধরে কথা বলুন",
-        "haptic" to "হ্যাপটিক ভাইব্রেশন",
-        "haptic_desc" to "রেকর্ডিং শুরু ও শেষ হলে মৃদু ভাইব্রেশন দেবে।",
-        "bubble_size" to "ফ্লোটিং বাটনের সাইজ:",
-        "bubble_opacity" to "বাটনের স্বচ্ছতা (Opacity):",
-        "mic_visibility" to "ভাসমান মাইকের দৃশ্যমানতা",
-        "mic_hidden_desc" to "মাইক লুকানো আছে। দেখতে এখানে অথবা নোটিফিকেশনে ট্যাপ করুন।",
-        "mic_visible_desc" to "স্ক্রিনের নিচে (✕) টেনে লুকান অথবা এখানে ট্যাপ করুন।",
+        "status_ready" to "প্রস্তুত।",
+        "status_paused" to "বন্ধ আছে।",
+        "status_setup" to "সেটআপ বাকি।",
+        "hero_caption_ready" to "মাইক কিবোর্ডের উপরে দেখানো হচ্ছে।",
+        "hero_caption_paused" to "চালু করতে ডানের সুইচটি অন করুন।",
+        "hero_caption_setup" to "শুরু করতে অ্যাক্সেস চালু করুন।",
         "show_mic" to "মাইক দেখান",
         "hide_mic" to "মাইক লুকান",
-        "only_keyboard" to "শুধুমাত্র কিবোর্ড চালু থাকলে বাটন দেখাবে",
-        "only_keyboard_desc" to "টাইপ করার সময় স্বয়ংক্রিয়ভাবে বাটন ভেসে উঠবে এবং অন্য সময় লুকিয়ে থাকবে।",
-        "history_title" to "সাম্প্রতিক ডিক্টেশন হিস্ট্রি",
-        "clear_history" to "মুছে ফেলুন",
-        "copy" to "কপি করুন",
-        "copied" to "টেক্সট কপি করা হয়েছে",
-        "no_history" to "এখনও কোনো ডিক্টেশন রেকর্ড নেই",
-        "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন",
-        "seconds" to "সেকেন্ড",
-        "engine_mode_title" to "ডিক্টেশন ইঞ্জিন ও মোড",
-        "engine_mode_desc" to "ক্লাউড অডিও, দ্রুতগতির হাইব্রিড টার্বো, অথবা অফলাইন মোড বাছাই করুন।",
-        "lang_gesture_title" to "ভাষা ও কুইক সুইচ",
-        "default_stt_lang" to "ডিফল্ট ডিক্টেশন ভাষা:",
-        "double_tap_toggle" to "বাটনে ডাবল-ট্যাপ করে ভাষা পরিবর্তন",
-        "double_tap_toggle_desc" to "বাটনে পর পর দুইবার ট্যাপ করে বাংলা (বাং) ও ইংরেজির (EN) মাঝে দ্রুত পরিবর্তন করুন।",
-        "live_preview" to "লাইভ প্রিভিউ টেক্সট",
-        "live_preview_desc" to "কথা বলার সময় শব্দ দেখতে পারবেন। Xiaomi ফোনে কম ব্যাটারি ও দ্রুতগতির জন্য বন্ধ রাখা ভালো।",
-        "offline_voice_setup_btn" to "গুগল ভয়েস টাইপিং সেটিংস খুলুন",
-        "offline_voice_setup_desc" to "অফলাইনে কথা থেকে লেখার জন্য বাংলা (বাংলাদেশ) ও ইংরেজি অফলাইন প্যাক ডাউনলোড করুন।",
-        "provider_title" to "ক্লাউড পলিশ সার্ভিস (হাইব্রিড মোড)",
-        "provider_desc" to "কোন এআই সার্ভিস দ্রুত তোতলামি দূর করবে ও দাঁড়ি-কমা বসাবে তা নির্বাচন করুন।",
-        "model_downloader_title" to "অন-ডিভাইস Gemma 3 (1B) মডেল",
-        "model_not_downloaded" to "Gemma 3 মডেল ডাউনলোড করা হয়নি (~৭৫০ এমবি)।",
-        "model_downloading" to "Gemma 3 মডেল ডাউনলোড হচ্ছে...",
-        "model_downloaded" to "Gemma 3 মডেল প্রস্তুত (সম্পূর্ণ অফলাইনে এআই দিয়ে লেখা ফরম্যাট হবে)।",
-        "download_model_btn" to "Gemma 3 ডাউনলোড করুন (~৭৫০ এমবি)",
-        "cancel_download_btn" to "বাতিল করুন",
-        "delete_model_btn" to "মডেল মুছে ফেলুন",
-        "hf_token_hint" to "Hugging Face টোকেন (ঐচ্ছিক)",
-        "help_btn" to "সেটাপ নির্দেশিকা"
+        "setup" to "সেটআপ",
+        "dictation" to "ডিক্টেশন মোড",
+        "engine_cloud" to "ক্লাউড অডিও",
+        "engine_cloud_desc" to "বাংলা ও ইংরেজি মেশানো কথার জন্য সবচেয়ে ভালো। ইন্টারনেট ও একটি কী লাগবে।",
+        "engine_fast" to "দ্রুতগতির ক্লাউড",
+        "engine_fast_desc" to "ফোনে কথা থেকে লেখা তৈরি করে ক্লাউডে সাজিয়ে নেয়।",
+        "engine_offline" to "অফলাইন",
+        "engine_offline_desc" to "ইন্টারনেট ছাড়া। মৌলিক বিরামচিহ্ন ও ফিলার বাদ।",
+        "engine_offline_ai" to "অফলাইন এআই",
+        "engine_offline_ai_desc" to "ইন্টারনেট ছাড়া। বড় মডেল ডাউনলোড প্রয়োজন।",
+        "recommended" to "সুপারিশকৃত",
+        "keys" to "এপিআই কী",
+        "test_connection" to "সংযোগ যাচাই করুন",
+        "testing" to "যাচাই করা হচ্ছে...",
+        "voice_and_polish" to "ভয়েস ও পলিশ",
+        "smart_polish" to "স্মার্ট পলিশ",
+        "smart_polish_desc" to "উম, আহ জাতীয় শব্দ বাদ দিয়ে দাঁড়ি-কমা বসায়।",
+        "cleanup" to "ক্লিন-আপ লেভেল",
+        "cleanup_off_desc" to "ঠিক যেমন বলা হয়েছে তেমন লেখা।",
+        "cleanup_light_desc" to "অপ্রয়োজনীয় ফিলার শব্দ বাদ দিয়ে তালিকা সাজায়।",
+        "cleanup_full_desc" to "মত বদলের কথা ঠিক করে ও বাক্য মসৃণ করে।",
+        "drop_period" to "মেসেজিংয়ে শেষ দাঁড়ি বাদ",
+        "drop_period_desc" to "হোয়াটসঅ্যাপ ও মেসেঞ্জারের ছোট বার্তায় শেষের দাঁড়ি থাকে না।",
+        "microphone" to "মাইক্রোফোন",
+        "how_to_start" to "কথা শুরু করার ধরন",
+        "tap_to_start" to "১ বার ট্যাপ",
+        "hold_to_talk" to "চেপে ধরে কথা",
+        "size" to "আকার",
+        "opacity" to "স্বচ্ছতা",
+        "haptic" to "হ্যাপটিক ভাইব্রেশন",
+        "haptic_desc" to "রেকর্ডিং শুরু ও শেষ হলে মৃদু ভাইব্রেশন দেবে।",
+        "show_only_typing" to "শুধু টাইপ করার সময় দেখান",
+        "show_only_typing_desc" to "কিবোর্ড চালু হলে মাইক ভেসে উঠবে এবং অন্য সময় লুকিয়ে থাকবে।",
+        "vocabulary" to "শব্দভাণ্ডার",
+        "personal_dict" to "ব্যক্তিগত ডিকশনারি",
+        "personal_dict_desc" to "ভুল সংশোধন করলে ১৫ সেকেন্ডের মধ্যে তা শিখে নেয়।",
+        "snippets" to "ভয়েস স্নsnippet",
+        "snippets_desc" to "ছোট কথায় বড় টেক্সট বসানোর শর্টকাট।",
+        "about" to "অ্যাপ পরিচিতি",
+        "appearance" to "থিম",
+        "guide" to "সেটাপ নির্দেশিকা",
+        "diagnostics" to "ডায়াগনস্টিক",
+        "version" to "ভার্সন ৩.৩.১ (১১)",
+        "added" to "যুক্ত আছে",
+        "not_added" to "যুক্ত নেই",
+        "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন"
     )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
+    currentAppearance: String,
+    onAppearanceChange: (String) -> Unit,
+    currentLanguage: String,
+    onLanguageChange: (String) -> Unit,
     onRequestOverlayPermission: () -> Unit,
     onRequestAccessibilityPermission: () -> Unit,
     onRequestXiaomiAutostart: () -> Unit,
@@ -332,1568 +319,1085 @@ fun MainScreen(
     val context = LocalContext.current
     val prefs = remember { FlowBanglaApp.instance.preferencesManager }
     val historyManager = remember { FlowBanglaApp.instance.historyManager }
-    val modelDownloadManager = remember { ModelDownloadManager(context, prefs) }
-    val downloadState by modelDownloadManager.downloadState.collectAsState()
+    val dictionaryManager = remember { FlowBanglaApp.instance.personalDictionaryManager }
+    val snippetManager = remember { FlowBanglaApp.instance.snippetManager }
     val scope = rememberCoroutineScope()
 
-    var appLanguage by remember { mutableStateOf(prefs.appLanguage) }
-    val isBn = appLanguage == "bn"
+    val isBn = currentLanguage == "bn"
     fun str(key: String): String = L10n.t(key, isBn)
 
     var isServiceRunning by remember { mutableStateOf(FloatingBubbleService.isRunning()) }
-    var showHelpDialog by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Home, 1 = History
 
-    // Engine & Provider state
+    // Sheets & Dialogs
+    var showPermissionsSheet by remember { mutableStateOf(false) }
+    var activeKeySheetProvider by remember { mutableStateOf<String?>(null) }
+    var showGuideDialog by remember { mutableStateOf(false) }
+    var showDiagnosticsDialog by remember { mutableStateOf(false) }
+    var showDictionarySheet by remember { mutableStateOf(false) }
+    var showSnippetsSheet by remember { mutableStateOf(false) }
+
+    // State Variables
     var selectedEngineMode by remember { mutableStateOf(prefs.engineMode) }
-    var selectedProvider by remember { mutableStateOf(prefs.cloudPolishProvider) }
-    var selectedSttLanguage by remember { mutableStateOf(prefs.sttLanguage) }
-    var isDoubleTapEnabled by remember { mutableStateOf(prefs.isDoubleTapLanguageToggleEnabled) }
-    var isLivePreviewEnabled by remember { mutableStateOf(prefs.isLivePreviewEnabled) }
-
-    // API Keys state
     var geminiKeyText by remember { mutableStateOf(prefs.geminiApiKey) }
     var groqKeyText by remember { mutableStateOf(prefs.groqApiKey) }
     var cerebrasKeyText by remember { mutableStateOf(prefs.cerebrasApiKey) }
     var openRouterKeyText by remember { mutableStateOf(prefs.openRouterApiKey) }
-    var groqModelText by remember { mutableStateOf(prefs.groqModelName) }
-    var hfTokenText by remember { mutableStateOf("") }
 
-    var showApiKey by remember { mutableStateOf(false) }
-    var isTestingKey by remember { mutableStateOf(false) }
-    var testKeyMessage by remember { mutableStateOf<String?>(null) }
+    var isTestingConnection by remember { mutableStateOf(false) }
     var connectivityReport by remember { mutableStateOf<ConnectivityLabReport?>(null) }
 
-    // Floating bubble visuals
-    var interactionMode by remember { mutableStateOf(prefs.interactionMode) }
     var isSmartPolish by remember { mutableStateOf(prefs.smartPolishEnabled) }
-    var isHaptic by remember { mutableStateOf(prefs.hapticFeedbackEnabled) }
-    var bubbleSize by remember { mutableFloatStateOf(prefs.bubbleSizeDp.toFloat()) }
-    var bubbleOpacity by remember { mutableFloatStateOf(prefs.bubbleOpacity) }
-    var showOnlyWithKeyboard by remember { mutableStateOf(prefs.showOnlyWithKeyboard) }
-    var isMicDismissed by remember { mutableStateOf(FloatingBubbleService.instance?.isManuallyDismissed == true) }
     var autoCleanupLevel by remember { mutableStateOf(prefs.autoCleanupLevel) }
     var casualMessagingDropPeriod by remember { mutableStateOf(prefs.casualMessagingDropPeriod) }
 
+    var interactionMode by remember { mutableStateOf(prefs.interactionMode) }
+    var bubbleSize by remember { mutableFloatStateOf(prefs.bubbleSizeDp.toFloat()) }
+    var bubbleOpacity by remember { mutableFloatStateOf(prefs.bubbleOpacity) }
+    var isHaptic by remember { mutableStateOf(prefs.hapticFeedbackEnabled) }
+    var showOnlyWithKeyboard by remember { mutableStateOf(prefs.showOnlyWithKeyboard) }
+    var isMicDismissed by remember { mutableStateOf(FloatingBubbleService.instance?.isManuallyDismissed == true) }
+
+    var dictionaryEntries by remember { mutableStateOf(dictionaryManager.getAllEntries()) }
+    var snippetList by remember { mutableStateOf(snippetManager.getAllSnippets()) }
     var recentHistory by remember { mutableStateOf(historyManager.getRecentRecords()) }
-    var selectedTab by remember { mutableIntStateOf(0) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var permissionState by remember {
         mutableStateOf(PermissionHelper.checkAllPermissions(context))
     }
 
-    // 1. Re-evaluate immediately on ON_RESUME / ON_START (when returning from Settings)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME || event == Lifecycle.Event.ON_START) {
                 permissionState = PermissionHelper.checkAllPermissions(context)
                 isServiceRunning = FloatingBubbleService.isRunning()
-                if (permissionState.allCriticalGranted) {
+                isMicDismissed = FloatingBubbleService.instance?.isManuallyDismissed == true
+                if (permissionState.allCriticalGranted && prefs.isConfigured) {
                     FloatingBubbleService.startIfPermitted(context)
                 }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // 2. Poll every 800ms while permissions are missing (catches delayed accessibility binding)
     LaunchedEffect(permissionState.allCriticalGranted) {
         while (!permissionState.allCriticalGranted) {
-            kotlinx.coroutines.delay(800L)
+            delay(800L)
             val latest = PermissionHelper.checkAllPermissions(context)
             if (latest != permissionState) {
                 permissionState = latest
                 isServiceRunning = FloatingBubbleService.isRunning()
-                if (latest.allCriticalGranted) {
+                if (latest.allCriticalGranted && prefs.isConfigured) {
                     FloatingBubbleService.startIfPermitted(context)
                 }
             }
         }
     }
 
-    val hasOverlay = permissionState.hasOverlayPermission
-    val hasAccessibility = permissionState.hasAccessibilityPermission
-    val hasMic = permissionState.hasRecordAudioPermission
-
     Scaffold(
         topBar = {
+            // Top Bar §5.1: Height 56dp, DarkCanvas background, "Flow" in Serif 22sp, 6dp Ochre dot when needed
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(AccentCyan),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.White)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                str("app_title"),
-                                fontSize = 21.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                            Text(
-                                str("app_subtitle"),
-                                fontSize = 11.sp,
-                                color = TextSecondary
+                        Text(
+                            text = "Flow",
+                            fontFamily = FontFamily.Serif,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = DarkInk
+                        )
+                        if (!permissionState.allCriticalGranted) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(OchreDark)
                             )
                         }
                     }
                 },
                 actions = {
-                    // Help Dialog Button
-                    IconButton(onClick = { showHelpDialog = true }) {
-                        Icon(Icons.Default.HelpOutline, contentDescription = "Help", tint = AccentCyan)
-                    }
-
-                    // Language Switcher Pill
-                    FilledTonalButton(
-                        onClick = {
-                            val nextLang = if (isBn) "en" else "bn"
-                            appLanguage = nextLang
-                            prefs.appLanguage = nextLang
-                        },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = SurfaceCard,
-                            contentColor = AccentCyan
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        shape = RoundedCornerShape(20.dp)
-                    ) {
-                        Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (isBn) "English" else "বাংলা", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    // Segmented Language Control [ EN | বাংলা ] §5.1
+                    FlowCompactSegmentedControl(
+                        items = listOf("EN", "বাংলা"),
+                        selectedIndex = if (isBn) 1 else 0,
+                        onSelect = { idx ->
+                            val newLang = if (idx == 1) "bn" else "en"
+                            onLanguageChange(newLang)
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BackgroundDark)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = DarkCanvas,
+                    titleContentColor = DarkInk
+                )
             )
         },
         bottomBar = {
-            NavigationBar(containerColor = SurfaceDark) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                    label = { Text(str("nav_home")) }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = {
-                        recentHistory = historyManager.getRecentRecords()
-                        selectedTab = 1
-                    },
-                    icon = { Icon(Icons.Default.History, contentDescription = null) },
-                    label = { Text("${str("nav_history")} (${recentHistory.size})") }
-                )
+            // Bottom Bar §5.2: Height 64dp, DarkCanvas, top hairline, 2dp ink line above active item, no violet pill
+            Column {
+                FlowHairline()
+                NavigationBar(
+                    containerColor = DarkCanvas,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier.height(64.dp)
+                ) {
+                    // Home Tab
+                    NavigationBarItem(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        icon = {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (selectedTab == 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(24.dp)
+                                            .height(2.dp)
+                                            .clip(RoundedCornerShape(1.dp))
+                                            .background(DarkInk)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.Home,
+                                    contentDescription = str("nav_home"),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        },
+                        label = {
+                            Text(
+                                text = str("nav_home"),
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTab == 0) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = DarkInk,
+                            selectedTextColor = DarkInk,
+                            unselectedIconColor = DarkInkMuted,
+                            unselectedTextColor = DarkInkMuted,
+                            indicatorColor = Color.Transparent // Kills M3 violet pill per §5.2
+                        )
+                    )
+
+                    // History Tab
+                    NavigationBarItem(
+                        selected = selectedTab == 1,
+                        onClick = {
+                            recentHistory = historyManager.getRecentRecords()
+                            selectedTab = 1
+                        },
+                        icon = {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (selectedTab == 1) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(24.dp)
+                                            .height(2.dp)
+                                            .clip(RoundedCornerShape(1.dp))
+                                            .background(DarkInk)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.History,
+                                    contentDescription = str("nav_history"),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        },
+                        label = {
+                            Text(
+                                text = str("nav_history"),
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTab == 1) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = DarkInk,
+                            selectedTextColor = DarkInk,
+                            unselectedIconColor = DarkInkMuted,
+                            unselectedTextColor = DarkInkMuted,
+                            indicatorColor = Color.Transparent
+                        )
+                    )
+                }
             }
         },
-        containerColor = BackgroundDark
+        containerColor = DarkCanvas
     ) { padding ->
         if (selectedTab == 0) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item { Spacer(modifier = Modifier.height(4.dp)) }
 
-                // Master Toggle Card
+                // 1. Hero Block §6.1
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isServiceRunning) PrimaryBlueVariant else SurfaceDark
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    val headlineText = when {
+                        !permissionState.allCriticalGranted -> str("status_setup")
+                        isServiceRunning && !isMicDismissed -> str("status_ready")
+                        else -> str("status_paused")
+                    }
+                    val captionText = when {
+                        !permissionState.allCriticalGranted -> str("hero_caption_setup")
+                        isServiceRunning && !isMicDismissed -> str("hero_caption_ready")
+                        else -> str("hero_caption_paused")
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .padding(20.dp)
-                                .fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    if (isServiceRunning) str("master_on") else str("master_off"),
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    if (isServiceRunning) str("master_desc_on") else str("master_desc_off"),
-                                    fontSize = 13.sp,
-                                    color = TextSecondary
-                                )
-                            }
-                            Switch(
-                                checked = isServiceRunning,
-                                onCheckedChange = { enabled ->
-                                    if (enabled) {
-                                        if (!prefs.isConfigured) {
-                                            Toast.makeText(context, str("save_key_first"), Toast.LENGTH_SHORT).show()
-                                            return@Switch
-                                        }
-                                        if (!hasOverlay) {
-                                            onRequestOverlayPermission()
-                                            return@Switch
-                                        }
-                                        val intent = Intent(context, FloatingBubbleService::class.java).apply {
-                                            action = FloatingBubbleService.ACTION_START_SERVICE
-                                        }
-                                        ContextCompat.startForegroundService(context, intent)
-                                        isServiceRunning = true
-                                    } else {
-                                        val intent = Intent(context, FloatingBubbleService::class.java).apply {
-                                            action = FloatingBubbleService.ACTION_STOP_SERVICE
-                                        }
-                                        context.stopService(intent)
-                                        isServiceRunning = false
-                                    }
-                                },
-                                enabled = prefs.isConfigured && hasOverlay && hasAccessibility && hasMic
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = headlineText,
+                                fontFamily = FontFamily.Serif,
+                                fontSize = 30.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = DarkInk
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = captionText,
+                                fontSize = 13.sp,
+                                color = DarkInkMuted,
+                                lineHeight = 18.sp
                             )
                         }
-                    }
-                }
 
-                // Xiaomi / Permissions Checklist Card
-                item {
-                    val allGranted = hasOverlay && hasAccessibility && hasMic
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (allGranted) SurfaceDark else Color(0xFF2D1515)
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    if (allGranted) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = if (allGranted) SuccessGreen else RecordingRed
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    if (allGranted) str("perm_all_good") else str("perm_needed"),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = TextPrimary
-                                )
-                            }
+                        Spacer(modifier = Modifier.width(16.dp))
 
-                            if (!allGranted) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    str("perm_desc"),
-                                    fontSize = 12.sp,
-                                    color = TextSecondary
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                PermissionRowItem(
-                                    title = str("perm_overlay"),
-                                    isGranted = hasOverlay,
-                                    buttonLabel = str("enable"),
-                                    onGrant = onRequestOverlayPermission
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                PermissionRowItem(
-                                    title = str("perm_accessibility"),
-                                    isGranted = hasAccessibility,
-                                    buttonLabel = str("enable"),
-                                    onGrant = onRequestAccessibilityPermission
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                PermissionRowItem(
-                                    title = str("perm_autostart"),
-                                    isGranted = true,
-                                    buttonLabel = str("enable"),
-                                    onGrant = onRequestXiaomiAutostart
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                PermissionRowItem(
-                                    title = str("perm_battery"),
-                                    isGranted = permissionState.isIgnoringBatteryOptimizations,
-                                    buttonLabel = str("enable"),
-                                    onGrant = onRequestBatteryExemption
-                                )
-                            }
+                        // Live Hero Disc (56dp) drawn with drawDandaMic (§4.4 & §6.1)
+                        val discColor = when {
+                            !permissionState.allCriticalGranted -> DarkSurfaceRaised
+                            isServiceRunning && !isMicDismissed -> DarkInk
+                            else -> DarkSurfaceRaised
                         }
-                    }
-                }
-
-                // 1. Engine Mode Selector Card
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Psychology, contentDescription = null, tint = AccentCyan)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        str("engine_mode_title"),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = TextPrimary
-                                    )
-                                    Text(
-                                        str("engine_mode_desc"),
-                                        fontSize = 12.sp,
-                                        color = TextSecondary
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            EngineMode.entries.forEach { mode ->
-                                val isSelected = selectedEngineMode == mode
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isSelected) SurfaceCard else BackgroundDark
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable {
-                                            selectedEngineMode = mode
-                                            prefs.engineMode = mode
-                                            notifyServiceSettingsChanged(context)
-                                        }
-                                        .then(
-                                            if (isSelected) Modifier.border(1.5.dp, AccentCyan, RoundedCornerShape(12.dp))
-                                            else Modifier
-                                        )
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = isSelected,
-                                            onClick = {
-                                                selectedEngineMode = mode
-                                                prefs.engineMode = mode
-                                                notifyServiceSettingsChanged(context)
-                                            },
-                                            colors = RadioButtonDefaults.colors(selectedColor = AccentCyan)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text(
-                                                if (isBn) mode.titleBn else mode.titleEn,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp,
-                                                color = if (isSelected) AccentCyan else TextPrimary
-                                            )
-                                            Text(
-                                                if (isBn) mode.descBn else mode.descEn,
-                                                fontSize = 12.sp,
-                                                color = TextSecondary,
-                                                lineHeight = 16.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                        val glyphColor = when {
+                            !permissionState.allCriticalGranted -> DarkInkMuted
+                            isServiceRunning && !isMicDismissed -> DarkInkOnAccent
+                            else -> DarkInkMuted
                         }
-                    }
-                }
 
-                // 2. STT Language & Gestures Card (when Hybrid or Offline mode is selected)
-                if (selectedEngineMode != EngineMode.CLOUD_AUDIO) {
-                    item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Translate, contentDescription = null, tint = AccentCyan)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        str("lang_gesture_title"),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = TextPrimary
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                // Language Selector
-                                Text(str("default_stt_lang"), fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    SttLanguage.entries.forEach { lang ->
-                                        FilterChip(
-                                            selected = selectedSttLanguage == lang,
-                                            onClick = {
-                                                selectedSttLanguage = lang
-                                                prefs.sttLanguage = lang
-                                                notifyServiceSettingsChanged(context)
-                                            },
-                                            label = { Text(if (isBn) lang.labelBn else lang.labelEn) },
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                                // Double-tap language toggle
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                        Canvas(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(str("double_tap_toggle"), fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                        Text(str("double_tap_toggle_desc"), fontSize = 12.sp, color = TextSecondary)
-                                    }
-                                    Switch(
-                                        checked = isDoubleTapEnabled,
-                                        onCheckedChange = {
-                                            isDoubleTapEnabled = it
-                                            prefs.isDoubleTapLanguageToggleEnabled = it
-                                            notifyServiceSettingsChanged(context)
-                                        }
-                                    )
-                                }
-
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                                // Live preview switch
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(str("live_preview"), fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                        Text(str("live_preview_desc"), fontSize = 12.sp, color = TextSecondary)
-                                    }
-                                    Switch(
-                                        checked = isLivePreviewEnabled,
-                                        onCheckedChange = {
-                                            isLivePreviewEnabled = it
-                                            prefs.isLivePreviewEnabled = it
-                                        }
-                                    )
-                                }
-
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                                // Google Voice Typing quick-action button
-                                Button(
-                                    onClick = { openVoiceInputSettings(context) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(str("offline_voice_setup_btn"), fontSize = 13.sp)
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    str("offline_voice_setup_desc"),
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 3. Dynamic Backend / Provider Configuration Card
-                when (selectedEngineMode) {
-                    EngineMode.CLOUD_AUDIO -> {
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.VpnKey, contentDescription = null, tint = AccentCyan)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            str("api_title"),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
-                                            color = TextPrimary
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        str("api_desc"),
-                                        fontSize = 12.sp,
-                                        color = TextSecondary
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    OutlinedTextField(
-                                        value = geminiKeyText,
-                                        onValueChange = {
-                                            geminiKeyText = it
-                                            prefs.geminiApiKey = it
-                                        },
-                                        label = { Text(str("api_hint")) },
-                                        singleLine = true,
-                                        visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                                        trailingIcon = {
-                                            IconButton(onClick = { showApiKey = !showApiKey }) {
-                                                Icon(
-                                                    if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                                    contentDescription = null
-                                                )
+                                    if (!permissionState.allCriticalGranted) {
+                                        showPermissionsSheet = true
+                                    } else {
+                                        if (isServiceRunning) {
+                                            val s = FloatingBubbleService.instance
+                                            if (s != null) {
+                                                if (s.isManuallyDismissed) s.showBubbleFromBottom()
+                                                else s.hideBubbleDirectly()
+                                                isMicDismissed = s.isManuallyDismissed
                                             }
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedTextColor = TextPrimary,
-                                            unfocusedTextColor = TextPrimary,
-                                            focusedBorderColor = AccentCyan,
-                                            unfocusedBorderColor = SurfaceCard
-                                        )
+                                        } else {
+                                            FloatingBubbleService.startIfPermitted(context)
+                                            isServiceRunning = true
+                                            isMicDismissed = false
+                                        }
+                                    }
+                                }
+                        ) {
+                            drawDandaMic(disc = discColor, glyph = glyphColor)
+                        }
+                    }
+                }
+
+                // 2. Show mic row (§6.1)
+                item {
+                    FlowGroup {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = str("show_mic"),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = DarkInk
+                            )
+                            Switch(
+                                checked = isServiceRunning && !isMicDismissed,
+                                onCheckedChange = { enable ->
+                                    if (enable) {
+                                        if (!permissionState.allCriticalGranted) {
+                                            showPermissionsSheet = true
+                                            return@Switch
+                                        }
+                                        if (!prefs.isConfigured) {
+                                            Toast.makeText(context, str("save_key_first"), Toast.LENGTH_SHORT).show()
+                                            activeKeySheetProvider = "Gemini"
+                                            return@Switch
+                                        }
+                                        if (FloatingBubbleService.isRunning()) {
+                                            FloatingBubbleService.instance?.showBubbleFromBottom()
+                                        } else {
+                                            FloatingBubbleService.startIfPermitted(context)
+                                        }
+                                        isServiceRunning = true
+                                        isMicDismissed = false
+                                    } else {
+                                        FloatingBubbleService.instance?.hideBubbleDirectly()
+                                        isMicDismissed = true
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
+                                )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // 3. Setup row (§6.1)
+                        val totalPerms = if (permissionState.isRestrictedSettingsPossible) 3 else 2
+                        val donePerms = (if (permissionState.hasAccessibilityPermission) 1 else 0) +
+                                (if (permissionState.hasOverlayPermission) 1 else 0) +
+                                (if (permissionState.isRestrictedSettingsPossible && permissionState.hasAccessibilityPermission) 1 else 0)
+                        val allDone = donePerms >= totalPerms
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                                .clickable { showPermissionsSheet = true },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = str("setup"),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = DarkInk
+                            )
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (allDone) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = SageDark,
+                                        modifier = Modifier.size(16.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isBn) "$totalPerms টির মধ্যে $donePerms সম্পন্ন" else "$donePerms of $totalPerms done",
+                                        fontSize = 13.sp,
+                                        color = SageDark
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(OchreDark)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isBn) "$donePerms সম্পন্ন" else "$donePerms of $totalPerms done",
+                                        fontSize = 13.sp,
+                                        color = OchreDark
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = DarkInkMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
 
-                                    Spacer(modifier = Modifier.height(10.dp))
+                // 4. Dictation (Engine mode) §6.2
+                item {
+                    Text(
+                        text = str("dictation"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DarkInkMuted,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                    )
 
+                    FlowGroup {
+                        val modes = listOf(
+                            Triple(EngineMode.CLOUD_AUDIO, str("engine_cloud"), str("engine_cloud_desc")),
+                            Triple(EngineMode.HYBRID_CLOUD_POLISH, str("engine_fast"), str("engine_fast_desc")),
+                            Triple(EngineMode.OFFLINE_LIGHTWEIGHT, str("engine_offline"), str("engine_offline_desc")),
+                            Triple(EngineMode.OFFLINE_LOCAL_LLM, str("engine_offline_ai"), str("engine_offline_ai_desc"))
+                        )
+
+                        modes.forEachIndexed { idx, (mode, title, desc) ->
+                            val isSelected = selectedEngineMode == mode
+                            val bgCol by animateColorAsState(
+                                targetValue = if (isSelected) DarkSurfaceRaised else Color.Transparent,
+                                label = "engine_bg"
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(bgCol)
+                                    .clickable {
+                                        selectedEngineMode = mode
+                                        prefs.engineMode = mode
+                                        notifyServiceSettingsChanged(context)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedEngineMode = mode
+                                        prefs.engineMode = mode
+                                        notifyServiceSettingsChanged(context)
+                                    },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = DarkInk,
+                                        unselectedColor = DarkInkMuted
+                                    ),
+                                    modifier = Modifier.size(20.dp)
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-                                                if (!clip.isNullOrBlank()) {
-                                                    geminiKeyText = clip.trim()
-                                                    prefs.geminiApiKey = geminiKeyText
-                                                    Toast.makeText(context, if (isBn) "API Key সেভ হয়েছে" else "API Key saved", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        ) {
-                                            Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(str("paste"))
-                                        }
-
-                                        Button(
-                                            onClick = {
-                                                if (geminiKeyText.isBlank()) return@Button
-                                                isTestingKey = true
-                                                testKeyMessage = null
-                                                connectivityReport = null
-                                                scope.launch {
-                                                    val report = ConnectivityLabRunner.runThreeStageTest(
-                                                        context = context,
-                                                        http = OkHttpClient(),
-                                                        rawApiKey = geminiKeyText,
-                                                        latestRecordedFile = null
-                                                    )
-                                                    isTestingKey = false
-                                                    connectivityReport = report
-                                                }
-                                            },
-                                            enabled = !isTestingKey && geminiKeyText.isNotBlank(),
-                                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-                                        ) {
-                                            if (isTestingKey) {
-                                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Testing...")
-                                            } else {
-                                                Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Connectivity Lab (S1-S3)")
-                                            }
-                                        }
-                                    }
-
-                                    connectivityReport?.let { report ->
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .background(SurfaceDark, RoundedCornerShape(8.dp))
-                                                .padding(12.dp)
-                                        ) {
-                                            Text(
-                                                "S1 Key & Models: ${report.s1Status}",
-                                                fontSize = 12.sp,
-                                                color = if (report.s1Status.startsWith("PASS")) SuccessGreen else RecordingRed
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                "S2 Files API Upload: ${report.s2Status}",
-                                                fontSize = 12.sp,
-                                                color = if (report.s2Status.startsWith("PASS")) SuccessGreen else RecordingRed
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                "S3 Interactions Call: ${report.s3Status}",
-                                                fontSize = 12.sp,
-                                                color = if (report.s3Status.startsWith("PASS")) SuccessGreen else RecordingRed
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            OutlinedButton(
-                                                onClick = {
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    clipboard.setPrimaryClip(ClipData.newPlainText("FlowDiagnostics", report.redactedSummary))
-                                                    Toast.makeText(context, "Diagnostics copied to clipboard", Toast.LENGTH_SHORT).show()
-                                                },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = RoundedCornerShape(6.dp),
-                                                contentPadding = PaddingValues(vertical = 4.dp)
-                                            ) {
-                                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Copy Redacted Diagnostics", fontSize = 12.sp)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    EngineMode.HYBRID_CLOUD_POLISH -> {
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.CloudQueue, contentDescription = null, tint = AccentCyan)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text(
-                                                str("provider_title"),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 16.sp,
-                                                color = TextPrimary
-                                            )
-                                            Text(
-                                                str("provider_desc"),
-                                                fontSize = 12.sp,
-                                                color = TextSecondary
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(14.dp))
-
-                                    // Provider Selection Tabs
-                                    CloudPolishProvider.entries.forEach { provider ->
-                                        val isSelected = selectedProvider == provider
-                                        Card(
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = if (isSelected) SurfaceCard else BackgroundDark
-                                            ),
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 3.dp)
-                                                .clickable {
-                                                    selectedProvider = provider
-                                                    prefs.cloudPolishProvider = provider
-                                                }
-                                                .then(
-                                                    if (isSelected) Modifier.border(1.2.dp, AccentCyan, RoundedCornerShape(10.dp))
-                                                    else Modifier
-                                                )
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                RadioButton(
-                                                    selected = isSelected,
-                                                    onClick = {
-                                                        selectedProvider = provider
-                                                        prefs.cloudPolishProvider = provider
-                                                    },
-                                                    colors = RadioButtonDefaults.colors(selectedColor = AccentCyan)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Column {
-                                                    Text(provider.displayName, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
-                                                    Text(provider.freeQuotaSummary, fontSize = 11.sp, color = TextSecondary)
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(14.dp))
-
-                                    // Dynamic Key Input for the Selected Provider
-                                    when (selectedProvider) {
-                                        CloudPolishProvider.GEMINI -> {
-                                            ApiKeyInputField(
-                                                title = "Gemini API Key",
-                                                value = geminiKeyText,
-                                                onValueChange = {
-                                                    geminiKeyText = it
-                                                    prefs.geminiApiKey = it
-                                                },
-                                                hint = "Enter Gemini API Key (Reuses Studio Key)",
-                                                showKey = showApiKey,
-                                                onToggleShowKey = { showApiKey = !showApiKey },
-                                                context = context
-                                            )
-                                        }
-                                        CloudPolishProvider.GROQ -> {
-                                            ApiKeyInputField(
-                                                title = "Groq API Key (gsk_...)",
-                                                value = groqKeyText,
-                                                onValueChange = {
-                                                    groqKeyText = it
-                                                    prefs.groqApiKey = it
-                                                },
-                                                hint = "gsk_...",
-                                                showKey = showApiKey,
-                                                onToggleShowKey = { showApiKey = !showApiKey },
-                                                context = context
-                                            )
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            OutlinedTextField(
-                                                value = groqModelText,
-                                                onValueChange = {
-                                                    groqModelText = it
-                                                    prefs.groqModelName = it
-                                                },
-                                                label = { Text("Groq Model ID") },
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    focusedTextColor = TextPrimary,
-                                                    unfocusedTextColor = TextPrimary,
-                                                    focusedBorderColor = AccentCyan,
-                                                    unfocusedBorderColor = SurfaceCard
-                                                )
-                                            )
-                                        }
-                                        CloudPolishProvider.CEREBRAS -> {
-                                            ApiKeyInputField(
-                                                title = "Cerebras API Key (csk-...)",
-                                                value = cerebrasKeyText,
-                                                onValueChange = {
-                                                    cerebrasKeyText = it
-                                                    prefs.cerebrasApiKey = it
-                                                },
-                                                hint = "csk-...",
-                                                showKey = showApiKey,
-                                                onToggleShowKey = { showApiKey = !showApiKey },
-                                                context = context
-                                            )
-                                        }
-                                        CloudPolishProvider.OPENROUTER -> {
-                                            ApiKeyInputField(
-                                                title = "OpenRouter API Key (sk-or-...)",
-                                                value = openRouterKeyText,
-                                                onValueChange = {
-                                                    openRouterKeyText = it
-                                                    prefs.openRouterApiKey = it
-                                                },
-                                                hint = "sk-or-v1-...",
-                                                showKey = showApiKey,
-                                                onToggleShowKey = { showApiKey = !showApiKey },
-                                                context = context
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    EngineMode.OFFLINE_LIGHTWEIGHT -> {
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Bolt, contentDescription = null, tint = SuccessGreen)
-                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            if (isBn) "অফলাইন লাইটওয়েট প্রস্তুত" else "Offline Lightweight Ready",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
-                                            color = TextPrimary
+                                            text = title,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = DarkInk
                                         )
+                                        if (mode == EngineMode.CLOUD_AUDIO) {
+                                            Text(
+                                                text = str("recommended"),
+                                                fontSize = 11.sp,
+                                                color = DarkInkMuted
+                                            )
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        if (isBn) "কোনো ক্লাউড বা ইন্টারনেট ছাড়াই সম্পূর্ণ ফ্রি ও ০ এমবি অতিরিক্ত র‍্যামে কাজ করে।"
-                                        else "100% offline with zero cloud API keys, zero data usage, and <5ms response latency.",
-                                        fontSize = 13.sp,
-                                        color = TextSecondary
+                                        text = desc,
+                                        fontSize = 12.sp,
+                                        color = DarkInkMuted,
+                                        lineHeight = 16.sp
                                     )
                                 }
                             }
-                        }
-                    }
 
-                    EngineMode.OFFLINE_LOCAL_LLM -> {
-                        item {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Memory, contentDescription = null, tint = AccentCyan)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            str("model_downloader_title"),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 16.sp,
-                                            color = TextPrimary
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    when (val state = downloadState) {
-                                        is ModelDownloadState.NotDownloaded -> {
-                                            Text(str("model_not_downloaded"), fontSize = 13.sp, color = TextSecondary)
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            OutlinedTextField(
-                                                value = hfTokenText,
-                                                onValueChange = { hfTokenText = it },
-                                                label = { Text(str("hf_token_hint")) },
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth(),
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    focusedTextColor = TextPrimary,
-                                                    unfocusedTextColor = TextPrimary,
-                                                    focusedBorderColor = AccentCyan,
-                                                    unfocusedBorderColor = SurfaceCard
-                                                )
-                                            )
-                                            Spacer(modifier = Modifier.height(12.dp))
-                                            Button(
-                                                onClick = {
-                                                    scope.launch {
-                                                        modelDownloadManager.downloadModel(hfToken = hfTokenText)
-                                                    }
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(str("download_model_btn"))
-                                            }
-                                        }
-
-                                        is ModelDownloadState.Downloading -> {
-                                            Text(str("model_downloading"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = AccentCyan)
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            LinearProgressIndicator(
-                                                progress = { state.progressPercent / 100f },
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                Text("${state.downloadedMb} MB / ${state.totalMb} MB (${state.progressPercent}%)", fontSize = 12.sp, color = TextSecondary)
-                                                TextButton(onClick = { modelDownloadManager.cancelDownload() }) {
-                                                    Text(str("cancel_download_btn"), color = RecordingRed)
-                                                }
-                                            }
-                                        }
-
-                                        is ModelDownloadState.Downloaded -> {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SuccessGreen)
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(str("model_downloaded"), fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                            }
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text("Size: ${state.sizeMb} MB | Auto-unloads after 2 mins idle", fontSize = 12.sp, color = TextSecondary)
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            OutlinedButton(
-                                                onClick = { modelDownloadManager.deleteDownloadedModel() },
-                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = RecordingRed)
-                                            ) {
-                                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(str("delete_model_btn"))
-                                            }
-                                        }
-
-                                        is ModelDownloadState.Error -> {
-                                            Text("⚠️ ${state.message}", color = RecordingRed, fontSize = 13.sp)
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Button(
-                                                onClick = {
-                                                    scope.launch {
-                                                        modelDownloadManager.downloadModel(hfToken = hfTokenText)
-                                                    }
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-                                            ) {
-                                                Text("Retry Download")
-                                            }
-                                        }
-                                    }
-                                }
+                            if (idx < modes.size - 1) {
+                                FlowHairline()
                             }
                         }
                     }
                 }
 
-                // 4. Voice & Floating Button Settings Card
+                // 5. Keys Group §6.3
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Tune, contentDescription = null, tint = AccentCyan)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(str("settings_title"), fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
-                            }
+                    Text(
+                        text = str("keys"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DarkInkMuted,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                    )
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                    FlowGroup {
+                        val keyRows = listOf(
+                            Pair("Gemini", geminiKeyText.isNotBlank()),
+                            Pair("Groq", groqKeyText.isNotBlank()),
+                            Pair("Cerebras", cerebrasKeyText.isNotBlank()),
+                            Pair("OpenRouter", openRouterKeyText.isNotBlank())
+                        )
 
-                            // Smart Polish Switch
+                        keyRows.forEachIndexed { idx, (provider, isAdded) ->
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 52.dp)
+                                    .clickable { activeKeySheetProvider = provider },
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(str("smart_polish"), fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                    Text(str("smart_polish_desc"), fontSize = 12.sp, color = TextSecondary)
-                                }
-                                Switch(
-                                    checked = isSmartPolish,
-                                    onCheckedChange = {
-                                        isSmartPolish = it
-                                        prefs.smartPolishEnabled = it
-                                    }
-                                )
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                            // Interaction Mode: Tap vs Push
-                            Text(str("touch_mode"), fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = interactionMode == InteractionMode.TAP_TO_TALK,
-                                    onClick = {
-                                        interactionMode = InteractionMode.TAP_TO_TALK
-                                        prefs.interactionMode = InteractionMode.TAP_TO_TALK
-                                    },
-                                    label = { Text(str("mode_tap")) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FilterChip(
-                                    selected = interactionMode == InteractionMode.PUSH_TO_TALK,
-                                    onClick = {
-                                        interactionMode = InteractionMode.PUSH_TO_TALK
-                                        prefs.interactionMode = InteractionMode.PUSH_TO_TALK
-                                    },
-                                    label = { Text(str("mode_push")) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                            // Haptic Feedback Switch
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(str("haptic"), fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                    Text(str("haptic_desc"), fontSize = 12.sp, color = TextSecondary)
-                                }
-                                Switch(
-                                    checked = isHaptic,
-                                    onCheckedChange = {
-                                        isHaptic = it
-                                        prefs.hapticFeedbackEnabled = it
-                                    }
-                                )
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                            // Wispr Flow Keyboard-Only Auto Activation Switch
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(str("only_keyboard"), fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                                    Text(str("only_keyboard_desc"), fontSize = 12.sp, color = TextSecondary)
-                                }
-                                Switch(
-                                    checked = showOnlyWithKeyboard,
-                                    onCheckedChange = {
-                                        showOnlyWithKeyboard = it
-                                        prefs.showOnlyWithKeyboard = it
-                                        FloatingBubbleService.instance?.applyVisibilityRule()
-                                    }
-                                )
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                            // Floating Button Size Slider
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(str("bubble_size"), color = TextPrimary)
-                                    Text("${bubbleSize.toInt()} dp", color = AccentCyan, fontWeight = FontWeight.Bold)
-                                }
-                                Slider(
-                                    value = bubbleSize,
-                                    onValueChange = {
-                                        bubbleSize = it
-                                        prefs.bubbleSizeDp = it.toInt()
-                                        FloatingBubbleService.instance?.updateDimensionsAndOpacity()
-                                    },
-                                    valueRange = 48f..84f,
-                                    steps = 6
-                                )
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                            // Floating Button Opacity Slider
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(str("bubble_opacity"), color = TextPrimary)
-                                    Text("${(bubbleOpacity * 100).toInt()}%", color = AccentCyan, fontWeight = FontWeight.Bold)
-                                }
-                                Slider(
-                                    value = bubbleOpacity,
-                                    onValueChange = {
-                                        bubbleOpacity = it
-                                        prefs.bubbleOpacity = it
-                                        FloatingBubbleService.instance?.updateDimensionsAndOpacity()
-                                    },
-                                    valueRange = 0.30f..1.0f,
-                                    steps = 7
-                                )
-                            }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
-
-                            // Quick Hide/Show button matching Messenger drag-to-dismiss behavior
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(str("mic_visibility"), color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                    Text(
-                                        if (isMicDismissed) str("mic_hidden_desc") else str("mic_visible_desc"),
-                                        color = TextSecondary,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                Button(
-                                    onClick = {
-                                        val service = FloatingBubbleService.instance
-                                        if (service != null) {
-                                            service.isManuallyDismissed = !service.isManuallyDismissed
-                                            service.applyVisibilityRule()
-                                            service.updateNotification()
-                                            isMicDismissed = service.isManuallyDismissed
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isMicDismissed) AccentCyan else SurfaceCard
-                                    )
-                                ) {
-                                    Text(
-                                        if (isMicDismissed) str("show_mic") else str("hide_mic"),
-                                        color = if (isMicDismissed) Color.Black else TextPrimary
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Wispr Auto Cleanup Level & Messaging Card
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = AccentCyan)
-                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    if (isBn) "অটো ক্লিনআপ ও ব্যাকট্র্যাক (Wispr Flow)" else "Auto Cleanup & Backtrack",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = TextPrimary
+                                    text = provider,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = DarkInk
                                 )
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (isAdded) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = SageDark,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = str("added"),
+                                            fontSize = 12.sp,
+                                            color = SageDark
+                                        )
+                                    } else {
+                                        Text(
+                                            text = str("not_added"),
+                                            fontSize = 12.sp,
+                                            color = DarkInkMuted
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = null,
+                                        tint = DarkInkMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
+
+                            if (idx < keyRows.size - 1) {
+                                FlowHairline()
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Test Connection Button (§6.3)
+                    Button(
+                        onClick = {
+                            if (prefs.geminiApiKey.isBlank()) {
+                                Toast.makeText(context, str("save_key_first"), Toast.LENGTH_SHORT).show()
+                                activeKeySheetProvider = "Gemini"
+                                return@Button
+                            }
+                            isTestingConnection = true
+                            scope.launch {
+                                val report = ConnectivityLabRunner.runThreeStageTest(
+                                    context = context,
+                                    http = okhttp3.OkHttpClient(),
+                                    rawApiKey = prefs.geminiApiKey,
+                                    latestRecordedFile = null
+                                )
+                                connectivityReport = report
+                                isTestingConnection = false
+                                showDiagnosticsDialog = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DarkInk,
+                            contentColor = DarkInkOnAccent
+                        ),
+                        contentPadding = PaddingValues(vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = if (isTestingConnection) str("testing") else str("test_connection"),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // 6. Voice and Polish Group §6.4
+                item {
+                    Text(
+                        text = str("voice_and_polish"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DarkInkMuted,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                    )
+
+                    FlowGroup {
+                        // Row 1: Smart Polish
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("smart_polish"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("smart_polish_desc"), fontSize = 12.sp, color = DarkInkMuted, lineHeight = 16.sp)
+                            }
+                            Switch(
+                                checked = isSmartPolish,
+                                onCheckedChange = {
+                                    isSmartPolish = it
+                                    prefs.smartPolishEnabled = it
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
+                                )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Row 2: Clean-up Segmented Control (§6.4)
+                        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                            Text(str("cleanup"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            val cleanupLevels = listOf("Off", "Light", "Full")
+                            val currentCleanupIdx = when (autoCleanupLevel) {
+                                AutoCleanupLevel.NONE -> 0
+                                AutoCleanupLevel.LIGHT -> 1
+                                AutoCleanupLevel.MEDIUM -> 2
+                            }
+
+                            FlowSegmentedControl(
+                                items = cleanupLevels,
+                                selectedIndex = currentCleanupIdx,
+                                onSelect = { idx ->
+                                    val newLevel = when (idx) {
+                                        0 -> AutoCleanupLevel.NONE
+                                        1 -> AutoCleanupLevel.LIGHT
+                                        else -> AutoCleanupLevel.MEDIUM
+                                    }
+                                    autoCleanupLevel = newLevel
+                                    prefs.autoCleanupLevel = newLevel
+                                }
+                            )
+
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                if (isBn) "ভুল সংশোধন, ব্যাকট্র্যাক ('না না বেগুন লাগবে না') এবং অতিরিক্ত ভূমিকা দূর করার মাত্রা।"
-                                else "Controls how aggressively Flow resolves self-corrections, backtracks, and meta-chatter.",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                lineHeight = 16.sp
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            AutoCleanupLevel.entries.forEach { level ->
-                                val isSelected = autoCleanupLevel == level
-                                val (title, desc) = when (level) {
-                                    AutoCleanupLevel.NONE -> Pair(
-                                        if (isBn) "None (হুবহু)" else "None (Verbatim)",
-                                        if (isBn) "কোনো শব্দ কাটবে না, অবিকল যা বলবেন তাই।" else "Keeps every exact word with basic punctuation only."
-                                    )
-                                    AutoCleanupLevel.LIGHT -> Pair(
-                                        if (isBn) "Light (হালকা পলিশ)" else "Light (Strict Dictation)",
-                                        if (isBn) "উম/আহ বাদ দেবে, ব্যাকট্র্যাক ও তালিকা ঠিক করবে।" else "Removes fillers, resolves backtracks, formats lists."
-                                    )
-                                    AutoCleanupLevel.MEDIUM -> Pair(
-                                        if (isBn) "Medium (উইস্পার ফ্লো ম্যাজিক ✨)" else "Medium (Wispr Flow Magic ✨)",
-                                        if (isBn) "ব্যাকট্র্যাক ঠিক করবে এবং কথার ভূমিকা ('যেমন ধরেন', 'আমি বলছিলাম') স্বয়ংক্রিয়ভাবে মুছে দেবে।" else "Resolves backtracks and removes spoken scaffolding ('I'm saying that')."
-                                    )
-                                }
-
-                                Surface(
-                                    color = if (isSelected) SurfaceCard else BackgroundDark,
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable {
-                                            autoCleanupLevel = level
-                                            prefs.autoCleanupLevel = level
-                                        }
-                                        .then(
-                                            if (isSelected) Modifier.border(1.5.dp, AccentCyan, RoundedCornerShape(10.dp))
-                                            else Modifier
-                                        )
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(
-                                            selected = isSelected,
-                                            onClick = {
-                                                autoCleanupLevel = level
-                                                prefs.autoCleanupLevel = level
-                                            },
-                                            colors = RadioButtonDefaults.colors(selectedColor = AccentCyan)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Column {
-                                            Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isSelected) AccentCyan else TextPrimary)
-                                            Text(desc, fontSize = 11.sp, color = TextSecondary, lineHeight = 15.sp)
-                                        }
-                                    }
-                                }
+                            val cleanupDesc = when (autoCleanupLevel) {
+                                AutoCleanupLevel.NONE -> str("cleanup_off_desc")
+                                AutoCleanupLevel.LIGHT -> str("cleanup_light_desc")
+                                AutoCleanupLevel.MEDIUM -> str("cleanup_full_desc")
                             }
+                            Text(cleanupDesc, fontSize = 12.sp, color = DarkInkMuted)
+                        }
 
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
+                        FlowHairline()
 
-                            // Casual Messaging Trailing Period Policy Switch
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        if (isBn) "মেসেজিংয়ে অপ্রয়োজনীয় দাঁড়ি বাদ দিন" else "Casual Messaging: Drop Trailing Period",
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 13.sp,
-                                        color = TextPrimary
-                                    )
-                                    Text(
-                                        if (isBn) "WhatsApp/Messenger-এ ১-২ লাইনের মেসেজে শেষের দাঁড়ি (.) বাদ দেবে।" else "Omits stiff trailing period on 1-2 sentence chats in WhatsApp/Messenger.",
-                                        fontSize = 11.sp,
-                                        color = TextSecondary
-                                    )
-                                }
-                                Switch(
-                                    checked = casualMessagingDropPeriod,
-                                    onCheckedChange = {
-                                        casualMessagingDropPeriod = it
-                                        prefs.casualMessagingDropPeriod = it
-                                    }
+                        // Row 3: Drop final full stop in chats
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("drop_period"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("drop_period_desc"), fontSize = 12.sp, color = DarkInkMuted, lineHeight = 16.sp)
+                            }
+                            Switch(
+                                checked = casualMessagingDropPeriod,
+                                onCheckedChange = {
+                                    casualMessagingDropPeriod = it
+                                    prefs.casualMessagingDropPeriod = it
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
                                 )
-                            }
+                            )
                         }
                     }
                 }
 
-                // Personal Dictionary & Auto-Learned Words Card
+                // 7. Microphone Group §6.5
                 item {
-                    val dictionaryManager = FlowBanglaApp.instance.personalDictionaryManager
-                    var dictEntries by remember { mutableStateOf(dictionaryManager.getAllEntries()) }
-                    var newWordText by remember { mutableStateOf("") }
-                    var newMisspellingText by remember { mutableStateOf("") }
-                    var showAddDictDialog by remember { mutableStateOf(false) }
+                    Text(
+                        text = str("microphone"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DarkInkMuted,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                    )
 
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                    FlowGroup {
+                        // Live Preview Block (§6.5: 96dp tall, centered preview)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(96.dp)
+                                .padding(top = 10.dp, bottom = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Canvas(modifier = Modifier.size(bubbleSize.dp)) {
+                                drawDandaMic(disc = DarkInk.copy(alpha = bubbleOpacity), glyph = DarkInkOnAccent)
+                            }
+                            Text(
+                                text = "Preview",
+                                fontSize = 10.sp,
+                                color = DarkInkMuted,
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(start = 4.dp)
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Row 1: Interaction Segmented Control
+                        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                            Text(str("how_to_start"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            FlowSegmentedControl(
+                                items = listOf(str("tap_to_start"), str("hold_to_talk")),
+                                selectedIndex = if (interactionMode == InteractionMode.TAP_TO_TALK) 0 else 1,
+                                onSelect = { idx ->
+                                    val mode = if (idx == 0) InteractionMode.TAP_TO_TALK else InteractionMode.PUSH_TO_TALK
+                                    interactionMode = mode
+                                    prefs.interactionMode = mode
+                                }
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Row 2: Size Slider (48..84dp, step 4dp per §6.5)
+                        Column(modifier = Modifier.padding(vertical = 10.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.MenuBook, contentDescription = null, tint = AccentCyan)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        if (isBn) "ব্যক্তিগত ডিকশনারি ও অটো-লার্ন ✨" else "Personal Dictionary & Auto-Learn ✨",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = TextPrimary
-                                    )
-                                }
-                                OutlinedButton(
-                                    onClick = { showAddDictDialog = true },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(if (isBn) "শব্দ যোগ" else "Add", fontSize = 12.sp)
-                                }
+                                Text(str("size"), fontSize = 14.sp, color = DarkInk)
+                                Text("${bubbleSize.toInt()} dp", fontSize = 13.sp, color = DarkInkMuted)
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                if (isBn) "আপনার নাম ও নিজস্ব শব্দ। পেস্ট করার ১৫ সেকেন্ডের মধ্যে আপনি কোনো ভুল বানান এডিট করলে Flow তা স্বয়ংক্রিয়ভাবে শিখে নেয় ✨"
-                                else "Add proper nouns or spelling corrections. Flow automatically learns spelling fixes you make within 15s of pasting ✨",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                lineHeight = 16.sp
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            if (dictEntries.isEmpty()) {
-                                Text(
-                                    if (isBn) "কোনো নিজস্ব শব্দ নেই। শব্দ যোগ করুন অথবা টাইপিং করার পর এডিট করলে স্বয়ংক্রিয়ভাবে সেভ হবে।"
-                                    else "No custom words yet. Words you edit post-paste will appear here automatically.",
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
+                            Slider(
+                                value = bubbleSize,
+                                onValueChange = { raw ->
+                                    // Snap to 4dp step grid: 48, 52, 56, 60, 64, 68, 72, 76, 80, 84
+                                    val stepped = (Math.round((raw - 48f) / 4f) * 4f) + 48f
+                                    bubbleSize = stepped.coerceIn(48f, 84f)
+                                    prefs.bubbleSizeDp = bubbleSize.toInt()
+                                    notifyServiceSettingsChanged(context)
+                                },
+                                valueRange = 48f..84f,
+                                steps = 8, // (84 - 48) / 4 - 1 = 8 steps
+                                colors = SliderDefaults.colors(
+                                    thumbColor = DarkInk,
+                                    activeTrackColor = DarkInk,
+                                    inactiveTrackColor = DarkSurfaceSunken
                                 )
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    dictEntries.take(15).forEach { entry ->
-                                        Surface(
-                                            color = BackgroundDark,
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(entry.word, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
-                                                        if (entry.autoLearned) {
-                                                            Spacer(modifier = Modifier.width(6.dp))
-                                                            Surface(
-                                                                color = SurfaceCard,
-                                                                shape = RoundedCornerShape(4.dp)
-                                                            ) {
-                                                                Text("✨ Auto-learned", fontSize = 9.sp, color = ProcessingAmber, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-                                                            }
-                                                        }
-                                                    }
-                                                    if (!entry.misspelling.isNullOrBlank()) {
-                                                        Text("Replaces: ${entry.misspelling}", fontSize = 11.sp, color = TextSecondary)
-                                                    }
-                                                }
-                                                IconButton(
-                                                    onClick = {
-                                                        val list = dictEntries.toMutableList()
-                                                        list.remove(entry)
-                                                        val saveArr = JSONArray()
-                                                        list.forEach { item ->
-                                                            saveArr.put(JSONObject().apply {
-                                                                put("word", item.word)
-                                                                if (item.misspelling != null) put("misspelling", item.misspelling)
-                                                                put("autoLearned", item.autoLearned)
-                                                                put("updatedAtMs", item.updatedAtMs)
-                                                            })
-                                                        }
-                                                        context.getSharedPreferences("flow_personal_dictionary", Context.MODE_PRIVATE)
-                                                            .edit().putString("entries_json", saveArr.toString()).apply()
-                                                        dictEntries = dictionaryManager.getAllEntries()
-                                                    },
-                                                    modifier = Modifier.size(24.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            )
                         }
-                    }
 
-                    if (showAddDictDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showAddDictDialog = false },
-                            title = { Text(if (isBn) "শব্দ বা বানান সংশোধন যোগ করুন" else "Add Dictionary Word", fontWeight = FontWeight.Bold, color = TextPrimary) },
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedTextField(
-                                        value = newWordText,
-                                        onValueChange = { newWordText = it },
-                                        label = { Text("Correct Word / সঠিক শব্দ (e.g. Sylhet)") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = newMisspellingText,
-                                        onValueChange = { newMisspellingText = it },
-                                        label = { Text("Misspelling / ভুল বানান (Optional, e.g. Silhet)") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        if (newWordText.isNotBlank()) {
-                                            dictionaryManager.addOrUpdateEntry(
-                                                word = newWordText,
-                                                misspelling = newMisspellingText.ifBlank { null },
-                                                autoLearned = false
-                                            )
-                                            dictEntries = dictionaryManager.getAllEntries()
-                                            newWordText = ""
-                                            newMisspellingText = ""
-                                            showAddDictDialog = false
-                                        }
+                        FlowHairline()
+
+                        // Row 3: Opacity Slider (30..100%, step 5% per §6.5)
+                        Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(str("opacity"), fontSize = 14.sp, color = DarkInk)
+                                Text("${(bubbleOpacity * 100).toInt()}%", fontSize = 13.sp, color = DarkInkMuted)
+                            }
+                            Slider(
+                                value = bubbleOpacity,
+                                onValueChange = { raw ->
+                                    // Snap to 5% step grid
+                                    val percent = Math.round(raw * 100f / 5f) * 5f
+                                    bubbleOpacity = (percent / 100f).coerceIn(0.30f, 1.0f)
+                                    prefs.bubbleOpacity = bubbleOpacity
+                                    notifyServiceSettingsChanged(context)
+                                },
+                                valueRange = 0.30f..1.0f,
+                                steps = 13, // (100 - 30) / 5 - 1 = 13 steps
+                                colors = SliderDefaults.colors(
+                                    thumbColor = DarkInk,
+                                    activeTrackColor = DarkInk,
+                                    inactiveTrackColor = DarkSurfaceSunken
+                                )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Row 4: Haptic Feedback
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("haptic"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("haptic_desc"), fontSize = 12.sp, color = DarkInkMuted)
+                            }
+                            Switch(
+                                checked = isHaptic,
+                                onCheckedChange = {
+                                    isHaptic = it
+                                    prefs.hapticFeedbackEnabled = it
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
+                                )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Row 5: Show only when typing
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("show_only_typing"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("show_only_typing_desc"), fontSize = 12.sp, color = DarkInkMuted)
+                            }
+                            Switch(
+                                checked = showOnlyWithKeyboard,
+                                onCheckedChange = {
+                                    showOnlyWithKeyboard = it
+                                    prefs.showOnlyWithKeyboard = it
+                                    FloatingBubbleService.instance?.applyVisibilityRule()
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
+                                )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Row 6: Hide or Show now button
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (isMicDismissed) {
+                                        FloatingBubbleService.instance?.showBubbleFromBottom()
+                                        isMicDismissed = false
+                                    } else {
+                                        FloatingBubbleService.instance?.hideBubbleDirectly()
+                                        isMicDismissed = true
                                     }
-                                ) {
-                                    Text("Save", color = AccentCyan)
                                 }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showAddDictDialog = false }) {
-                                    Text("Cancel", color = TextSecondary)
-                                }
-                            },
-                            containerColor = SurfaceDark
-                        )
+                                .padding(vertical = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isMicDismissed) str("show_mic") else str("hide_mic"),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = DarkInk
+                            )
+                        }
                     }
                 }
 
-                // Voice Snippets Card
+                // 8. Vocabulary Group §6.6
                 item {
-                    val snippetManager = FlowBanglaApp.instance.snippetManager
-                    var snippetList by remember { mutableStateOf(snippetManager.getAllSnippets()) }
-                    var newTriggerText by remember { mutableStateOf("") }
-                    var newExpansionText by remember { mutableStateOf("") }
-                    var showAddSnippetDialog by remember { mutableStateOf(false) }
+                    Text(
+                        text = str("vocabulary"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DarkInkMuted,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                    )
 
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.FlashOn, contentDescription = null, tint = AccentCyan)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        if (isBn) "ভয়েস স্নsnippet / টেক্সট এক্সপান্ডার" else "Voice Snippets & Shortcuts",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = TextPrimary
-                                    )
-                                }
-                                OutlinedButton(
-                                    onClick = { showAddSnippetDialog = true },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(if (isBn) "স্নsnippet যোগ" else "Add", fontSize = 12.sp)
-                                }
+                    FlowGroup {
+                        // Personal dictionary row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                                .clickable { showDictionarySheet = true },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("personal_dict"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("personal_dict_desc"), fontSize = 12.sp, color = DarkInkMuted)
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                if (isBn) "মুখে 'আমার ঠিকানা' বা 'my email' বললেই স্বয়ংক্রিয়ভাবে বড় টেক্সট বসে যাবে।"
-                                else "Speak trigger phrases like 'my email' or 'my address' to automatically expand into saved text blocks.",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                lineHeight = 16.sp
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${dictionaryEntries.size}", fontSize = 13.sp, color = DarkInkMuted)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = DarkInkMuted, modifier = Modifier.size(16.dp))
+                            }
+                        }
 
-                            if (snippetList.isEmpty()) {
-                                Text(
-                                    if (isBn) "কোনো স্নsnippet যোগ করা নেই।" else "No snippets created yet.",
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    snippetList.forEach { snip ->
-                                        Surface(
-                                            color = BackgroundDark,
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text("🗣 ${snip.trigger}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AccentCyan)
-                                                    Text(snip.expansion, fontSize = 11.sp, color = TextPrimary, maxLines = 2)
-                                                }
-                                                IconButton(
-                                                    onClick = {
-                                                        snippetManager.deleteSnippet(snip.trigger)
-                                                        snippetList = snippetManager.getAllSnippets()
-                                                    },
-                                                    modifier = Modifier.size(24.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        FlowHairline()
+
+                        // Voice snippets row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                                .clickable { showSnippetsSheet = true },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("snippets"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("snippets_desc"), fontSize = 12.sp, color = DarkInkMuted)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("${snippetList.size}", fontSize = 13.sp, color = DarkInkMuted)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = DarkInkMuted, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
+                }
 
-                    if (showAddSnippetDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showAddSnippetDialog = false },
-                            title = { Text(if (isBn) "নতুন স্নsnippet যোগ করুন" else "Create Voice Snippet", fontWeight = FontWeight.Bold, color = TextPrimary) },
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedTextField(
-                                        value = newTriggerText,
-                                        onValueChange = { newTriggerText = it },
-                                        label = { Text("Spoken Trigger / যে কথাটি বলবেন (e.g. my address)") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    OutlinedTextField(
-                                        value = newExpansionText,
-                                        onValueChange = { newExpansionText = it },
-                                        label = { Text("Expansion Text / বড় টেক্সট ব্লক") },
-                                        minLines = 3,
-                                        maxLines = 6,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        if (newTriggerText.isNotBlank() && newExpansionText.isNotBlank()) {
-                                            snippetManager.addOrUpdateSnippet(newTriggerText, newExpansionText)
-                                            snippetList = snippetManager.getAllSnippets()
-                                            newTriggerText = ""
-                                            newExpansionText = ""
-                                            showAddSnippetDialog = false
-                                        }
+                // 9. About Group §6.10
+                item {
+                    Text(
+                        text = str("about"),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DarkInkMuted,
+                        modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                    )
+
+                    FlowGroup {
+                        // Appearance Segmented Control
+                        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                            Text(str("appearance"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val themes = listOf("System", "Dark", "Light")
+                            val themeIdx = when (currentAppearance) {
+                                "system" -> 0
+                                "dark" -> 1
+                                else -> 2
+                            }
+                            FlowSegmentedControl(
+                                items = themes,
+                                selectedIndex = themeIdx,
+                                onSelect = { idx ->
+                                    val newT = when (idx) {
+                                        0 -> "system"
+                                        1 -> "dark"
+                                        else -> "light"
                                     }
-                                ) {
-                                    Text("Save", color = AccentCyan)
+                                    onAppearanceChange(newT)
                                 }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showAddSnippetDialog = false }) {
-                                    Text("Cancel", color = TextSecondary)
-                                }
-                            },
-                            containerColor = SurfaceDark
-                        )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Guide Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp)
+                                .clickable { showGuideDialog = true },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(str("guide"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = DarkInkMuted, modifier = Modifier.size(16.dp))
+                        }
+
+                        FlowHairline()
+
+                        // Diagnostics Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp)
+                                .clickable { showDiagnosticsDialog = true },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(str("diagnostics"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = DarkInkMuted, modifier = Modifier.size(16.dp))
+                        }
+
+                        FlowHairline()
+
+                        // Version
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Flow", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                            Text(str("version"), fontSize = 13.sp, color = DarkInkMuted)
+                        }
                     }
                 }
 
-                item { Spacer(modifier = Modifier.height(20.dp)) }
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         } else {
-            // History Tab
+            // History Tab §6.7
             HistoryScreen(
                 history = recentHistory,
                 isBn = isBn,
                 onCopy = { text ->
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("Flow", text))
-                    Toast.makeText(context, str("copied"), Toast.LENGTH_SHORT).show()
                 },
                 onClear = {
                     historyManager.clearHistory()
@@ -1903,12 +1407,124 @@ fun MainScreen(
         }
     }
 
-    // Setup & API Keys Guide Dialog
-    if (showHelpDialog) {
+    // Setup Permissions Sheet (§6.9)
+    if (showPermissionsSheet) {
+        SetupPermissionsSheet(
+            permissionState = permissionState,
+            isBn = isBn,
+            onDismiss = { showPermissionsSheet = false },
+            onRequestAccessibility = onRequestAccessibilityPermission,
+            onRequestOverlay = onRequestOverlayPermission,
+            onRequestXiaomiAutostart = onRequestXiaomiAutostart,
+            onRequestBatteryExemption = onRequestBatteryExemption
+        )
+    }
+
+    // Key Sheet (§6.3)
+    activeKeySheetProvider?.let { provider ->
+        val currentKey = when (provider) {
+            "Gemini" -> geminiKeyText
+            "Groq" -> groqKeyText
+            "Cerebras" -> cerebrasKeyText
+            else -> openRouterKeyText
+        }
+
+        KeyBottomSheet(
+            providerName = provider,
+            initialKey = currentKey,
+            onSave = { savedKey ->
+                when (provider) {
+                    "Gemini" -> {
+                        geminiKeyText = savedKey
+                        prefs.geminiApiKey = savedKey
+                    }
+                    "Groq" -> {
+                        groqKeyText = savedKey
+                        prefs.groqApiKey = savedKey
+                    }
+                    "Cerebras" -> {
+                        cerebrasKeyText = savedKey
+                        prefs.cerebrasApiKey = savedKey
+                    }
+                    "OpenRouter" -> {
+                        openRouterKeyText = savedKey
+                        prefs.openRouterApiKey = savedKey
+                    }
+                }
+                notifyServiceSettingsChanged(context)
+            },
+            onPaste = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
+            },
+            onDismiss = { activeKeySheetProvider = null },
+            isBn = isBn
+        )
+    }
+
+    // Guide Dialog (§6.10)
+    if (showGuideDialog) {
         AlertDialog(
-            onDismissRequest = { showHelpDialog = false },
+            onDismissRequest = { showGuideDialog = false },
             title = {
-                Text(str("help_btn"), fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text("Flow Guide", fontFamily = FontFamily.Serif, fontSize = 20.sp, color = DarkInk)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("1. Free Gemini Key (Recommended)", fontWeight = FontWeight.Bold, color = DarkInk)
+                    Text(
+                        "Visit aistudio.google.com to generate a free Gemini API key. Paste it under Keys to enjoy unlimited Bangla and English dictation.",
+                        fontSize = 13.sp,
+                        color = DarkInkMuted,
+                        lineHeight = 18.sp
+                    )
+
+                    FlowHairline()
+
+                    Text("2. Offline Voice Typing", fontWeight = FontWeight.Bold, color = DarkInk)
+                    Text(
+                        "Download Bengali (Bangladesh) and English voice packs in Android Settings > Google Voice Typing to dictate even when disconnected.",
+                        fontSize = 13.sp,
+                        color = DarkInkMuted,
+                        lineHeight = 18.sp
+                    )
+
+                    FlowHairline()
+
+                    Text("3. Double-Tap Language Switch", fontWeight = FontWeight.Bold, color = DarkInk)
+                    Text(
+                        "Double-tap the floating mic while idle to swap between Bangla (বাং) and English (EN).",
+                        fontSize = 13.sp,
+                        color = DarkInkMuted,
+                        lineHeight = 18.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showGuideDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkInk, contentColor = DarkInkOnAccent),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Got it")
+                }
+            },
+            containerColor = DarkSurface
+        )
+    }
+
+    // Diagnostics Dialog (§6.8)
+    if (showDiagnosticsDialog) {
+        val report = connectivityReport
+        AlertDialog(
+            onDismissRequest = { showDiagnosticsDialog = false },
+            title = {
+                Text(str("diagnostics"), fontFamily = FontFamily.Serif, fontSize = 20.sp, color = DarkInk)
             },
             text = {
                 Column(
@@ -1917,115 +1533,288 @@ fun MainScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        if (isBn) "১. অফলাইন বাংলা ও ইংরেজি ভয়েস প্যাক:"
-                        else "1. Offline Voice Typing in Gboard:",
-                        fontWeight = FontWeight.Bold,
-                        color = AccentCyan
-                    )
-                    Text(
-                        if (isBn) "ফোনের Settings > Additional Settings > Languages & input > Google Voice Typing > Offline speech recognition-এ গিয়ে বাংলা (বাংলাদেশ) এবং English (US) ডাউনলোড করুন।"
-                        else "Open Settings > Additional Settings > Languages & input > Google Voice Typing > Offline speech recognition, then download বাংলা (বাংলাদেশ) & English (US).",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
+                    if (report == null) {
+                        Text("No test report yet. Run 'Test connection' to verify your Gemini setup.", fontSize = 13.sp, color = DarkInkMuted)
+                    } else {
+                        val stages = listOf(
+                            Pair("Key & models", report.s1Status),
+                            Pair("File upload", report.s2Status),
+                            Pair("Live transcription", report.s3Status)
+                        )
 
-                    HorizontalDivider(color = SurfaceCard)
-
-                    Text(
-                        if (isBn) "২. ফ্রি ক্লাউড পলিশ API Keys:"
-                        else "2. Free Cloud Polish API Keys:",
-                        fontWeight = FontWeight.Bold,
-                        color = AccentCyan
-                    )
-                    Text(
-                        "• Gemini: aistudio.google.com (1,500 RPD free)\n" +
-                                "• Groq: console.groq.com (30 RPM, 1,000-14,400 RPD free)\n" +
-                                "• Cerebras: inference-docs.cerebras.ai (instant ~2,000 tok/sec free)\n" +
-                                "• OpenRouter: openrouter.ai/keys (free community router)",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-
-                    HorizontalDivider(color = SurfaceCard)
-
-                    Text(
-                        if (isBn) "৩. অফলাইন AI মডেল (Gemma 3 1B):"
-                        else "3. On-Device Gemma 3 Model:",
-                        fontWeight = FontWeight.Bold,
-                        color = AccentCyan
-                    )
-                    Text(
-                        if (isBn) "এটি সম্পূর্ণ অফলাইনে Gemma 3 ব্যবহার করে দাড়ি-কমা ঠিক করে। মডেল ব্যবহারের ২ মিনিট পর স্বয়ংক্রিয়ভাবে র‍্যাম খালি হয়ে যায়।"
-                        else "Loads locally via LiteRT-LM. Automatically frees RAM after 2 minutes of inactivity to preserve battery.",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
+                        stages.forEach { (name, status) ->
+                            val isPass = status.startsWith("PASS")
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(name, fontSize = 14.sp, color = DarkInk)
+                                if (isPass) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Check, contentDescription = null, tint = SageDark, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Passed", fontSize = 12.sp, color = SageDark)
+                                    }
+                                } else {
+                                    Text("Failed", fontSize = 12.sp, color = DarkInkMuted)
+                                }
+                            }
+                            Text(status, fontSize = 11.sp, color = DarkInkMuted, fontFamily = FontFamily.Monospace)
+                            FlowHairline()
+                        }
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showHelpDialog = false }) {
-                    Text("OK", color = AccentCyan)
+                Button(
+                    onClick = { showDiagnosticsDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkInk, contentColor = DarkInkOnAccent),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Close")
                 }
             },
-            containerColor = SurfaceDark
+            dismissButton = {
+                if (report != null) {
+                    TextButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Flow Diagnostics", report.redactedSummary))
+                        Toast.makeText(context, "Report copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Copy report", color = DarkInkMuted)
+                    }
+                }
+            },
+            containerColor = DarkSurface
         )
     }
-}
 
-@Composable
-fun ApiKeyInputField(
-    title: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    hint: String,
-    showKey: Boolean,
-    onToggleShowKey: () -> Unit,
-    context: Context
-) {
-    Column {
-        Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
-        Spacer(modifier = Modifier.height(4.dp))
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = { Text(hint, fontSize = 12.sp) },
-            singleLine = true,
-            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = onToggleShowKey) {
-                    Icon(
-                        if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = null
+    // Personal Dictionary Sheet (§6.6)
+    if (showDictionarySheet) {
+        var wordText by remember { mutableStateOf("") }
+        var misText by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showDictionarySheet = false },
+            title = {
+                Text(str("personal_dict"), fontFamily = FontFamily.Serif, fontSize = 20.sp, color = DarkInk)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(str("personal_dict_desc"), fontSize = 12.sp, color = DarkInkMuted)
+
+                    // Add new word
+                    TextField(
+                        value = wordText,
+                        onValueChange = { wordText = it },
+                        placeholder = { Text("Correct Word (e.g. Sylhet)", fontSize = 13.sp, color = DarkInkMuted) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DarkSurfaceSunken,
+                            unfocusedContainerColor = DarkSurfaceSunken,
+                            focusedTextColor = DarkInk,
+                            unfocusedTextColor = DarkInk
+                        ),
+                        singleLine = true
                     )
+                    TextField(
+                        value = misText,
+                        onValueChange = { misText = it },
+                        placeholder = { Text("Misspelling (optional, e.g. Silhet)", fontSize = 13.sp, color = DarkInkMuted) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DarkSurfaceSunken,
+                            unfocusedContainerColor = DarkSurfaceSunken,
+                            focusedTextColor = DarkInk,
+                            unfocusedTextColor = DarkInk
+                        ),
+                        singleLine = true
+                    )
+
+                    Button(
+                        onClick = {
+                            if (wordText.isNotBlank()) {
+                                dictionaryManager.addOrUpdateEntry(wordText, misText.ifBlank { null })
+                                dictionaryEntries = dictionaryManager.getAllEntries()
+                                wordText = ""
+                                misText = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkInk, contentColor = DarkInkOnAccent),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Add word")
+                    }
+
+                    FlowHairline()
+
+                    // Entries List
+                    if (dictionaryEntries.isEmpty()) {
+                        Text("Words you correct will appear here.", fontSize = 13.sp, color = DarkInkMuted, textAlign = TextAlign.Center)
+                    } else {
+                        dictionaryEntries.forEach { entry ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(entry.word, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                    if (!entry.misspelling.isNullOrBlank()) {
+                                        Text(entry.misspelling, fontSize = 12.sp, color = DarkInkMuted)
+                                    }
+                                }
+                                if (entry.autoLearned) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(OchreDark))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Learned", fontSize = 11.sp, color = OchreDark)
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        dictionaryManager.deleteEntry(entry.word, entry.misspelling)
+                                        dictionaryEntries = dictionaryManager.getAllEntries()
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Delete", tint = DarkInkMuted, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                focusedBorderColor = AccentCyan,
-                unfocusedBorderColor = SurfaceCard
-            )
+            confirmButton = {
+                Button(
+                    onClick = { showDictionarySheet = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkInk, contentColor = DarkInkOnAccent),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Done")
+                }
+            },
+            containerColor = DarkSurface
         )
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            OutlinedButton(
-                onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-                    if (!clip.isNullOrBlank()) {
-                        onValueChange(clip.trim())
+    }
+
+    // Voice Snippets Sheet (§6.6)
+    if (showSnippetsSheet) {
+        var triggerText by remember { mutableStateOf("") }
+        var expansionText by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showSnippetsSheet = false },
+            title = {
+                Text(str("snippets"), fontFamily = FontFamily.Serif, fontSize = 20.sp, color = DarkInk)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(str("snippets_desc"), fontSize = 12.sp, color = DarkInkMuted)
+
+                    TextField(
+                        value = triggerText,
+                        onValueChange = { triggerText = it },
+                        placeholder = { Text("Spoken trigger (e.g. my email)", fontSize = 13.sp, color = DarkInkMuted) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DarkSurfaceSunken,
+                            unfocusedContainerColor = DarkSurfaceSunken,
+                            focusedTextColor = DarkInk,
+                            unfocusedTextColor = DarkInk
+                        ),
+                        singleLine = true
+                    )
+                    TextField(
+                        value = expansionText,
+                        onValueChange = { expansionText = it },
+                        placeholder = { Text("Expanded text block", fontSize = 13.sp, color = DarkInkMuted) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DarkSurfaceSunken,
+                            unfocusedContainerColor = DarkSurfaceSunken,
+                            focusedTextColor = DarkInk,
+                            unfocusedTextColor = DarkInk
+                        ),
+                        maxLines = 3
+                    )
+
+                    Button(
+                        onClick = {
+                            if (triggerText.isNotBlank() && expansionText.isNotBlank()) {
+                                snippetManager.addOrUpdateSnippet(triggerText, expansionText)
+                                snippetList = snippetManager.getAllSnippets()
+                                triggerText = ""
+                                expansionText = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkInk, contentColor = DarkInkOnAccent),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Add snippet")
                     }
-                },
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Paste", fontSize = 12.sp)
-            }
-        }
+
+                    FlowHairline()
+
+                    if (snippetList.isEmpty()) {
+                        Text("Short phrases you say often, like an address or email, go here.", fontSize = 13.sp, color = DarkInkMuted)
+                    } else {
+                        snippetList.forEach { snip ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(snip.trigger, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                    Text(snip.expansion, fontSize = 12.sp, color = DarkInkMuted, maxLines = 2)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        snippetManager.deleteSnippet(snip.trigger)
+                                        snippetList = snippetManager.getAllSnippets()
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Delete", tint = DarkInkMuted, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showSnippetsSheet = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkInk, contentColor = DarkInkOnAccent),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Done")
+                }
+            },
+            containerColor = DarkSurface
+        )
     }
 }
 
@@ -2037,196 +1826,3 @@ private fun notifyServiceSettingsChanged(context: Context) {
         context.startService(intent)
     }
 }
-
-private fun openVoiceInputSettings(context: Context) {
-    val intents = listOf(
-        Intent("com.google.android.gms.speech.agenda"),
-        Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
-        Intent("android.speech.action.VOICE_SEARCH_SETTINGS"),
-        Intent(Settings.ACTION_LOCALE_SETTINGS),
-        Intent(Settings.ACTION_SETTINGS)
-    )
-    for (intent in intents) {
-        try {
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            context.startActivity(intent)
-            return
-        } catch (_: Exception) {
-        }
-    }
-}
-
-@Composable
-fun PermissionRowItem(
-    title: String,
-    isGranted: Boolean,
-    buttonLabel: String,
-    onGrant: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            title,
-            fontSize = 13.sp,
-            color = if (isGranted) TextSecondary else TextPrimary,
-            modifier = Modifier.weight(1f)
-        )
-        if (isGranted) {
-            Icon(Icons.Default.Check, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
-        } else {
-            Button(
-                onClick = onGrant,
-                colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(buttonLabel, fontSize = 12.sp)
-            }
-        }
-    }
-}
-
-@Composable
-fun HistoryScreen(
-    history: List<DictationRecord>,
-    isBn: Boolean,
-    onCopy: (String) -> Unit,
-    onClear: () -> Unit
-) {
-    val dateFormat = remember { SimpleDateFormat("hh:mm a, dd MMM", Locale.getDefault()) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                L10n.t("history_title", isBn),
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                color = TextPrimary
-            )
-            if (history.isNotEmpty()) {
-                TextButton(onClick = onClear) {
-                    Text(L10n.t("clear_history", isBn), color = RecordingRed)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (history.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.MicNone,
-                        contentDescription = null,
-                        tint = TextSecondary,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(L10n.t("no_history", isBn), color = TextSecondary)
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(history) { item ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    dateFormat.format(Date(item.timestamp)),
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    if (item.provenance.isNotBlank()) {
-                                        Surface(
-                                            color = SurfaceCard,
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                item.provenance,
-                                                fontSize = 10.sp,
-                                                color = AccentCyan,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                    if (item.durationSeconds > 0) {
-                                        Text("${item.durationSeconds} ${L10n.t("seconds", isBn)}", fontSize = 11.sp, color = AccentCyan)
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                item.text,
-                                fontSize = 15.sp,
-                                color = TextPrimary,
-                                lineHeight = 22.sp
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                if (item.rawTranscript.isNotBlank() && item.rawTranscript.trim() != item.text.trim()) {
-                                    OutlinedButton(
-                                        onClick = { onCopy(item.rawTranscript) },
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ProcessingAmber)
-                                    ) {
-                                        Icon(Icons.Default.Undo, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(if (isBn) "মূল কথা ফিরিয়ে আনুন" else "Undo AI Edit", fontSize = 12.sp)
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-
-                                OutlinedButton(
-                                    onClick = { onCopy(item.text) },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(L10n.t("copy", isBn), fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-
