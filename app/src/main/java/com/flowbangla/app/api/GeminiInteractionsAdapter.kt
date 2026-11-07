@@ -152,16 +152,19 @@ class GeminiInteractionsAdapter(
             // 1. Try dedicated gemini-3.5-transcribe first
             for (spec in asrCandidates) {
                 val startMs = System.currentTimeMillis()
+                val modeObject = JSONObject().put(
+                    "type",
+                    if (useVerbatimMode) "verbatim" else "smart"
+                )
+
                 val transcriptionConfig = JSONObject().apply {
-                    put("language_codes", JSONArray(languageCodes))
+                    if (languageCodes.isNotEmpty()) {
+                        put("language_codes", JSONArray(languageCodes))
+                    }
                     if (customVocabulary.isNotEmpty()) {
-                        put("custom_vocabulary", JSONArray(customVocabulary.take(100)))
+                        put("custom_vocabulary", JSONArray(customVocabulary.distinct().take(250)))
                     }
-                    if (useVerbatimMode) {
-                        put("mode", JSONObject().put("type", "verbatim"))
-                    } else {
-                        put("mode", "smart")
-                    }
+                    put("mode", modeObject)
                 }
 
                 val payload = JSONObject().apply {
@@ -268,6 +271,70 @@ class GeminiInteractionsAdapter(
 
             return TranscriptExtractor.fromInteractionJson(rawBody)
         }
+    }
+
+    /**
+     * Executes Voice Command Mode: Transforms highlighted/selected text in any target app
+     * using the spoken voice instruction (e.g. "Make this more formal", "Turn this into bullet points").
+     */
+    suspend fun runCommandTransform(
+        selectedText: String,
+        spokenInstruction: String,
+        rawApiKey: String
+    ): InteractionCallResult = withContext(Dispatchers.IO) {
+        val key = rawApiKey.trim()
+        val liveModels = ModelCatalog.getOrFetchLiveModels(http, key)
+        val candidates = ModelCatalog.selectCandidates(ModelTask.TEXT_FORMATTING, liveModels)
+
+        if (candidates.isEmpty()) {
+            throw FlowApiException(404, ErrorCategory.MODEL_NOT_AVAILABLE, "No live Gemini models available for command mode.")
+        }
+
+        val prompt = """
+            You are Flow's AI text transformation engine.
+            The user has selected the following text in an application:
+            <selected_text>
+            $selectedText
+            </selected_text>
+
+            The user gave this voice command:
+            <command>
+            $spokenInstruction
+            </command>
+
+            Execute the command strictly on the selected text.
+            Rules:
+            1. Output ONLY the transformed replacement text. Do NOT include explanations, preambles, or quotes.
+            2. Preserve the primary language (Bangla or English) of the text unless explicitly commanded to translate.
+            3. If the command asks for bullets or numbering, format them cleanly.
+        """.trimIndent()
+
+        var lastException: FlowApiException? = null
+        for (spec in candidates) {
+            val startMs = System.currentTimeMillis()
+            val payload = JSONObject().apply {
+                put("model", spec.id)
+                put("store", false)
+                put("input", JSONArray().put(JSONObject().apply {
+                    put("type", "text")
+                    put("text", prompt)
+                }))
+                put("generation_config", JSONObject().apply {
+                    put("temperature", 0.1)
+                })
+            }
+
+            try {
+                val rawResponse = executeInteractionsPost(payload, key, spec.id)
+                return@withContext InteractionCallResult(rawResponse.trim(), spec.id, System.currentTimeMillis() - startMs)
+            } catch (e: FlowApiException) {
+                lastException = e
+                if (e.httpCode == 404) ModelCatalog.markModelUnavailableForSession(spec.id)
+                if (e.category == ErrorCategory.AUTHENTICATION_FAILED) throw e
+            }
+        }
+
+        throw lastException ?: FlowApiException(500, ErrorCategory.PROVIDER_SERVER_ERROR, "Command execution failed on all candidates.")
     }
 }
 

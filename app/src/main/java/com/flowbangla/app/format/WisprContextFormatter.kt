@@ -10,18 +10,20 @@ object WisprContextFormatter {
 
     /**
      * Applies Wispr Flow on-device cursor boundary formatting (< 1ms):
-     * 1. Prepends a leading space if the cursor is immediately preceded by a non-whitespace character.
-     * 2. Lowers the first character if the user is dictating mid-sentence (e.g. after a comma or space),
+     * 1. Strips stiff trailing periods for 1-2 sentence messages in casual messaging apps.
+     * 2. Prepends a leading space if the cursor is immediately preceded by a non-whitespace character.
+     * 3. Lowers the first character if the user is dictating mid-sentence (e.g. after a comma, space, or emoji),
      *    except for English acronyms (e.g. "API", "AI") or the pronoun "I".
      */
     fun applyCursorBoundaryFormatting(
         text: String,
-        context: ActiveFieldContext
+        context: ActiveFieldContext,
+        dropCasualPeriod: Boolean = false
     ): String {
         if (text.isEmpty()) return ""
 
-        // Trim any accidental leading whitespace from model/transcription output
-        var result = text.trimStart()
+        var result = applyCasualMessagingPeriodPolicy(text, context.appCategory, dropCasualPeriod)
+        result = result.trimStart()
         if (result.isEmpty()) return ""
 
         // 1. Mid-sentence lowercase alignment for Latin characters
@@ -45,25 +47,45 @@ object WisprContextFormatter {
     }
 
     /**
+     * In casual messaging apps (WhatsApp, Messenger, SMS), 1-2 sentence short messages
+     * automatically omit the stiff trailing period while preserving '?' and '!'.
+     */
+    fun applyCasualMessagingPeriodPolicy(text: String, appCategory: AppCategory, dropCasualPeriod: Boolean): String {
+        if (!dropCasualPeriod || appCategory != AppCategory.PERSONAL_MESSAGING) return text
+        val trimmed = text.trimEnd()
+        if (trimmed.endsWith(".") || trimmed.endsWith("।")) {
+            val sentenceCount = trimmed.count { it == '.' || it == '।' || it == '?' || it == '!' }
+            val newlineCount = trimmed.count { it == '\n' }
+            if (sentenceCount in 1..2 && newlineCount == 0 && !trimmed.endsWith("...")) {
+                return trimmed.dropLast(1)
+            }
+        }
+        return text
+    }
+
+    /**
      * Validates that critical tokens (numbers, URLs, emails) present in the raw transcript
-     * were faithfully preserved by the formatter. If any critical token was lost, returns false.
+     * were faithfully preserved by the formatter. If any critical token was lost, returns false,
+     * unless the raw transcript contained an explicit Backtrack self-correction cue.
      */
     fun areCriticalTokensPreserved(rawTranscript: String, formattedText: String): Boolean {
+        val hasBacktrackCue = PromptBuilder.BACKTRACK_CUE_REGEX.containsMatchIn(rawTranscript)
+
         // Check numeric tokens
         val rawNumbers = NUMERIC_REGEX.findAll(rawTranscript).map { it.value }.toSet()
         val formattedNumbers = NUMERIC_REGEX.findAll(formattedText).map { it.value }.toSet()
-        // If raw had numbers but formatted dropped them all
-        if (rawNumbers.isNotEmpty() && formattedNumbers.isEmpty()) return false
+        // If raw had numbers but formatted dropped them all, reject unless it was a backtrack
+        if (rawNumbers.isNotEmpty() && formattedNumbers.isEmpty() && !hasBacktrackCue) return false
 
         // Check URLs
         val rawUrls = URL_REGEX.findAll(rawTranscript).map { it.value.lowercase() }.toSet()
         val formattedUrls = URL_REGEX.findAll(formattedText).map { it.value.lowercase() }.toSet()
-        if (rawUrls.any { it !in formattedUrls }) return false
+        if (rawUrls.any { it !in formattedUrls } && !hasBacktrackCue) return false
 
         // Check Emails
         val rawEmails = EMAIL_REGEX.findAll(rawTranscript).map { it.value.lowercase() }.toSet()
         val formattedEmails = EMAIL_REGEX.findAll(formattedText).map { it.value.lowercase() }.toSet()
-        if (rawEmails.any { it !in formattedEmails }) return false
+        if (rawEmails.any { it !in formattedEmails } && !hasBacktrackCue) return false
 
         return true
     }

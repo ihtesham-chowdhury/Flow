@@ -132,6 +132,21 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_DOWNLOADED_LOCAL_MODEL_PATH, null)
         set(value) = prefs.edit().putString(KEY_DOWNLOADED_LOCAL_MODEL_PATH, value).apply()
 
+    var autoCleanupLevel: com.flowbangla.app.format.AutoCleanupLevel
+        get() {
+            val name = prefs.getString(KEY_AUTO_CLEANUP_LEVEL, com.flowbangla.app.format.AutoCleanupLevel.MEDIUM.name)
+            return try {
+                com.flowbangla.app.format.AutoCleanupLevel.valueOf(name ?: com.flowbangla.app.format.AutoCleanupLevel.MEDIUM.name)
+            } catch (_: Exception) {
+                com.flowbangla.app.format.AutoCleanupLevel.MEDIUM
+            }
+        }
+        set(value) = prefs.edit().putString(KEY_AUTO_CLEANUP_LEVEL, value.name).apply()
+
+    var casualMessagingDropPeriod: Boolean
+        get() = prefs.getBoolean(KEY_CASUAL_MESSAGING_DROP_PERIOD, true)
+        set(value) = prefs.edit().putBoolean(KEY_CASUAL_MESSAGING_DROP_PERIOD, value).apply()
+
     val isConfigured: Boolean
         get() = when (engineMode) {
             EngineMode.CLOUD_AUDIO -> geminiApiKey.isNotBlank()
@@ -168,5 +183,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_ENABLE_LIVE_PREVIEW = "enable_live_preview"
         private const val KEY_DOWNLOADED_LOCAL_MODEL_PATH = "downloaded_local_model_path"
         private const val KEY_PERSONAL_VOCABULARY = "personal_vocabulary"
+        private const val KEY_AUTO_CLEANUP_LEVEL = "auto_cleanup_level"
+        private const val KEY_CASUAL_MESSAGING_DROP_PERIOD = "casual_messaging_drop_period"
     }
 }

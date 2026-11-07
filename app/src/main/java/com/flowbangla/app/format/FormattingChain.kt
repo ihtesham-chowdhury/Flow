@@ -39,6 +39,20 @@ class FormattingChain(
 
     companion object {
         private const val TAG = "FormattingChain"
+
+        val BACKTRACK_OR_LIST_CUE_REGEX = Regex(
+            pattern = """\b(no|not|wait|actually|scratch that|never mind|sorry|mean|instead|recipe|list|number|one|two|three|first|second|third|bullet)\b|(?:না|থাক|বাদ দাও|ভুল|আসলে|ওটা না|তালিকা|লিস্ট|এক|দুই|তিন)""",
+            option = RegexOption.IGNORE_CASE
+        )
+
+        fun shouldUseInstantLocalFastPath(rawTranscript: String, cleanupLevel: AutoCleanupLevel): Boolean {
+            if (cleanupLevel == AutoCleanupLevel.NONE) return true
+            val words = rawTranscript.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            // Only use instant local fast-path for ultra-short (<= 3 words) utterances
+            // that contain ZERO backtrack, negation, or list-building triggers!
+            if (words.size > 3) return false
+            return !BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(rawTranscript)
+        }
     }
 
     suspend fun format(
@@ -59,6 +73,13 @@ class FormattingChain(
 
         val startTime = SystemClock.elapsedRealtime()
 
+        // 1. Expand voice snippets (standalone or embedded triggers)
+        val workingTranscript = try {
+            com.flowbangla.app.FlowBanglaApp.instance.snippetManager.expandSnippets(rawTranscript)
+        } catch (_: Exception) {
+            rawTranscript
+        }
+
         // Build FormatPlan from user preferences and active app context
         val inferredDocType = WisprContextFormatter.mapAppCategoryToDocumentType(context.appCategory)
         val plan = FormatPlan(
@@ -66,17 +87,24 @@ class FormattingChain(
             numeralPreference = NumeralPreference.WESTERN,
             outputScript = OutputScript.AS_SPOKEN,
             protectedTokens = prefs.getPersonalVocabularyList().toSet(),
-            isAutoDetected = true
+            isAutoDetected = true,
+            cleanupLevel = prefs.autoCleanupLevel,
+            appCategory = context.appCategory.name
         )
 
-        val rawWords = rawTranscript.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        // Fast-path: short single-phrase dictations (<= 7 words) are formatted instantly via local rules (< 1ms),
-        // delivering Wispr Flow-grade zero latency and eliminating cloud round-trip delay.
-        val isShortPhrase = rawWords.size <= 7 && !rawTranscript.contains('\n')
+        // Fast-path: restricted to ultra-short (<= 3 words) simple phrases with ZERO backtrack/list triggers
+        val canUseFastPath = shouldUseInstantLocalFastPath(workingTranscript, prefs.autoCleanupLevel) &&
+            !workingTranscript.contains('\n') &&
+            prefs.engineMode != EngineMode.OFFLINE_LOCAL_LLM
 
-        if (isShortPhrase && prefs.engineMode != EngineMode.OFFLINE_LOCAL_LLM) {
-            val fastEnvelope = LocalRulesFormatter.format(rawTranscript, plan)
-            val fastFormatted = WisprContextFormatter.applyCursorBoundaryFormatting(fastEnvelope.formattedText, context)
+        if (canUseFastPath) {
+            val fastEnvelope = LocalRulesFormatter.format(workingTranscript, plan)
+            val dictionaryCleaned = applyDictionaryReplacementsSafely(fastEnvelope.formattedText)
+            val fastFormatted = WisprContextFormatter.applyCursorBoundaryFormatting(
+                text = dictionaryCleaned,
+                context = context,
+                dropCasualPeriod = prefs.casualMessagingDropPeriod
+            )
             val latency = SystemClock.elapsedRealtime() - startTime
             return FormattingResult(
                 rawTranscript = rawTranscript,
@@ -97,37 +125,37 @@ class FormattingChain(
             when (prefs.engineMode) {
                 EngineMode.CLOUD_AUDIO -> {
                     // In Cloud Audio, Gemini or Groq formats the text
-                    envelope = geminiFormatter.formatText(rawTranscript, plan)
+                    envelope = geminiFormatter.formatText(workingTranscript, plan)
                     if (envelope != null) {
                         formattingSource = FormattingSource.GEMINI_CLOUD
                     } else if (prefs.groqApiKey.isNotBlank()) {
-                        envelope = groqFormatter.formatText(rawTranscript, plan)
+                        envelope = groqFormatter.formatText(workingTranscript, plan)
                         if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
                     }
                 }
                 EngineMode.HYBRID_CLOUD_POLISH -> {
                     when (prefs.cloudPolishProvider) {
                         CloudPolishProvider.GEMINI -> {
-                            envelope = geminiFormatter.formatText(rawTranscript, plan)
+                            envelope = geminiFormatter.formatText(workingTranscript, plan)
                             if (envelope != null) formattingSource = FormattingSource.GEMINI_CLOUD
                         }
                         CloudPolishProvider.GROQ -> {
-                            envelope = groqFormatter.formatText(rawTranscript, plan)
+                            envelope = groqFormatter.formatText(workingTranscript, plan)
                             if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
                         }
                         CloudPolishProvider.CEREBRAS -> {
-                            envelope = cerebrasFormatter.formatText(rawTranscript, plan)
+                            envelope = cerebrasFormatter.formatText(workingTranscript, plan)
                             if (envelope != null) formattingSource = FormattingSource.CEREBRAS_CLOUD
                         }
                         CloudPolishProvider.OPENROUTER -> {
-                            envelope = openRouterFormatter.formatText(rawTranscript, plan)
+                            envelope = openRouterFormatter.formatText(workingTranscript, plan)
                             if (envelope != null) formattingSource = FormattingSource.OPENROUTER_CLOUD
                         }
                     }
                 }
                 EngineMode.OFFLINE_LOCAL_LLM -> {
-                    val localResult = localLlmEngine.polishOfflineWithLlm(rawTranscript)
-                    if (localResult.isNotBlank() && localResult != rawTranscript) {
+                    val localResult = localLlmEngine.polishOfflineWithLlm(workingTranscript)
+                    if (localResult.isNotBlank() && localResult != workingTranscript) {
                         envelope = FormattedEnvelope(
                             formattedText = localResult,
                             documentType = plan.documentType,
@@ -152,15 +180,20 @@ class FormattingChain(
             )
 
             val validation = FormatValidator.validate(
-                rawTranscript = rawTranscript,
+                rawTranscript = workingTranscript,
                 formattedText = postProcessed,
                 protectedTokens = plan.protectedTokens
             )
 
-            val tokensPreserved = WisprContextFormatter.areCriticalTokensPreserved(rawTranscript, postProcessed)
+            val tokensPreserved = WisprContextFormatter.areCriticalTokensPreserved(workingTranscript, postProcessed)
 
             if (validation is ValidationResult.Valid && tokensPreserved) {
-                val boundaryFormatted = WisprContextFormatter.applyCursorBoundaryFormatting(postProcessed, context)
+                val dictionaryCleaned = applyDictionaryReplacementsSafely(postProcessed)
+                val boundaryFormatted = WisprContextFormatter.applyCursorBoundaryFormatting(
+                    text = dictionaryCleaned,
+                    context = context,
+                    dropCasualPeriod = prefs.casualMessagingDropPeriod
+                )
                 val latency = SystemClock.elapsedRealtime() - startTime
                 return FormattingResult(
                     rawTranscript = rawTranscript,
@@ -177,9 +210,14 @@ class FormattingChain(
             }
         }
 
-        // Guaranteed fallback: Local rules formatting on raw transcript (ZERO DATA LOSS)
-        val fallbackEnvelope = LocalRulesFormatter.format(rawTranscript, plan)
-        val safeCleaned = WisprContextFormatter.applyCursorBoundaryFormatting(fallbackEnvelope.formattedText, context)
+        // Guaranteed fallback: Local rules formatting on working transcript (ZERO DATA LOSS)
+        val fallbackEnvelope = LocalRulesFormatter.format(workingTranscript, plan)
+        val dictionaryCleaned = applyDictionaryReplacementsSafely(fallbackEnvelope.formattedText)
+        val safeCleaned = WisprContextFormatter.applyCursorBoundaryFormatting(
+            text = dictionaryCleaned,
+            context = context,
+            dropCasualPeriod = prefs.casualMessagingDropPeriod
+        )
         val latency = SystemClock.elapsedRealtime() - startTime
 
         return FormattingResult(
@@ -191,6 +229,14 @@ class FormattingChain(
             latencyMs = latency,
             fallbackUsed = true
         )
+    }
+
+    private fun applyDictionaryReplacementsSafely(text: String): String {
+        return try {
+            com.flowbangla.app.FlowBanglaApp.instance.personalDictionaryManager.applyReplacements(text)
+        } catch (_: Exception) {
+            text
+        }
     }
 
     fun release() {

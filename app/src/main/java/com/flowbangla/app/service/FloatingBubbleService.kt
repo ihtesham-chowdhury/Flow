@@ -59,6 +59,8 @@ class FloatingBubbleService : Service() {
     private var dismissTargetParams: WindowManager.LayoutParams? = null
     private var isNearDismissTarget = false
     var isManuallyDismissed = false
+    @Volatile
+    var lastUndoTranscript: String? = null
 
     // 1-Tap Recovery Banner for father-friendly zero text loss
     private var pendingPasteBannerView: TextView? = null
@@ -179,6 +181,18 @@ class FloatingBubbleService : Service() {
                     }
                 }
             }
+            ACTION_UNDO_AI_EDIT -> {
+                val raw = lastUndoTranscript
+                if (!raw.isNullOrBlank()) {
+                    serviceScope.launch {
+                        val outcome = TextInjectorAccessibilityService.instance?.injectTextSuspend(raw)
+                        vibrateSuccess()
+                        Toast.makeText(this@FloatingBubbleService, "Raw transcript restored / মূল কথা ফিরিয়ে আনা হয়েছে", Toast.LENGTH_SHORT).show()
+                        lastUndoTranscript = null
+                        updateNotification()
+                    }
+                }
+            }
         }
         return START_STICKY
     }
@@ -240,7 +254,7 @@ class FloatingBubbleService : Service() {
 
         val actionTitle = if (isManuallyDismissed) "Show Mic / মাইক দেখান" else "Hide Mic / মাইক লুকান"
 
-        return NotificationCompat.Builder(this, FlowBanglaApp.CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, FlowBanglaApp.CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(if (isManuallyDismissed) "Flow running (Mic hidden) / মাইক লুকানো আছে" else getString(R.string.notification_text))
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -248,7 +262,20 @@ class FloatingBubbleService : Service() {
             .addAction(R.drawable.ic_launcher_foreground, actionTitle, togglePendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
-            .build()
+
+        val raw = lastUndoTranscript
+        if (!raw.isNullOrBlank()) {
+            val undoIntent = Intent(this, FloatingBubbleService::class.java).apply {
+                action = ACTION_UNDO_AI_EDIT
+            }
+            val undoPendingIntent = PendingIntent.getService(
+                this, 2, undoIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(R.drawable.ic_launcher_foreground, "Undo AI Edit / মূল কথা ফিরিয়ে আনুন", undoPendingIntent)
+        }
+
+        return builder.build()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -793,10 +820,6 @@ class FloatingBubbleService : Service() {
             }
         }
 
-        vibrateShort()
-        currentState = TranscriptionState.Recording()
-        updateUiState(currentState)
-
         when (prefs.engineMode) {
             EngineMode.CLOUD_AUDIO -> {
                 val result = audioRecorder.startRecording()
@@ -804,6 +827,7 @@ class FloatingBubbleService : Service() {
                     Toast.makeText(this, "Microphone failed to start / মাইক্রোফোন চালু করা যায়নি", Toast.LENGTH_SHORT).show()
                     currentState = TranscriptionState.Idle
                     updateUiState(currentState)
+                    return
                 }
             }
             EngineMode.HYBRID_CLOUD_POLISH -> {
@@ -820,6 +844,10 @@ class FloatingBubbleService : Service() {
                 )
             }
         }
+
+        vibrateShort()
+        currentState = TranscriptionState.Recording()
+        updateUiState(currentState)
     }
 
     private fun stopRecordingAndProcess() {
@@ -840,9 +868,13 @@ class FloatingBubbleService : Service() {
                 }
 
                 serviceScope.launch {
-                    val customVocab = prefs.getPersonalVocabularyList()
                     val a11y = TextInjectorAccessibilityService.instance
                     val fieldContext = a11y?.extractActiveFieldContext() ?: ActiveFieldContext()
+                    val dictionaryManager = FlowBanglaApp.instance.personalDictionaryManager
+                    val customVocab = (prefs.getPersonalVocabularyList() +
+                        dictionaryManager.buildCustomVocabularyList(fieldContext.screenProperNouns))
+                        .distinct()
+                        .take(250)
 
                     var recognitionSource = RecognitionSource.GEMINI_TRANSCRIBE
                     var rawTranscript = ""
@@ -881,6 +913,28 @@ class FloatingBubbleService : Service() {
                     }
 
                     if (rawTranscript.isNotBlank()) {
+                        // Check for Voice Command Mode on highlighted text
+                        if (fieldContext.hasSelectedText && fieldContext.selectedText.isNotBlank() && prefs.geminiApiKey.isNotBlank()) {
+                            try {
+                                val transformResult = geminiInteractionsAdapter.runCommandTransform(
+                                    selectedText = fieldContext.selectedText,
+                                    spokenInstruction = rawTranscript,
+                                    rawApiKey = prefs.geminiApiKey
+                                )
+                                if (transformResult.text.isNotBlank()) {
+                                    deliverFormattedTextToTargetApp(
+                                        rawTranscript = rawTranscript,
+                                        formattedText = transformResult.text,
+                                        durationSec = (durationMs / 1000).toInt(),
+                                        provenance = "Command Mode (${transformResult.modelId})"
+                                    )
+                                    return@launch
+                                }
+                            } catch (ce: Exception) {
+                                Log.w(TAG, "Command Mode transformation failed: ${ce.message}")
+                            }
+                        }
+
                         // Step 2 & 3: Decoupled formatting through FormattingChain with Screen/Cursor Context
                         val formatResult = formattingChain.format(rawTranscript, recognitionSource, fieldContext)
                         deliverFormattedTextToTargetApp(
@@ -914,6 +968,29 @@ class FloatingBubbleService : Service() {
 
             val a11y = TextInjectorAccessibilityService.instance
             val fieldContext = a11y?.extractActiveFieldContext() ?: ActiveFieldContext()
+            val prefs = FlowBanglaApp.instance.preferencesManager
+
+            // Check for Voice Command Mode on highlighted text
+            if (fieldContext.hasSelectedText && fieldContext.selectedText.isNotBlank() && prefs.geminiApiKey.isNotBlank()) {
+                try {
+                    val transformResult = geminiInteractionsAdapter.runCommandTransform(
+                        selectedText = fieldContext.selectedText,
+                        spokenInstruction = rawTranscript,
+                        rawApiKey = prefs.geminiApiKey
+                    )
+                    if (transformResult.text.isNotBlank()) {
+                        deliverFormattedTextToTargetApp(
+                            rawTranscript = rawTranscript,
+                            formattedText = transformResult.text,
+                            durationSec = 0,
+                            provenance = "Command Mode (${transformResult.modelId})"
+                        )
+                        return@launch
+                    }
+                } catch (ce: Exception) {
+                    Log.w(TAG, "Command Mode transformation failed: ${ce.message}")
+                }
+            }
 
             // Step 2 & 3: Format the on-device transcript through FormattingChain with Screen/Cursor Context
             val formatResult = formattingChain.format(rawTranscript, RecognitionSource.ANDROID_STT, fieldContext)
@@ -977,6 +1054,15 @@ class FloatingBubbleService : Service() {
                 provenance = provenance
             )
         )
+
+        // Track last dictation pair for 1-tap Undo AI Edit
+        if (rawTranscript.isNotBlank() && rawTranscript.trim() != formattedText.trim()) {
+            lastUndoTranscript = rawTranscript
+            updateNotification()
+        } else {
+            lastUndoTranscript = null
+            updateNotification()
+        }
 
         vibrateSuccess()
         currentState = TranscriptionState.Success(formattedText)
@@ -1097,6 +1183,7 @@ class FloatingBubbleService : Service() {
         const val ACTION_TOGGLE_MIC = "com.flowbangla.action.TOGGLE_MIC"
         const val ACTION_SHOW_MIC = "com.flowbangla.action.SHOW_MIC"
         const val ACTION_RETRY_PASTE = "com.flowbangla.action.RETRY_PASTE"
+        const val ACTION_UNDO_AI_EDIT = "com.flowbangla.action.UNDO_AI_EDIT"
 
         var instance: FloatingBubbleService? = null
             private set

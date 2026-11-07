@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import com.flowbangla.app.data.HistoryManager
+import com.flowbangla.app.data.PersonalDictionaryManager
 import com.flowbangla.app.data.PreferencesManager
 
 class FlowBanglaApp : Application() {
@@ -15,11 +16,19 @@ class FlowBanglaApp : Application() {
     lateinit var historyManager: HistoryManager
         private set
 
+    lateinit var personalDictionaryManager: PersonalDictionaryManager
+        private set
+
+    lateinit var snippetManager: com.flowbangla.app.data.SnippetManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         preferencesManager = PreferencesManager(this)
         historyManager = HistoryManager(this)
+        personalDictionaryManager = PersonalDictionaryManager(this)
+        snippetManager = com.flowbangla.app.data.SnippetManager(this)
         createNotificationChannel()
     }
 

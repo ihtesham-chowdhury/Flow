@@ -81,6 +81,12 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastKnownPackageName: String? = null
 
+    @Volatile
+    private var lastPastedText: String? = null
+    @Volatile
+    private var lastPastedTimestampMs: Long = 0L
+    private val AUTO_LEARN_WINDOW_MS = 15_000L
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -130,6 +136,29 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
                 checkInputFocusState()
+            }
+        }
+
+        // Post-Paste 15-second Auto-Learn Watcher
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            val pasted = lastPastedText
+            val elapsed = SystemClock.elapsedRealtime() - lastPastedTimestampMs
+            if (pasted != null && elapsed <= AUTO_LEARN_WINDOW_MS) {
+                val currentText = event.text?.joinToString("") ?: event.source?.text?.toString() ?: ""
+                if (currentText.isNotBlank() && currentText != pasted) {
+                    try {
+                        val learned = FlowBanglaApp.instance.personalDictionaryManager.learnFromUserCorrection(
+                            pastedText = pasted,
+                            editedText = currentText
+                        )
+                        if (learned != null) {
+                            Log.i(TAG, "✨ Auto-learned correction: '${learned.misspelling}' -> '${learned.word}'")
+                            lastPastedText = currentText
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Auto-learn check error: ${e.message}")
+                    }
+                }
             }
         }
     }
@@ -298,6 +327,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             val pasted = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
             if (pasted) {
                 pendingDeferredText = null
+                lastPastedText = normalizedText
+                lastPastedTimestampMs = SystemClock.elapsedRealtime()
                 return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 1 ACTION_PASTE succeeded")
             }
         }
@@ -312,6 +343,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         val pastedAfterFocus = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
         if (pastedAfterFocus) {
             pendingDeferredText = null
+            lastPastedText = normalizedText
+            lastPastedTimestampMs = SystemClock.elapsedRealtime()
             return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 2 Focus + ACTION_PASTE succeeded")
         }
 
@@ -319,6 +352,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         val setTextSuccess = performHintSafeSetText(targetNode, normalizedText)
         if (setTextSuccess) {
             pendingDeferredText = null
+            lastPastedText = normalizedText
+            lastPastedTimestampMs = SystemClock.elapsedRealtime()
             return@withContext InjectionOutcome(InjectionStatus.INJECTED_SET_TEXT, pkg, "Tier 3 Hint-Safe ACTION_SET_TEXT succeeded")
         }
 

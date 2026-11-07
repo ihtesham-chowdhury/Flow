@@ -11,9 +11,12 @@ object LocalRulesFormatter {
             return FormattedEnvelope("", plan.documentType, "UNKNOWN", isParsedFromJson = false)
         }
 
-        // Apply matra-safe Bengali & English cleaning, spoken commands, and punctuation
+        // 1. Resolve offline backtracks first (removes self-corrections and scratch-that phrases)
+        val backtracked = LocalBacktrackResolver.resolveOfflineBacktracks(rawTranscript)
+
+        // 2. Apply matra-safe Bengali & English cleaning, spoken commands, and punctuation
         val processed = TranscriptPostProcessor.process(
-            text = rawTranscript,
+            text = backtracked,
             numeralPreference = plan.numeralPreference
         )
 

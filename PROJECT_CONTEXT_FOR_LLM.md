@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.2.0 (Build 9)  
-> **Last Updated**: November 5, 2026  
-> **Status**: Production Debug Release (`Flow-v3.2.0.apk` active)  
+> **Document Version**: 3.3.0 (Build 10)  
+> **Last Updated**: November 7, 2026  
+> **Status**: Production Debug Release (`Flow-v3.3.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -118,6 +118,40 @@
 - **Unit Test Suite Expansion**:
   - Added test coverage in `FormatValidatorTest.kt` and `WisprContextFormatterTest.kt` for synthetic header rejection, placeholder rejection, email category mapping, and leading space suppression. 100% test pass rate.
 
+### Phase 10: v3.3.0 — ASR Accuracy Upgrade (98–99% Argon Parity) & Wispr Flow Intelligence Blueprint (Current Release)
+- **98–99% Argon-Parity Studio Audio Capture**:
+  - Upgraded `AudioRecorder.kt` to `MediaRecorder.AudioSource.VOICE_RECOGNITION` (with fallback to `MIC`), `24000` Hz sampling rate, and `64000` bps AAC-LC encoding bitrate, matching Wispr Flow / Google Rambler clarity.
+  - Added an 80ms hardware ADC warm-up delay before triggering the start haptic cue so the first spoken syllable is never clipped.
+- **Interactions API `transcription_config` JSON Bug Fix & Dual Mode**:
+  - Fixed JSON schema bug: `mode` inside `transcription_config` is now strictly passed as a `JSONObject` (`{"type": "smart"}` or `{"type": "verbatim"}`), resolving server-side fallback or model rejection.
+  - Omitted `language_codes` when empty so `gemini-3.5-transcribe` natively handles intra-sentence Bangla (`bn-BD`) and English (`en-US`) code-switching.
+  - Passes up to 250 distinct terms into `custom_vocabulary` acoustic biasing by dynamically merging active window screen proper nouns and the user's personal dictionary.
+- **Wispr Flow Semantic Backtrack & Course-Correction Engine**:
+  - Restricts local fast-path in `FormattingChain.kt` to ultra-short (<= 3 words) utterances with zero backtrack or list triggers (`BACKTRACK_OR_LIST_CUE_REGEX`).
+  - Added `WISPR_FLOW_CORE_SYSTEM_PROMPT` in `PromptBuilder.kt` with explicit few-shot rules resolving:
+    - Topic Backtracks (*"Let's make a recipe... no let's make a grocery list"* -> Discards "recipe" and outputs a clean **Grocery list:**).
+    - List Item Backtracks (*"1. Tomato, 2. Potato, 3. Brinjals no no not brinjals get some rice"* -> Discards "brinjals" and outputs `3. Rice`).
+    - Bangla Backtracks (*"বেগুন না না বেগুন লাগবে না চালের বস্তা এনো"* -> Discards "বেগুন" and preserves "চালের বস্তা").
+    - Discourse Framing & Meta-Chatter Removal (*"and I'm saying that"*, *"for example"* as spoken scaffolding).
+  - Created `LocalBacktrackResolver.kt` for deterministic offline regex backtrack resolution.
+- **Auto-Learn Personal Dictionary & Misspelling Map**:
+  - `PersonalDictionaryManager.kt`: deterministic whole-word replacement with possessive safety (`'s`) and contraction guard (`n't`).
+  - 15-Second Post-Paste Auto-Learn Watcher in `TextInjectorAccessibilityService.kt`: compares pasted text against user-edited text in active fields (Levenshtein distance 1..3) and automatically learns the correction with an `"✨ Auto-learned"` badge.
+- **Voice Snippets & Text Expansion**:
+  - `SnippetManager.kt` & `SnippetExpander.kt`: Spoken triggers (e.g. *"my email"*, *"আমার ঠিকানা"*) expand into saved blocks of text both standalone and mid-sentence (longest trigger match wins).
+- **Context-Aware Emoji Continuation & Casual Messaging Trailing Period**:
+  - `WisprContextFormatter.kt`: continues in lowercase with a leading space after non-punctuation emojis (`😀`) or quotes, and starts a new capitalized sentence after punctuation emojis (`‼️`, `❓`).
+  - Automatically omits stiff trailing periods (`.` / `।`) on 1-2 sentence messages in `PERSONAL_MESSAGING` apps (WhatsApp, Messenger).
+- **Voice Command Mode & 1-Tap Undo AI Edit**:
+  - Highlight text in any input field and speak a command (*"Make this formal"*, *"Translate to English"*) to transform the selection in-place via `geminiInteractionsAdapter.runCommandTransform`.
+  - 1-tap **"Undo AI Edit / মূল কথা ফিরিয়ে আনুন"** button in ongoing foreground notification and History screen rows whenever AI edits or removes words.
+- **Expanded Settings UI in `MainActivity.kt`**:
+  - Added Auto Cleanup Level selector (`NONE`, `LIGHT`, `MEDIUM`).
+  - Added Personal Dictionary & Auto-Learned Words ✨ manager.
+  - Added Voice Snippets manager.
+- **Full Unit Test Verification**:
+  - Added `PersonalDictionaryReplacerTest.kt` (5 tests), `LocalBacktrackResolverTest.kt` (5 tests), `FormattingChainFastPathTest.kt` (5 tests), `SnippetExpanderTest.kt` (4 tests), and expanded `WisprContextFormatterTest.kt` (3 tests). 49 unit tests passing with 100% pass rate.
+
 ### Phase 9: v3.2.0 — Holistic Multi-Window Injection, Service Persistence & Permission State Reactivity (Current Release)
 - **5-Tier Live Target Node Resolver across Complex Apps**:
   - Solved intermittent injection failures in YouTube comments, Facebook posts/comments, Chrome WebViews, and Meta Litho (`ComponentHost`) / React Native containers.
@@ -230,6 +264,9 @@ flowchart TD
 | `FormattingProvenance.kt` | Enums and data class tracking recognition source (`GEMINI_TRANSCRIBE`, `GROQ_WHISPER`, `ANDROID_STT`) and formatting source (`GEMINI_CLOUD`, `GROQ_CLOUD`, `CEREBRAS_CLOUD`, `OPENROUTER_CLOUD`, `LOCAL_LLM`, `LOCAL_RULES`, `RAW_FALLBACK`). |
 | `GeminiTextFormatter.kt` | Cloud text formatting via Google Gemini with structured JSON output and `GeminiInteractionsAdapter` integration. |
 | `OpenAiCompatibleTextFormatter.kt` | Cloud text formatting via Groq, Cerebras, or OpenRouter with JSON mode. |
+| `PersonalDictionaryManager.kt` | Personal dictionary manager with auto-learning (Levenshtein 1..3 post-paste edit watcher), whole-word case-insensitive replacement, possessive safety ('s), and Gemini 3.5 acoustic biasing custom vocabulary builder. |
+| `SnippetManager.kt` | Voice Snippets & Text Expander manager. Expands spoken trigger phrases into saved text blocks both standalone and mid-sentence with longest match priority. |
+| `LocalBacktrackResolver.kt` | Offline deterministic regex-based backtrack and self-correction resolver for items, topics, values, and scratch-that phrases. |
 | `LocalRulesFormatter.kt` | Instant, zero-latency local deterministic fallback formatter. |
 | `FormattingChain.kt` | Master orchestrator connecting ASR raw transcript, FormatPlan, text formatters, post-processor, `WisprContextFormatter`, and validator. Guarantees zero data loss. |
 

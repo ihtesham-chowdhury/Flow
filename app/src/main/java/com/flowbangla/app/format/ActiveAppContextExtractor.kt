@@ -15,7 +15,10 @@ data class ActiveFieldContext(
     val packageName: String = "",
     val textBeforeCursor: String = "",
     val isMidSentenceContinuation: Boolean = false,
-    val needsLeadingSpace: Boolean = false
+    val needsLeadingSpace: Boolean = false,
+    val selectedText: String = "",
+    val hasSelectedText: Boolean = false,
+    val screenProperNouns: List<String> = emptyList()
 )
 
 object ActiveAppContextExtractor {
@@ -81,6 +84,14 @@ object ActiveAppContextExtractor {
             rawText
         }
         val selStart = node.textSelectionStart
+        val selEnd = node.textSelectionEnd
+
+        val hasSelectedText = selStart >= 0 && selEnd > selStart && selEnd <= fullText.length
+        val selectedText = if (hasSelectedText) {
+            fullText.substring(selStart, selEnd).trim()
+        } else {
+            ""
+        }
 
         // Reliable cursor detection:
         // Only inspect text before cursor if selStart is confirmed to be > 0.
@@ -98,17 +109,48 @@ object ActiveAppContextExtractor {
                 textBeforeCursor.last() != '\n' &&
                 textBeforeCursor.last() != '\r'
 
-        val isMidSentenceContinuation = if (textBeforeCursor.isNotBlank()) {
-            val lastNonWhitespace = textBeforeCursor.trimEnd().last()
-            lastNonWhitespace !in listOf('।', '॥', '.', '?', '!', '\n', '\r')
+        val trimmedPre = textBeforeCursor.trimEnd()
+        val isPunctuationEmoji = if (trimmedPre.isNotEmpty()) {
+            trimmedPre.endsWith("‼️") || trimmedPre.endsWith("⁉️") ||
+            trimmedPre.endsWith("❗") || trimmedPre.endsWith("❕") ||
+            trimmedPre.endsWith("❓") || trimmedPre.endsWith("❔")
         } else false
+
+        val isMidSentenceContinuation = if (trimmedPre.isNotBlank()) {
+            if (isPunctuationEmoji) {
+                false
+            } else {
+                val lastChar = trimmedPre.last()
+                if (lastChar in listOf('"', '”', '’') && trimmedPre.length > 1) {
+                    val charBeforeQuote = trimmedPre[trimmedPre.length - 2]
+                    charBeforeQuote !in listOf('।', '॥', '.', '?', '!', '\n', '\r')
+                } else {
+                    lastChar !in listOf('।', '॥', '.', '?', '!', '\n', '\r')
+                }
+            }
+        } else false
+
+        // Extract visible proper nouns from the input field for acoustic biasing
+        val screenProperNouns = if (fullText.isNotBlank()) {
+            Regex("""\b[A-Z][a-z]{2,20}\b""").findAll(fullText)
+                .map { it.value }
+                .filter { it !in listOf("The", "And", "This", "That", "There", "Here", "What", "When", "Where", "How", "Why", "You", "Your", "Please") }
+                .distinct()
+                .take(20)
+                .toList()
+        } else {
+            emptyList()
+        }
 
         return ActiveFieldContext(
             appCategory = appCategory,
             packageName = packageName,
             textBeforeCursor = textBeforeCursor,
             isMidSentenceContinuation = isMidSentenceContinuation,
-            needsLeadingSpace = needsLeadingSpace
+            needsLeadingSpace = needsLeadingSpace,
+            selectedText = selectedText,
+            hasSelectedText = hasSelectedText && selectedText.isNotEmpty(),
+            screenProperNouns = screenProperNouns
         )
     }
 }

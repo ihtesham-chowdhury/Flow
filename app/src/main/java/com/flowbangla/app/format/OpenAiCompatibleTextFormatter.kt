@@ -41,7 +41,9 @@ class OpenAiCompatibleTextFormatter(
             numeralPreference = plan.numeralPreference,
             outputScript = plan.outputScript,
             explicitMode = if (plan.isAutoDetected) FormattingMode.AUTO else FormattingMode.fromId(plan.documentType.id),
-            customVocabulary = plan.protectedTokens
+            customVocabulary = plan.protectedTokens,
+            cleanupLevel = plan.cleanupLevel,
+            appCategory = plan.appCategory
         )
         val userPrompt = PromptBuilder.buildUserMessage(rawTranscript)
 

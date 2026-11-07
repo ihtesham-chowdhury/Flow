@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.flowbangla.app.FlowBanglaApp
+import com.flowbangla.app.format.AutoCleanupLevel
 import com.flowbangla.app.diagnostics.ConnectivityLabReport
 import com.flowbangla.app.diagnostics.ConnectivityLabRunner
 import com.flowbangla.app.model.CloudPolishProvider
@@ -370,6 +371,8 @@ fun MainScreen(
     var bubbleOpacity by remember { mutableFloatStateOf(prefs.bubbleOpacity) }
     var showOnlyWithKeyboard by remember { mutableStateOf(prefs.showOnlyWithKeyboard) }
     var isMicDismissed by remember { mutableStateOf(FloatingBubbleService.instance?.isManuallyDismissed == true) }
+    var autoCleanupLevel by remember { mutableStateOf(prefs.autoCleanupLevel) }
+    var casualMessagingDropPeriod by remember { mutableStateOf(prefs.casualMessagingDropPeriod) }
 
     var recentHistory by remember { mutableStateOf(historyManager.getRecentRecords()) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -1463,6 +1466,423 @@ fun MainScreen(
                     }
                 }
 
+                // Wispr Auto Cleanup Level & Messaging Card
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = AccentCyan)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    if (isBn) "অটো ক্লিনআপ ও ব্যাকট্র্যাক (Wispr Flow)" else "Auto Cleanup & Backtrack",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp,
+                                    color = TextPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                if (isBn) "ভুল সংশোধন, ব্যাকট্র্যাক ('না না বেগুন লাগবে না') এবং অতিরিক্ত ভূমিকা দূর করার মাত্রা।"
+                                else "Controls how aggressively Flow resolves self-corrections, backtracks, and meta-chatter.",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            AutoCleanupLevel.entries.forEach { level ->
+                                val isSelected = autoCleanupLevel == level
+                                val (title, desc) = when (level) {
+                                    AutoCleanupLevel.NONE -> Pair(
+                                        if (isBn) "None (হুবহু)" else "None (Verbatim)",
+                                        if (isBn) "কোনো শব্দ কাটবে না, অবিকল যা বলবেন তাই।" else "Keeps every exact word with basic punctuation only."
+                                    )
+                                    AutoCleanupLevel.LIGHT -> Pair(
+                                        if (isBn) "Light (হালকা পলিশ)" else "Light (Strict Dictation)",
+                                        if (isBn) "উম/আহ বাদ দেবে, ব্যাকট্র্যাক ও তালিকা ঠিক করবে।" else "Removes fillers, resolves backtracks, formats lists."
+                                    )
+                                    AutoCleanupLevel.MEDIUM -> Pair(
+                                        if (isBn) "Medium (উইস্পার ফ্লো ম্যাজিক ✨)" else "Medium (Wispr Flow Magic ✨)",
+                                        if (isBn) "ব্যাকট্র্যাক ঠিক করবে এবং কথার ভূমিকা ('যেমন ধরেন', 'আমি বলছিলাম') স্বয়ংক্রিয়ভাবে মুছে দেবে।" else "Resolves backtracks and removes spoken scaffolding ('I'm saying that')."
+                                    )
+                                }
+
+                                Surface(
+                                    color = if (isSelected) SurfaceCard else BackgroundDark,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable {
+                                            autoCleanupLevel = level
+                                            prefs.autoCleanupLevel = level
+                                        }
+                                        .then(
+                                            if (isSelected) Modifier.border(1.5.dp, AccentCyan, RoundedCornerShape(10.dp))
+                                            else Modifier
+                                        )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = {
+                                                autoCleanupLevel = level
+                                                prefs.autoCleanupLevel = level
+                                            },
+                                            colors = RadioButtonDefaults.colors(selectedColor = AccentCyan)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Column {
+                                            Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isSelected) AccentCyan else TextPrimary)
+                                            Text(desc, fontSize = 11.sp, color = TextSecondary, lineHeight = 15.sp)
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = SurfaceCard)
+
+                            // Casual Messaging Trailing Period Policy Switch
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        if (isBn) "মেসেজিংয়ে অপ্রয়োজনীয় দাঁড়ি বাদ দিন" else "Casual Messaging: Drop Trailing Period",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        if (isBn) "WhatsApp/Messenger-এ ১-২ লাইনের মেসেজে শেষের দাঁড়ি (.) বাদ দেবে।" else "Omits stiff trailing period on 1-2 sentence chats in WhatsApp/Messenger.",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                                Switch(
+                                    checked = casualMessagingDropPeriod,
+                                    onCheckedChange = {
+                                        casualMessagingDropPeriod = it
+                                        prefs.casualMessagingDropPeriod = it
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Personal Dictionary & Auto-Learned Words Card
+                item {
+                    val dictionaryManager = FlowBanglaApp.instance.personalDictionaryManager
+                    var dictEntries by remember { mutableStateOf(dictionaryManager.getAllEntries()) }
+                    var newWordText by remember { mutableStateOf("") }
+                    var newMisspellingText by remember { mutableStateOf("") }
+                    var showAddDictDialog by remember { mutableStateOf(false) }
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.MenuBook, contentDescription = null, tint = AccentCyan)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        if (isBn) "ব্যক্তিগত ডিকশনারি ও অটো-লার্ন ✨" else "Personal Dictionary & Auto-Learn ✨",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = TextPrimary
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { showAddDictDialog = true },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (isBn) "শব্দ যোগ" else "Add", fontSize = 12.sp)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                if (isBn) "আপনার নাম ও নিজস্ব শব্দ। পেস্ট করার ১৫ সেকেন্ডের মধ্যে আপনি কোনো ভুল বানান এডিট করলে Flow তা স্বয়ংক্রিয়ভাবে শিখে নেয় ✨"
+                                else "Add proper nouns or spelling corrections. Flow automatically learns spelling fixes you make within 15s of pasting ✨",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            if (dictEntries.isEmpty()) {
+                                Text(
+                                    if (isBn) "কোনো নিজস্ব শব্দ নেই। শব্দ যোগ করুন অথবা টাইপিং করার পর এডিট করলে স্বয়ংক্রিয়ভাবে সেভ হবে।"
+                                    else "No custom words yet. Words you edit post-paste will appear here automatically.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    dictEntries.take(15).forEach { entry ->
+                                        Surface(
+                                            color = BackgroundDark,
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(entry.word, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                                                        if (entry.autoLearned) {
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Surface(
+                                                                color = SurfaceCard,
+                                                                shape = RoundedCornerShape(4.dp)
+                                                            ) {
+                                                                Text("✨ Auto-learned", fontSize = 9.sp, color = ProcessingAmber, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                            }
+                                                        }
+                                                    }
+                                                    if (!entry.misspelling.isNullOrBlank()) {
+                                                        Text("Replaces: ${entry.misspelling}", fontSize = 11.sp, color = TextSecondary)
+                                                    }
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        val list = dictEntries.toMutableList()
+                                                        list.remove(entry)
+                                                        val saveArr = JSONArray()
+                                                        list.forEach { item ->
+                                                            saveArr.put(JSONObject().apply {
+                                                                put("word", item.word)
+                                                                if (item.misspelling != null) put("misspelling", item.misspelling)
+                                                                put("autoLearned", item.autoLearned)
+                                                                put("updatedAtMs", item.updatedAtMs)
+                                                            })
+                                                        }
+                                                        context.getSharedPreferences("flow_personal_dictionary", Context.MODE_PRIVATE)
+                                                            .edit().putString("entries_json", saveArr.toString()).apply()
+                                                        dictEntries = dictionaryManager.getAllEntries()
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (showAddDictDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showAddDictDialog = false },
+                            title = { Text(if (isBn) "শব্দ বা বানান সংশোধন যোগ করুন" else "Add Dictionary Word", fontWeight = FontWeight.Bold, color = TextPrimary) },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = newWordText,
+                                        onValueChange = { newWordText = it },
+                                        label = { Text("Correct Word / সঠিক শব্দ (e.g. Sylhet)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = newMisspellingText,
+                                        onValueChange = { newMisspellingText = it },
+                                        label = { Text("Misspelling / ভুল বানান (Optional, e.g. Silhet)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        if (newWordText.isNotBlank()) {
+                                            dictionaryManager.addOrUpdateEntry(
+                                                word = newWordText,
+                                                misspelling = newMisspellingText.ifBlank { null },
+                                                autoLearned = false
+                                            )
+                                            dictEntries = dictionaryManager.getAllEntries()
+                                            newWordText = ""
+                                            newMisspellingText = ""
+                                            showAddDictDialog = false
+                                        }
+                                    }
+                                ) {
+                                    Text("Save", color = AccentCyan)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showAddDictDialog = false }) {
+                                    Text("Cancel", color = TextSecondary)
+                                }
+                            },
+                            containerColor = SurfaceDark
+                        )
+                    }
+                }
+
+                // Voice Snippets Card
+                item {
+                    val snippetManager = FlowBanglaApp.instance.snippetManager
+                    var snippetList by remember { mutableStateOf(snippetManager.getAllSnippets()) }
+                    var newTriggerText by remember { mutableStateOf("") }
+                    var newExpansionText by remember { mutableStateOf("") }
+                    var showAddSnippetDialog by remember { mutableStateOf(false) }
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.FlashOn, contentDescription = null, tint = AccentCyan)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        if (isBn) "ভয়েস স্নsnippet / টেক্সট এক্সপান্ডার" else "Voice Snippets & Shortcuts",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = TextPrimary
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { showAddSnippetDialog = true },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (isBn) "স্নsnippet যোগ" else "Add", fontSize = 12.sp)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                if (isBn) "মুখে 'আমার ঠিকানা' বা 'my email' বললেই স্বয়ংক্রিয়ভাবে বড় টেক্সট বসে যাবে।"
+                                else "Speak trigger phrases like 'my email' or 'my address' to automatically expand into saved text blocks.",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            if (snippetList.isEmpty()) {
+                                Text(
+                                    if (isBn) "কোনো স্নsnippet যোগ করা নেই।" else "No snippets created yet.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    snippetList.forEach { snip ->
+                                        Surface(
+                                            color = BackgroundDark,
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text("🗣 ${snip.trigger}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AccentCyan)
+                                                    Text(snip.expansion, fontSize = 11.sp, color = TextPrimary, maxLines = 2)
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        snippetManager.deleteSnippet(snip.trigger)
+                                                        snippetList = snippetManager.getAllSnippets()
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Close, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (showAddSnippetDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showAddSnippetDialog = false },
+                            title = { Text(if (isBn) "নতুন স্নsnippet যোগ করুন" else "Create Voice Snippet", fontWeight = FontWeight.Bold, color = TextPrimary) },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = newTriggerText,
+                                        onValueChange = { newTriggerText = it },
+                                        label = { Text("Spoken Trigger / যে কথাটি বলবেন (e.g. my address)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = newExpansionText,
+                                        onValueChange = { newExpansionText = it },
+                                        label = { Text("Expansion Text / বড় টেক্সট ব্লক") },
+                                        minLines = 3,
+                                        maxLines = 6,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        if (newTriggerText.isNotBlank() && newExpansionText.isNotBlank()) {
+                                            snippetManager.addOrUpdateSnippet(newTriggerText, newExpansionText)
+                                            snippetList = snippetManager.getAllSnippets()
+                                            newTriggerText = ""
+                                            newExpansionText = ""
+                                            showAddSnippetDialog = false
+                                        }
+                                    }
+                                ) {
+                                    Text("Save", color = AccentCyan)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showAddSnippetDialog = false }) {
+                                    Text("Cancel", color = TextSecondary)
+                                }
+                            },
+                            containerColor = SurfaceDark
+                        )
+                    }
+                }
+
                 item { Spacer(modifier = Modifier.height(20.dp)) }
             }
         } else {
@@ -1777,6 +2197,20 @@ fun HistoryScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End
                             ) {
+                                if (item.rawTranscript.isNotBlank() && item.rawTranscript.trim() != item.text.trim()) {
+                                    OutlinedButton(
+                                        onClick = { onCopy(item.rawTranscript) },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ProcessingAmber)
+                                    ) {
+                                        Icon(Icons.Default.Undo, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(if (isBn) "মূল কথা ফিরিয়ে আনুন" else "Undo AI Edit", fontSize = 12.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+
                                 OutlinedButton(
                                     onClick = { onCopy(item.text) },
                                     shape = RoundedCornerShape(8.dp),
