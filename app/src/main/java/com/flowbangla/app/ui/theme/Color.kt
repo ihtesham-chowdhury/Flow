@@ -34,6 +34,34 @@ val OchreLight     = Color(0xFF9A6B12)
 val SageDark       = Color(0xFF8FBF9F)
 val SageLight      = Color(0xFF36704D)
 
+// ---- Selectable Accent Colors ----
+val AccentIvory   = Color(0xFFEEEBE3) // Ivory Classic (Default)
+val AccentOchre   = Color(0xFFE3B257) // Ochre Gold
+val AccentSage    = Color(0xFF8FBF9F) // Sage Emerald
+val AccentSky     = Color(0xFF38BDF8) // Nordic Sky Cyan
+val AccentRose    = Color(0xFFFB7185) // Terracotta Rose
+val AccentViolet  = Color(0xFFA78BFA) // Royal Amethyst
+
+data class FlowAccentOption(
+    val key: String,
+    val nameEn: String,
+    val nameBn: String,
+    val color: Color
+)
+
+val AvailableAccentOptions = listOf(
+    FlowAccentOption("ivory", "Classic Ivory", "আইভরি ক্লাসিক", AccentIvory),
+    FlowAccentOption("ochre", "Ochre Gold", "গোল্ড ওকর", AccentOchre),
+    FlowAccentOption("sage", "Sage Emerald", "সেজ এমারেল্ড", AccentSage),
+    FlowAccentOption("sky", "Nordic Sky", "নর্ডিক স্কাই", AccentSky),
+    FlowAccentOption("rose", "Terracotta Rose", "টেরাকোটা রোজ", AccentRose),
+    FlowAccentOption("violet", "Amethyst", "অ্যামেথিস্ট ভায়োলেট", AccentViolet)
+)
+
+fun getAccentColor(key: String): Color {
+    return AvailableAccentOptions.firstOrNull { it.key == key }?.color ?: AccentIvory
+}
+
 // Backward compatibility aliases mapping legacy names cleanly to the new palette
 val PrimaryBlue = DarkInk
 val PrimaryBlueVariant = DarkSurfaceRaised

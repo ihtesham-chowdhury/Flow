@@ -88,11 +88,32 @@ object PermissionHelper {
         return false
     }
 
-    private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    fun isIgnoringBatteryOptimizations(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return true
             return pm.isIgnoringBatteryOptimizations(context.packageName)
         }
         return true
+    }
+
+    fun isSamsungDevice(): Boolean {
+        return Build.MANUFACTURER.contains("samsung", ignoreCase = true)
+    }
+
+    /**
+     * Intent targeting Samsung Device Care / Battery management to prevent One UI
+     * from putting Flow into 'Sleeping Apps' or 'Deep Sleeping Apps'.
+     */
+    fun createSamsungDeviceCareIntent(): android.content.Intent {
+        val intent = android.content.Intent()
+        return try {
+            intent.component = ComponentName(
+                "com.samsung.android.lool",
+                "com.samsung.android.sm.ui.battery.BatteryActivity"
+            )
+            intent
+        } catch (_: Exception) {
+            android.content.Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        }
     }
 }

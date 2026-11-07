@@ -59,6 +59,24 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         color = Color.argb(178, 232, 71, 58) // 70% vermilion
     }
 
+    // Live Recording Animation Paints (§7.1 + Dynamic Feedback)
+    private val recordingArcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = 0xFFE8473A.toInt() // Vibrant Vermilion
+    }
+
+    private val recordingTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = Color.argb(60, 232, 71, 58) // 25% Vermilion track
+    }
+
+    private val recordingAuraPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(45, 232, 71, 58) // Soft breathing aura
+    }
+
     private val spinnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -113,6 +131,8 @@ class FloatingMicCanvasView(context: Context) : View(context) {
     private var smoothedAmplitude: Float = 0f
     private var spinnerRotation: Float = 0f
     private var spinnerAnimator: ValueAnimator? = null
+    private var recordingRingRotation: Float = 0f
+    private var recordingRingAnimator: ValueAnimator? = null
 
     // Inserted transient animation
     private var isShowingSuccessAnimation = false
@@ -126,6 +146,8 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         val density = resources.displayMetrics.density
         keylinePaint.strokeWidth = 1f * density
         voiceRingPaint.strokeWidth = 2f * density
+        recordingArcPaint.strokeWidth = 2.5f * density
+        recordingTrackPaint.strokeWidth = 1.5f * density
         spinnerPaint.strokeWidth = 2.5f * density
         dashedRingPaint.strokeWidth = 1.5f * density
         dashedRingPaint.pathEffect = DashPathEffect(floatArrayOf(6f * density, 4f * density), 0f)
@@ -154,6 +176,12 @@ class FloatingMicCanvasView(context: Context) : View(context) {
             mainHandler.removeCallbacks(successResetRunnable)
         }
 
+        if (state is TranscriptionState.Recording) {
+            startRecordingAnimation()
+        } else {
+            stopRecordingAnimation()
+        }
+
         if (state is TranscriptionState.Processing) {
             startSpinner()
         } else {
@@ -175,6 +203,25 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         setVoiceAmplitude(amplitude)
     }
 
+    private fun startRecordingAnimation() {
+        if (recordingRingAnimator?.isRunning == true) return
+        recordingRingAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
+            duration = 1350L // 1350ms per revolution linear rotation
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener {
+                recordingRingRotation = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    private fun stopRecordingAnimation() {
+        recordingRingAnimator?.cancel()
+        recordingRingAnimator = null
+    }
+
     private fun startSpinner() {
         if (spinnerAnimator?.isRunning == true) return
         spinnerAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
@@ -192,6 +239,13 @@ class FloatingMicCanvasView(context: Context) : View(context) {
     private fun stopSpinner() {
         spinnerAnimator?.cancel()
         spinnerAnimator = null
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        stopRecordingAnimation()
+        stopSpinner()
+        mainHandler.removeCallbacks(successResetRunnable)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -214,10 +268,28 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         val isSuccess = isShowingSuccessAnimation || currentState is TranscriptionState.Success
         val isError = currentState is TranscriptionState.Error
 
-        // 1. Voice Ring (Recording only per §7.1)
+        // 1. Live Recording Active Ring + Dynamic Voice Aura (Recording only)
         if (isRecording) {
-            val ringRadius = discRadius + (4f * density) + (smoothedAmplitude * 4f * density)
-            canvas.drawCircle(cx, cy, ringRadius, voiceRingPaint)
+            // Soft breathing outer aura scaling with voice amplitude
+            val auraRadius = discRadius + (4.5f * density) + (smoothedAmplitude * 6.5f * density)
+            canvas.drawCircle(cx, cy, auraRadius, recordingAuraPaint)
+
+            // Dynamic voice breathing track
+            val voiceRingRadius = discRadius + (3.5f * density) + (smoothedAmplitude * 4.5f * density)
+            canvas.drawCircle(cx, cy, voiceRingRadius, recordingTrackPaint)
+
+            // Live 60fps continuous rotating recording ring (Dual orbiting active arcs)
+            val arcRect = RectF(
+                cx - voiceRingRadius,
+                cy - voiceRingRadius,
+                cx + voiceRingRadius,
+                cy + voiceRingRadius
+            )
+            canvas.save()
+            canvas.rotate(recordingRingRotation, cx, cy)
+            canvas.drawArc(arcRect, 0f, 95f, false, recordingArcPaint)
+            canvas.drawArc(arcRect, 180f, 95f, false, recordingArcPaint)
+            canvas.restore()
         }
 
         // 2. Dashed Ring (Error only per §7.1)

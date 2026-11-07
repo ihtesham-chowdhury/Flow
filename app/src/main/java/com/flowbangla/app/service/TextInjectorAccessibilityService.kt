@@ -114,13 +114,14 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_VIEW_CLICKED,
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
                 val src = event.source
                 if (src != null && isCandidateInputNode(src)) {
                     cacheEditableNode(src)
                     checkAndExecuteDeferredPaste(src)
                 } else {
-                    // Check if a newly opened bottom sheet (like YouTube/FB comment dialog) now has focus
+                    // Check if a newly opened bottom sheet (like YouTube/FB comment dialog) now has focus or candidate input
                     val liveNode = findBestTargetNode(allowCachedFallback = false)
                     if (liveNode != null) {
                         cacheEditableNode(liveNode)
@@ -189,8 +190,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Recognizes both standard EditTexts AND custom Litho / React Native / WebView comment inputs
-     * used by Facebook, Messenger, YouTube, Instagram, and Chrome.
+     * Recognizes standard EditTexts, custom Litho / React Native / WebView comment inputs,
+     * and bottom-sheet comment composers used by Facebook, Messenger, YouTube, Instagram, and Chrome.
      */
     fun isCandidateInputNode(node: AccessibilityNodeInfo?): Boolean {
         if (node == null || !node.isVisibleToUser || !node.isEnabled) return false
@@ -208,13 +209,29 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             className.contains("AutoComplete", ignoreCase = true) ||
             className.contains("TextInput", ignoreCase = true)
 
-        return (supportsSetTextOrPaste && (node.isFocused || node.isFocusable || isKnownInputClass))
+        val viewId = node.viewIdResourceName?.lowercase().orEmpty()
+        val isCommentOrComposerId = viewId.contains("comment") || viewId.contains("composer") ||
+            viewId.contains("input") || viewId.contains("reply") || viewId.contains("message") ||
+            viewId.contains("text")
+
+        val desc = node.contentDescription?.toString()?.lowercase().orEmpty()
+        val isCommentDesc = desc.contains("comment") || desc.contains("reply") || desc.contains("মন্তব্য")
+
+        if (supportsSetTextOrPaste && (node.isFocused || node.isFocusable || isKnownInputClass || isCommentOrComposerId || isCommentDesc)) {
+            return true
+        }
+
+        if (isKnownInputClass && (node.isFocusable || node.isFocused)) {
+            return true
+        }
+
+        return false
     }
 
     /**
      * 5-Step Live Target Node Resolver:
-     * Searches active window focus, all interactive application/dialog windows (for YouTube/FB bottom sheets),
-     * refreshed cached node, and deep DFS traversal.
+     * Searches active window focus, topmost dialog windows in descending layer order (catches YouTube & Facebook
+     * comment bottom-sheets), refreshed cached node, and deep DFS traversal across application windows.
      */
     fun findBestTargetNode(allowCachedFallback: Boolean = true): AccessibilityNodeInfo? {
         // Step 1: Direct FOCUS_INPUT on rootInActiveWindow
@@ -227,8 +244,13 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Step 2: Search across ALL interactive windows (catches YouTube & Facebook comment bottom-sheet dialogs)
-        val windowList: List<AccessibilityWindowInfo> = try { windows } catch (_: Exception) { emptyList() }
+        // Step 2: Search across ALL interactive windows sorted by layer descending (topmost dialogs/bottom-sheets first)
+        val windowList: List<AccessibilityWindowInfo> = try {
+            windows.sortedByDescending { it.layer }
+        } catch (_: Exception) {
+            emptyList()
+        }
+
         for (window in windowList) {
             if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
                 window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD
@@ -253,12 +275,20 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Step 4: Deep DFS search across all application windows for any focused or editable node
+        // Step 4: Search topmost application windows with requireFocus = true
         for (window in windowList) {
             if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
             val root = window.root ?: continue
             val dfsFocused = findEditableByDfs(root, requireFocus = true)
             if (dfsFocused != null) return dfsFocused
+        }
+
+        // Step 5: Search topmost application windows with requireFocus = false (Crucial for YouTube/FB bottom-sheet comment inputs)
+        for (window in windowList) {
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            val root = window.root ?: continue
+            val dfsAny = findEditableByDfs(root, requireFocus = false)
+            if (dfsAny != null) return dfsAny
         }
 
         if (activeRoot != null) {
@@ -334,8 +364,9 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         }
 
         // TIER 2: Request Input Focus + Click (for YouTube/Facebook comment boxes) -> Re-resolve -> ACTION_PASTE
+        targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-        delay(65L)
+        delay(75L)
         // Re-acquire node in case focusing swapped a decoy comment bar for a real EditText
         targetNode = findBestTargetNode(allowCachedFallback = true) ?: targetNode
         targetNode.refresh()
@@ -345,7 +376,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             pendingDeferredText = null
             lastPastedText = normalizedText
             lastPastedTimestampMs = SystemClock.elapsedRealtime()
-            return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 2 Focus + ACTION_PASTE succeeded")
+            return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 2 Click+Focus + ACTION_PASTE succeeded")
         }
 
         // TIER 3: Hint-Safe, Cursor-Aware ACTION_SET_TEXT Fallback
@@ -442,6 +473,18 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             var imeVisible = false
             for (w in windowList) {
                 if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                    imeVisible = true
+                    break
+                }
+                // Detect Samsung Honeyboard, Gboard, SwiftKey, or vendor-specific soft keyboard windows
+                val root = try { w.root } catch (_: Exception) { null }
+                val pkgName = root?.packageName?.toString().orEmpty()
+                if (pkgName.contains("honeyboard", ignoreCase = true) ||
+                    pkgName.contains("inputmethod", ignoreCase = true) ||
+                    pkgName.contains("gboard", ignoreCase = true) ||
+                    pkgName.contains("latin", ignoreCase = true) ||
+                    pkgName.contains("swiftkey", ignoreCase = true)
+                ) {
                     imeVisible = true
                     break
                 }

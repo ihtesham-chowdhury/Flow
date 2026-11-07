@@ -34,7 +34,8 @@ fun SetupPermissionsSheet(
     onRequestAccessibility: () -> Unit,
     onRequestOverlay: () -> Unit,
     onRequestXiaomiAutostart: () -> Unit,
-    onRequestBatteryExemption: () -> Unit
+    onRequestBatteryExemption: () -> Unit,
+    onRequestSamsungDeviceCare: () -> Unit = {}
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -140,6 +141,26 @@ fun SetupPermissionsSheet(
                     isDone = permissionState.hasAccessibilityPermission,
                     actionLabel = if (isBn) "অ্যাপ ইনফো খুলুন" else "Open app info",
                     onAction = onRequestAccessibility,
+                    isBn = isBn
+                )
+            }
+
+            // Step 4: Samsung One UI Background Protection (Issue 3)
+            if (Build.MANUFACTURER.contains("samsung", ignoreCase = true)) {
+                Spacer(modifier = Modifier.height(16.dp))
+                FlowHairline()
+                Spacer(modifier = Modifier.height(16.dp))
+
+                PermissionRow(
+                    stepNumber = if (permissionState.isRestrictedSettingsPossible && !permissionState.hasAccessibilityPermission) 4 else 3,
+                    title = if (isBn) "স্যামসাং ব্যাকগ্রাউন্ড সুরক্ষা" else "Samsung Background Protection",
+                    description = if (isBn)
+                        "স্যামসাং One UI ব্যাকগ্রাউন্ডে সার্ভিস বন্ধ করে দেওয়া ঠেকাতে Device Care -> Battery -> Never sleeping apps-এ Flow যুক্ত রাখুন।"
+                    else
+                        "Prevent Samsung One UI from killing Flow. Add Flow to 'Never sleeping apps' in Device Care -> Battery.",
+                    isDone = permissionState.isIgnoringBatteryOptimizations,
+                    actionLabel = if (isBn) "Device Care সেটিংস খুলুন" else "Open Device Care",
+                    onAction = onRequestSamsungDeviceCare,
                     isBn = isBn
                 )
             }

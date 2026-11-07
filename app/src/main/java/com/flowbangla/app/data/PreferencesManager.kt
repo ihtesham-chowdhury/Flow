@@ -147,6 +147,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_APPEARANCE_THEME, "dark") ?: "dark"
         set(value) = prefs.edit().putString(KEY_APPEARANCE_THEME, value).apply()
 
+    var accentColorKey: String
+        get() = prefs.getString(KEY_ACCENT_COLOR, "ivory") ?: "ivory"
+        set(value) = prefs.edit().putString(KEY_ACCENT_COLOR, value).apply()
+
     var casualMessagingDropPeriod: Boolean
         get() = prefs.getBoolean(KEY_CASUAL_MESSAGING_DROP_PERIOD, true)
         set(value) = prefs.edit().putBoolean(KEY_CASUAL_MESSAGING_DROP_PERIOD, value).apply()
@@ -190,5 +194,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_AUTO_CLEANUP_LEVEL = "auto_cleanup_level"
         private const val KEY_CASUAL_MESSAGING_DROP_PERIOD = "casual_messaging_drop_period"
         private const val KEY_APPEARANCE_THEME = "appearance_theme"
+        private const val KEY_ACCENT_COLOR = "accent_color"
     }
 }

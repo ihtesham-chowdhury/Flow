@@ -1,4 +1,4 @@
-# Flow v3.3.1 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
+# Flow v3.3.2 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,36 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.3.1.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.3.1/Flow-v3.3.1.apk)**  
-  *(98-99% Argon ASR Parity, Wispr Flow Backtrack Engine, Auto-Learn Personal Dictionary, Voice Snippets, Command Mode)*
+* **[Flow-v3.3.2.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.3.2/Flow-v3.3.2.apk)**  
+  *(YouTube/Facebook Comment Insertion, Samsung Background Survival, 60fps Live Rotating Recording Ring, Custom Accent Color Palette, Polished Bottom Navigation Pill, Fast Cloud Recovery, and Offline Model Downloaders)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🎨 What's New in v3.3.2
+
+1. **YouTube & Facebook Comment Text Injection Fix**:
+   - Resolved multi-window bottom-sheet comment modal detection by sorting interactive windows by layer descending and scanning with `requireFocus = false`.
+   - Added `typeWindowsChanged` accessibility event registration in `accessibility_service_config.xml`.
+   - Augmented `injectTextSuspend` to perform programmatic `ACTION_CLICK` + `ACTION_FOCUS` before `ACTION_PASTE` and hint-safe text splicing.
+2. **Samsung One UI Background Persistence & Keyboard Detection**:
+   - Upgraded foreground notification channel to `IMPORTANCE_DEFAULT` and service priority to `PRIORITY_DEFAULT` with `FLAG_ONGOING_EVENT` and `FOREGROUND_SERVICE_IMMEDIATE` to prevent Samsung Device Care from killing background service.
+   - Added explicit detection for Samsung Honeyboard (`com.samsung.android.honeyboard`).
+   - Added direct Samsung Device Care background protection button in the Setup Permissions sheet.
+3. **60fps Live Rotating Recording Ring**:
+   - Upgraded `FloatingMicCanvasView.kt` with a continuous 60fps rotating dual-arc ring running synchronously with speech amplitude breathing.
+   - Immediate, unmistakable visual feedback that recording is active even during momentary pauses.
+4. **Selectable Accent Color Palette**:
+   - Added selectable premium accent color options in Settings: Classic Ivory (`#EEEBE3`), Ochre Gold (`#E3B257`), Sage Emerald (`#8FBF9F`), Nordic Sky (`#38BDF8`), Terracotta Rose (`#FB7185`), and Amethyst (`#A78BFA`).
+   - Dynamically themes active tabs, segmented pills, sliders, buttons, and indicators across the app.
+5. **Polished Bottom Navigation Pill Dock**:
+   - Replaced vertical-jumping icon bars with an animated capsule pill dock (`Home` and `History`).
+   - Smooth horizontal capsule animation with accent-tinted background.
+6. **Fast Cloud (Hybrid) Mode Recovery**:
+   - Fixed crash/hide bug in Fast Cloud mode by decoupling standard online `SpeechRecognizer` from `createOnDeviceSpeechRecognizer` and setting `preferOffline` strictly when offline is requested.
+   - Added clear bilingual feedback when internet is offline.
+7. **Offline & Offline AI Model Downloaders**:
+   - Contextual setup card under Dictation Engine: 1-click Google Voice Typing settings intent for `Offline` mode, and interactive Gemma 3 (1B) LiteRT downloader with live progress bar, pause/cancel, and delete buttons for `Offline AI` mode.
 
 ---
 

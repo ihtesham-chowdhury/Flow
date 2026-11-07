@@ -15,8 +15,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -53,6 +55,8 @@ import com.flowbangla.app.model.DictationRecord
 import com.flowbangla.app.model.EngineMode
 import com.flowbangla.app.model.InteractionMode
 import com.flowbangla.app.model.SttLanguage
+import com.flowbangla.app.offline.ModelDownloadManager
+import com.flowbangla.app.offline.ModelDownloadState
 import com.flowbangla.app.service.FloatingBubbleService
 import com.flowbangla.app.ui.components.*
 import com.flowbangla.app.ui.mic.drawDandaMic
@@ -83,6 +87,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val prefs = remember { FlowBanglaApp.instance.preferencesManager }
             var appearanceTheme by remember { mutableStateOf(prefs.appearanceTheme) }
+            var accentColorKey by remember { mutableStateOf(prefs.accentColorKey) }
             val darkTheme = when (appearanceTheme) {
                 "light" -> false
                 "dark" -> true
@@ -92,13 +97,19 @@ class MainActivity : ComponentActivity() {
 
             FlowBanglaTheme(
                 darkTheme = darkTheme,
-                isBangla = appLanguage == "bn"
+                isBangla = appLanguage == "bn",
+                accentColor = getAccentColor(accentColorKey)
             ) {
                 MainScreen(
                     currentAppearance = appearanceTheme,
                     onAppearanceChange = { newTheme ->
                         appearanceTheme = newTheme
                         prefs.appearanceTheme = newTheme
+                    },
+                    currentAccentKey = accentColorKey,
+                    onAccentChange = { newAccent ->
+                        accentColorKey = newAccent
+                        prefs.accentColorKey = newAccent
                     },
                     currentLanguage = appLanguage,
                     onLanguageChange = { newLang ->
@@ -108,7 +119,8 @@ class MainActivity : ComponentActivity() {
                     onRequestOverlayPermission = { requestOverlayPermission() },
                     onRequestAccessibilityPermission = { requestAccessibilityPermission() },
                     onRequestXiaomiAutostart = { requestXiaomiAutostart() },
-                    onRequestBatteryExemption = { requestBatteryOptimizationExemption() }
+                    onRequestBatteryExemption = { requestBatteryOptimizationExemption() },
+                    onRequestSamsungDeviceCare = { requestSamsungDeviceCare() }
                 )
             }
         }
@@ -175,6 +187,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun requestSamsungDeviceCare() {
+        try {
+            val intent = PermissionHelper.createSamsungDeviceCareIntent()
+            startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                startActivity(intent)
+            } catch (_: Exception) {}
+        }
+    }
 }
 
 // Clean Copy Deck Localization Dictionary (§8)
@@ -237,7 +261,7 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 3.3.1 (11)",
+        "version" to "Version 3.3.2 (12)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first"
@@ -297,7 +321,7 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৩.৩.১ (১১)",
+        "version" to "ভার্সন ৩.৩.২ (১২)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
         "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন"
@@ -309,18 +333,22 @@ object L10n {
 fun MainScreen(
     currentAppearance: String,
     onAppearanceChange: (String) -> Unit,
+    currentAccentKey: String,
+    onAccentChange: (String) -> Unit,
     currentLanguage: String,
     onLanguageChange: (String) -> Unit,
     onRequestOverlayPermission: () -> Unit,
     onRequestAccessibilityPermission: () -> Unit,
     onRequestXiaomiAutostart: () -> Unit,
-    onRequestBatteryExemption: () -> Unit
+    onRequestBatteryExemption: () -> Unit,
+    onRequestSamsungDeviceCare: () -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { FlowBanglaApp.instance.preferencesManager }
     val historyManager = remember { FlowBanglaApp.instance.historyManager }
     val dictionaryManager = remember { FlowBanglaApp.instance.personalDictionaryManager }
     val snippetManager = remember { FlowBanglaApp.instance.snippetManager }
+    val modelDownloadManager = remember { ModelDownloadManager(context, prefs) }
     val scope = rememberCoroutineScope()
 
     val isBn = currentLanguage == "bn"
@@ -328,6 +356,7 @@ fun MainScreen(
 
     var isServiceRunning by remember { mutableStateOf(FloatingBubbleService.isRunning()) }
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Home, 1 = History
+    var selectedAccentKey by remember(currentAccentKey) { mutableStateOf(currentAccentKey) }
 
     // Sheets & Dialogs
     var showPermissionsSheet by remember { mutableStateOf(false) }
@@ -439,94 +468,94 @@ fun MainScreen(
             )
         },
         bottomBar = {
-            // Bottom Bar §5.2: Height 64dp, DarkCanvas, top hairline, 2dp ink line above active item, no violet pill
-            Column {
+            val accent = LocalAccentColor.current
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkCanvas)
+                    .navigationBarsPadding()
+            ) {
                 FlowHairline()
-                NavigationBar(
-                    containerColor = DarkCanvas,
-                    tonalElevation = 0.dp,
-                    modifier = Modifier.height(64.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceAround,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Home Tab
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        icon = {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                if (selectedTab == 0) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(24.dp)
-                                            .height(2.dp)
-                                            .clip(RoundedCornerShape(1.dp))
-                                            .background(DarkInk)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                }
-                                Icon(
-                                    imageVector = Icons.Default.Home,
-                                    contentDescription = str("nav_home"),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        },
-                        label = {
-                            Text(
-                                text = str("nav_home"),
-                                fontSize = 12.sp,
-                                fontWeight = if (selectedTab == 0) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = DarkInk,
-                            selectedTextColor = DarkInk,
-                            unselectedIconColor = DarkInkMuted,
-                            unselectedTextColor = DarkInkMuted,
-                            indicatorColor = Color.Transparent // Kills M3 violet pill per §5.2
-                        )
+                    // Home Pill Tab (Issue 5 redesign)
+                    val isHome = selectedTab == 0
+                    val homePillBg by animateColorAsState(
+                        targetValue = if (isHome) accent.copy(alpha = 0.15f) else Color.Transparent,
+                        label = "home_pill_bg"
+                    )
+                    val homeContentColor by animateColorAsState(
+                        targetValue = if (isHome) accent else DarkInkMuted,
+                        label = "home_pill_color"
                     )
 
-                    // History Tab
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = {
-                            recentHistory = historyManager.getRecentRecords()
-                            selectedTab = 1
-                        },
-                        icon = {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                if (selectedTab == 1) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(24.dp)
-                                            .height(2.dp)
-                                            .clip(RoundedCornerShape(1.dp))
-                                            .background(DarkInk)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                }
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = str("nav_history"),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        },
-                        label = {
-                            Text(
-                                text = str("nav_history"),
-                                fontSize = 12.sp,
-                                fontWeight = if (selectedTab == 1) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = DarkInk,
-                            selectedTextColor = DarkInk,
-                            unselectedIconColor = DarkInkMuted,
-                            unselectedTextColor = DarkInkMuted,
-                            indicatorColor = Color.Transparent
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(homePillBg)
+                            .clickable { selectedTab = 0 }
+                            .padding(horizontal = 22.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Home,
+                            contentDescription = str("nav_home"),
+                            tint = homeContentColor,
+                            modifier = Modifier.size(20.dp)
                         )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = str("nav_home"),
+                            fontSize = 13.sp,
+                            fontWeight = if (isHome) FontWeight.SemiBold else FontWeight.Medium,
+                            color = homeContentColor
+                        )
+                    }
+
+                    // History Pill Tab (Issue 5 redesign)
+                    val isHistory = selectedTab == 1
+                    val historyPillBg by animateColorAsState(
+                        targetValue = if (isHistory) accent.copy(alpha = 0.15f) else Color.Transparent,
+                        label = "hist_pill_bg"
                     )
+                    val historyContentColor by animateColorAsState(
+                        targetValue = if (isHistory) accent else DarkInkMuted,
+                        label = "hist_pill_color"
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(historyPillBg)
+                            .clickable {
+                                recentHistory = historyManager.getRecentRecords()
+                                selectedTab = 1
+                            }
+                            .padding(horizontal = 22.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = str("nav_history"),
+                            tint = historyContentColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = str("nav_history"),
+                            fontSize = 13.sp,
+                            fontWeight = if (isHistory) FontWeight.SemiBold else FontWeight.Medium,
+                            color = historyContentColor
+                        )
+                    }
                 }
             }
         },
@@ -824,6 +853,196 @@ fun MainScreen(
 
                             if (idx < modes.size - 1) {
                                 FlowHairline()
+                            }
+                        }
+                    }
+                }
+
+                // Offline Setup & Model Download Card (Issue 7)
+                if (selectedEngineMode == EngineMode.OFFLINE_LIGHTWEIGHT) {
+                    item {
+                        Text(
+                            text = if (isBn) "অফলাইন স্পিচ সেটআপ" else "Offline Speech Setup",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = DarkInkMuted,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                        )
+                        FlowGroup {
+                            Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SettingsVoice,
+                                        contentDescription = null,
+                                        tint = LocalAccentColor.current,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = if (isBn) "Google Voice Typing অফলাইন প্যাক" else "Google Voice Typing Offline Pack",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = DarkInk
+                                        )
+                                        Text(
+                                            text = if (isBn)
+                                                "ডিভাইসে ইন্টারনেট ছাড়া বলতে বাংলা (বাংলাদেশ/ভারত) প্যাক ডাউনলোড প্রয়োজন।"
+                                            else
+                                                "Offline dictation requires the Bengali language pack in Google Voice Typing.",
+                                            fontSize = 12.sp,
+                                            color = DarkInkMuted,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(14.dp))
+                                FlowButton(
+                                    text = if (isBn) "ভয়েস টাইপিং সেটিংস খুলুন" else "Open Voice Typing Settings",
+                                    icon = Icons.Default.Launch,
+                                    onClick = {
+                                        try {
+                                            context.startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                                        } catch (_: Exception) {
+                                            try {
+                                                context.startActivity(Intent(Settings.ACTION_LOCALE_SETTINGS))
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "Please open Settings -> Languages -> Google Voice Typing", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                } else if (selectedEngineMode == EngineMode.OFFLINE_LOCAL_LLM) {
+                    item {
+                        Text(
+                            text = if (isBn) "অন-ডিভাইস এআই মডেল (Gemma 3)" else "On-Device AI Model (Gemma 3)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = DarkInkMuted,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+                        )
+                        FlowGroup {
+                            Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                                val downloadState by modelDownloadManager.downloadState.collectAsState()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Memory,
+                                        contentDescription = null,
+                                        tint = LocalAccentColor.current,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Gemma 3 1B INT4 LiteRT",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = DarkInk
+                                        )
+                                        val stateDesc = when (val s = downloadState) {
+                                            is ModelDownloadState.NotDownloaded ->
+                                                if (isBn) "মডেল ডাউনলোড করা নেই (~৭৫০ MB)" else "Model not downloaded (~750 MB)"
+                                            is ModelDownloadState.Downloading ->
+                                                if (isBn) "ডাউনলোড হচ্ছে: ${s.downloadedMb} MB / ${s.totalMb} MB (${s.progressPercent}%)"
+                                                else "Downloading: ${s.downloadedMb} MB / ${s.totalMb} MB (${s.progressPercent}%)"
+                                            is ModelDownloadState.Downloaded ->
+                                                if (isBn) "মডেল প্রস্তুত (${s.sizeMb} MB) • ১০০% প্রাইভেট" else "Model ready (${s.sizeMb} MB) • 100% private"
+                                            is ModelDownloadState.Error ->
+                                                if (isBn) "ত্রুটি: ${s.message}" else "Error: ${s.message}"
+                                        }
+                                        Text(
+                                            text = stateDesc,
+                                            fontSize = 12.sp,
+                                            color = when (downloadState) {
+                                                is ModelDownloadState.Downloaded -> SageDark
+                                                is ModelDownloadState.Error -> VermilionDark
+                                                else -> DarkInkMuted
+                                            },
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                }
+
+                                if (downloadState is ModelDownloadState.Downloading) {
+                                    val prog = (downloadState as ModelDownloadState.Downloading).progressPercent / 100f
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    LinearProgressIndicator(
+                                        progress = { prog },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(3.dp)),
+                                        color = LocalAccentColor.current,
+                                        trackColor = DarkSurfaceRaised
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                when (downloadState) {
+                                    is ModelDownloadState.NotDownloaded, is ModelDownloadState.Error -> {
+                                        FlowButton(
+                                            text = if (isBn) "মডেল ডাউনলোড করুন (~৭৫০ MB)" else "Download Model (~750 MB)",
+                                            icon = Icons.Default.Download,
+                                            onClick = {
+                                                scope.launch {
+                                                    modelDownloadManager.downloadModel()
+                                                }
+                                            }
+                                        )
+                                    }
+                                    is ModelDownloadState.Downloading -> {
+                                        FlowButton(
+                                            text = if (isBn) "ডাউনলোড বাতিল করুন" else "Cancel Download",
+                                            icon = Icons.Default.Close,
+                                            onClick = {
+                                                modelDownloadManager.cancelDownload()
+                                            }
+                                        )
+                                    }
+                                    is ModelDownloadState.Downloaded -> {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = SageDark, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = if (isBn) "মডেল ইন্সটল করা আছে" else "Model Installed",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = SageDark
+                                                )
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    modelDownloadManager.deleteDownloadedModel()
+                                                },
+                                                colors = ButtonDefaults.outlinedButtonColors(
+                                                    contentColor = VermilionDark
+                                                ),
+                                                border = BorderStroke(1.dp, VermilionDark.copy(alpha = 0.5f)),
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isBn) "মুছে ফেলুন" else "Delete",
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1344,6 +1563,71 @@ fun MainScreen(
 
                         FlowHairline()
 
+                        // Accent Color Palette Selector (Issue 1)
+                        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isBn) "প্রিমিয়াম অ্যাকসেন্ট কালার" else "Accent Color",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = DarkInk
+                                )
+                                val activeAccent = AvailableAccentOptions.firstOrNull { it.key == selectedAccentKey }
+                                val activeAccentName = if (activeAccent != null) {
+                                    if (isBn) activeAccent.nameBn else activeAccent.nameEn
+                                } else "Classic Ivory"
+                                Text(
+                                    text = activeAccentName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = LocalAccentColor.current
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AvailableAccentOptions.forEach { opt ->
+                                    val isChosen = selectedAccentKey == opt.key
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(opt.color)
+                                            .border(
+                                                width = if (isChosen) 2.5.dp else 1.dp,
+                                                color = if (isChosen) DarkInk else DarkHairline,
+                                                shape = CircleShape
+                                            )
+                                            .clickable {
+                                                selectedAccentKey = opt.key
+                                                prefs.accentColorKey = opt.key
+                                                onAccentChange(opt.key)
+                                                notifyServiceSettingsChanged(context)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isChosen) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = opt.nameEn,
+                                                tint = if (opt.key == "ivory") DarkCanvas else Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        FlowHairline()
+
                         // Guide Row
                         Row(
                             modifier = Modifier
@@ -1416,7 +1700,8 @@ fun MainScreen(
             onRequestAccessibility = onRequestAccessibilityPermission,
             onRequestOverlay = onRequestOverlayPermission,
             onRequestXiaomiAutostart = onRequestXiaomiAutostart,
-            onRequestBatteryExemption = onRequestBatteryExemption
+            onRequestBatteryExemption = onRequestBatteryExemption,
+            onRequestSamsungDeviceCare = onRequestSamsungDeviceCare
         )
     }
 

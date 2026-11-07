@@ -6,7 +6,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
@@ -50,13 +52,19 @@ private val LightScheme = lightColorScheme(
     surfaceTint       = Color.Transparent
 )
 
+val LocalAccentColor = staticCompositionLocalOf { AccentIvory }
+
 @Composable
 fun FlowBanglaTheme(
     darkTheme: Boolean = true, // Dark-first per design spec
     isBangla: Boolean = false,
+    accentColor: Color = AccentIvory,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkScheme else LightScheme
+    val baseScheme = if (darkTheme) DarkScheme else LightScheme
+    val colorScheme = baseScheme.copy(
+        primary = accentColor
+    )
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -70,10 +78,12 @@ fun FlowBanglaTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = flowTypography(isBangla),
-        shapes = FlowShapes,
-        content = content
-    )
+    CompositionLocalProvider(LocalAccentColor provides accentColor) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = flowTypography(isBangla),
+            shapes = FlowShapes,
+            content = content
+        )
+    }
 }

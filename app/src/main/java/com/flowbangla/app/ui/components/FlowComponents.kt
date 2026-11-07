@@ -51,13 +51,14 @@ fun FlowSegmentedControl(
         )
 
         // Animated sliding indicator pill
+        val accent = LocalAccentColor.current
         Box(
             modifier = Modifier
                 .offset(x = animatedOffset)
                 .width(segmentWidth)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(10.dp))
-                .background(DarkInk)
+                .background(accent)
         )
 
         // Segment labels
@@ -185,4 +186,42 @@ fun FlowHairline(modifier: Modifier = Modifier) {
         thickness = 1.dp,
         color = DarkHairline
     )
+}
+
+/**
+ * Editorial primary action button with accent tint.
+ */
+@Composable
+fun FlowButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    containerColor: Color = LocalAccentColor.current,
+    contentColor: Color = DarkInkOnAccent
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = containerColor,
+            contentColor = contentColor
+        ),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Text(
+            text = text,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
 }

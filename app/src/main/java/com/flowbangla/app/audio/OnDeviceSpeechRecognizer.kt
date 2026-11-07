@@ -51,6 +51,7 @@ class OnDeviceSpeechRecognizer(
 
         if (speechRecognizer == null) {
             val recognizer = if (
+                forceOfflineOnly &&
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                 SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
             ) {
@@ -83,7 +84,9 @@ class OnDeviceSpeechRecognizer(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, currentLanguage.localeTag)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            if (forceOfflineOnly) {
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            }
             // Silence detection thresholds to give user natural pausing room without abrupt cutoffs
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2500L)
@@ -270,16 +273,19 @@ class OnDeviceSpeechRecognizer(
 
     private fun mapErrorCodeToMessage(error: Int, offlineRequired: Boolean): String {
         return when (error) {
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required / মাইক্রোফোন পারমিশন প্রয়োজন।"
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                "মাইক্রোফোন পারমিশন প্রয়োজন (Microphone permission required)."
             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
-                if (offlineRequired) "Offline language pack missing in Google Speech Services."
-                else "Network connection error during speech recognition."
+                if (offlineRequired) "গুগল স্পিচ সার্ভিসে অফলাইন বাংলা প্যাক নেই (Offline pack missing). Settings -> Google Voice Typing -> Offline recognition."
+                else "ইন্টারনেট কানেকশন ত্রুটি (Network connection error). Please check your internet connection."
             SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
-                "Language (${currentLanguage.localeTag}) pack not downloaded in Google Voice Typing."
+                if (offlineRequired) "গুগল ভয়েস টাইপিংয়ে বাংলা অফলাইন প্যাক ডাউনলোড নেই (${currentLanguage.localeTag}). Settings থেকে ডাউনলোড করুন।"
+                else "Language (${currentLanguage.localeTag}) temporarily unavailable on speech service."
             ERROR_SERVER_DISCONNECTED_COMPAT ->
-                "Speech recognition disconnected. Please verify Google Voice Typing offline pack is downloaded."
-            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error. Please check microphone."
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy. Please try again."
+                if (offlineRequired) "স্পিচ সার্ভিস ডিসকানেক্ট হয়েছে। বাংলা অফলাইন প্যাক ডাউনলোড করা আছে কি না যাচাই করুন।"
+                else "Speech recognition disconnected. Please try again."
+            SpeechRecognizer.ERROR_AUDIO -> "অডিও রেকর্ডিং ত্রুটি (Microphone audio error). Please check microphone."
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "স্পিচ রিকগনাইজার ব্যস্ত আছে (Recognizer busy). Please try again."
             else -> "Speech recognition error (code $error)."
         }
     }
