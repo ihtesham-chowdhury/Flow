@@ -82,9 +82,17 @@ class PreferencesManager(context: Context) {
         get() = prefs.getFloat(KEY_BUBBLE_OPACITY, 0.90f)
         set(value) = prefs.edit().putFloat(KEY_BUBBLE_OPACITY, value).apply()
 
-    var showOnlyWithKeyboard: Boolean
+    var isMasterSwitchEnabled: Boolean
+        get() = prefs.getBoolean(KEY_MASTER_SWITCH_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_MASTER_SWITCH_ENABLED, value).apply()
+
+    var showOnlyWhenTyping: Boolean
         get() = prefs.getBoolean(KEY_SHOW_WITH_KEYBOARD, true)
         set(value) = prefs.edit().putBoolean(KEY_SHOW_WITH_KEYBOARD, value).apply()
+
+    var showOnlyWithKeyboard: Boolean
+        get() = showOnlyWhenTyping
+        set(value) { showOnlyWhenTyping = value }
 
     var appLanguage: String
         get() = prefs.getString(KEY_APP_LANGUAGE, "en") ?: "en"
@@ -170,6 +178,7 @@ class PreferencesManager(context: Context) {
 
     companion object {
         private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_MASTER_SWITCH_ENABLED = "master_switch_enabled"
         private const val KEY_API_KEY = "gemini_api_key"
         private const val KEY_INTERACTION_MODE = "interaction_mode"
         private const val KEY_SMART_POLISH = "smart_polish"

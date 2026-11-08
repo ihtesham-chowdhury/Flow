@@ -153,51 +153,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestXiaomiAutostart() {
-        try {
-            val intent = Intent().apply {
-                setClassName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")
-            }
-            startActivity(intent)
-        } catch (_: Exception) {
-            try {
-                val intent = Intent("miui.intent.action.APP_PERM_EDITOR").apply {
-                    setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
-                    putExtra("extra_pkgname", packageName)
-                }
-                startActivity(intent)
-            } catch (_: Exception) {
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                startActivity(intent)
-            }
-        }
+        com.flowbangla.app.util.OemAutostartHelper.openOemAutostartSettings(this)
     }
 
     private fun requestBatteryOptimizationExemption() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                startActivity(intent)
-            } catch (_: Exception) {
-                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                startActivity(intent)
-            }
-        }
+        com.flowbangla.app.util.OemAutostartHelper.requestIgnoreBatteryOptimizations(this)
     }
 
     private fun requestSamsungDeviceCare() {
-        try {
-            val intent = PermissionHelper.createSamsungDeviceCareIntent()
-            startActivity(intent)
-        } catch (_: Exception) {
-            try {
-                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                startActivity(intent)
-            } catch (_: Exception) {}
-        }
+        com.flowbangla.app.util.OemAutostartHelper.openOemAutostartSettings(this)
     }
 }
 

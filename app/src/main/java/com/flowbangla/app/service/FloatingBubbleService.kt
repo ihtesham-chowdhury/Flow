@@ -62,7 +62,17 @@ class FloatingBubbleService : Service() {
     private var dismissTargetView: TextView? = null
     private var dismissTargetParams: WindowManager.LayoutParams? = null
     private var isNearDismissTarget = false
-    var isManuallyDismissed = false
+
+    @Volatile
+    private var isKeyboardCurrentlyVisible: Boolean = false
+
+    @Volatile
+    var isDismissedForCurrentKeyboardSession: Boolean = false
+
+    var isManuallyDismissed: Boolean
+        get() = isDismissedForCurrentKeyboardSession
+        set(value) { isDismissedForCurrentKeyboardSession = value }
+
     @Volatile
     var lastUndoTranscript: String? = null
 
@@ -169,14 +179,14 @@ class FloatingBubbleService : Service() {
                 refreshLanguageBadge()
             }
             ACTION_TOGGLE_MIC -> {
-                isManuallyDismissed = !isManuallyDismissed
-                applyVisibilityRule()
+                val prefs = FlowBanglaApp.instance.preferencesManager
+                prefs.isMasterSwitchEnabled = !prefs.isMasterSwitchEnabled
+                isDismissedForCurrentKeyboardSession = false
+                refreshBubbleVisibility()
                 updateNotification()
             }
             ACTION_SHOW_MIC -> {
-                isManuallyDismissed = false
-                applyVisibilityRule()
-                updateNotification()
+                forceRestoreBubbleNow()
             }
             ACTION_RETRY_PASTE -> {
                 val pending = TextInjectorAccessibilityService.pendingDeferredText
@@ -247,7 +257,27 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    inner class LocalBinder : Binder() {
+        fun getService(): FloatingBubbleService = this@FloatingBubbleService
+    }
+
+    private val binder = LocalBinder()
+
+    override fun onBind(intent: Intent?): IBinder = binder
+
+    private fun getOverlayContextAndType(): Pair<Context, Int> {
+        val a11yContext = TextInjectorAccessibilityService.instance
+        val context = a11yContext ?: this
+        val type = if (a11yContext != null) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        return Pair(context, type)
+    }
 
     private fun createForegroundNotification(): Notification {
         val prefs = FlowBanglaApp.instance.preferencesManager
@@ -266,17 +296,20 @@ class FloatingBubbleService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val actionTitle = if (isManuallyDismissed) {
+        val isMasterOn = prefs.isMasterSwitchEnabled
+        val actionTitle = if (!isMasterOn || isDismissedForCurrentKeyboardSession) {
             if (isBn) "মাইক দেখান" else "Show mic"
         } else {
             if (isBn) "মাইক লুকান" else "Hide mic"
         }
 
         val notifTitle = if (isBn) "Flow প্রস্তুত" else "Flow is ready"
-        val notifText = if (isManuallyDismissed) {
-            if (isBn) "মাইক লুকানো আছে।" else "Mic is hidden."
+        val notifText = if (!isMasterOn) {
+            if (isBn) "মাইক বন্ধ আছে।" else "Mic is disabled."
+        } else if (isDismissedForCurrentKeyboardSession) {
+            if (isBn) "বর্তমান কিবোর্ডের জন্য মাইক সরানো হয়েছে।" else "Mic dismissed for current typing session."
         } else {
-            if (isBn) "কিবোর্ডের উপরে মাইক দেখানো হচ্ছে।" else "Mic is showing above your keyboard."
+            if (isBn) "কিবোর্ড খুললেই মাইক দেখানো হবে।" else "Mic appears whenever keyboard opens."
         }
 
         val builder = NotificationCompat.Builder(this, FlowBanglaApp.CHANNEL_ID)
@@ -308,18 +341,12 @@ class FloatingBubbleService : Service() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupFloatingBubble() {
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val (windowContext, layoutType) = getOverlayContextAndType()
+        windowManager = windowContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val prefs = FlowBanglaApp.instance.preferencesManager
 
         val displayMetrics = resources.displayMetrics
         val sizePx = (prefs.bubbleSizeDp * displayMetrics.density).toInt()
-
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
 
         val defaultX = displayMetrics.widthPixels - sizePx - 24
         val defaultY = (displayMetrics.heightPixels * 0.55).toInt()
@@ -374,15 +401,11 @@ class FloatingBubbleService : Service() {
         }
 
         refreshLanguageBadge()
+        refreshBubbleVisibility()
     }
 
     private fun setupLivePreviewPill() {
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
+        val (_, layoutType) = getOverlayContextAndType()
 
         val density = resources.displayMetrics.density
         val pillBg = GradientDrawable().apply {
@@ -443,12 +466,7 @@ class FloatingBubbleService : Service() {
 
     private fun setupDismissTargetView() {
         val density = resources.displayMetrics.density
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
+        val (_, layoutType) = getOverlayContextAndType()
 
         val targetSizePx = (64 * density).toInt()
 
@@ -516,12 +534,7 @@ class FloatingBubbleService : Service() {
 
     private fun setupPendingPasteBanner() {
         val density = resources.displayMetrics.density
-        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
+        val (_, layoutType) = getOverlayContextAndType()
 
         val pillBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -671,24 +684,87 @@ class FloatingBubbleService : Service() {
 
     private fun dismissBubbleToBottom() {
         isNearDismissTarget = false
-        isManuallyDismissed = true
-        bubbleContainer?.visibility = View.GONE
-        vibrateDouble()
+        performDismissHaptic()
+        // Hide ONLY for the current keyboard session — never disable the master switch or kill the service!
+        isDismissedForCurrentKeyboardSession = true
+        hideDismissTarget()
+        setOverlayViewVisibility(false)
         val isBn = FlowBanglaApp.instance.preferencesManager.appLanguage == "bn"
-        Toast.makeText(this, if (isBn) "মাইক লুকানো হয়েছে।" else "Flow mic hidden.", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, if (isBn) "মাইক সরানো হয়েছে (কিবোর্ড খুললে আবার আসবে)" else "Mic dismissed for this session", Toast.LENGTH_SHORT).show()
+        updateNotification()
+    }
+
+    private fun performDismissHaptic() {
+        vibrateDouble()
+    }
+
+    fun forceRestoreBubbleNow() {
+        isDismissedForCurrentKeyboardSession = false
+        FlowBanglaApp.instance.preferencesManager.isMasterSwitchEnabled = true
+        refreshBubbleVisibility()
         updateNotification()
     }
 
     fun showBubbleFromBottom() {
-        isManuallyDismissed = false
-        applyVisibilityRule()
-        updateNotification()
+        forceRestoreBubbleNow()
     }
 
     fun hideBubbleDirectly() {
-        isManuallyDismissed = true
-        bubbleContainer?.visibility = View.GONE
+        isDismissedForCurrentKeyboardSession = true
+        setOverlayViewVisibility(false)
         updateNotification()
+    }
+
+    fun onKeyboardVisibilityChanged(
+        keyboardVisible: Boolean,
+        keyboardTopY: Int = 0,
+        isRestrictedAppOrField: Boolean = false
+    ) {
+        serviceScope.launch(Dispatchers.Main) {
+            if (isRestrictedAppOrField) {
+                // Always hide inside banking apps or password fields (unless actively recording or processing)
+                if (currentState is TranscriptionState.Idle) {
+                    setOverlayViewVisibility(false)
+                }
+                return@launch
+            }
+
+            val wasKeyboardVisible = isKeyboardCurrentlyVisible
+            isKeyboardCurrentlyVisible = keyboardVisible
+
+            // When the keyboard closes, reset the per-session dismiss flag!
+            // That way, if the user dragged the mic to '✕' earlier, it will automatically
+            // come back the next time they open the keyboard!
+            if (KeyboardVisibilityDetector.shouldResetDismissOnKeyboardStateChange(wasKeyboardVisible, keyboardVisible)) {
+                isDismissedForCurrentKeyboardSession = false
+            }
+
+            refreshBubbleVisibility()
+        }
+    }
+
+    fun refreshBubbleVisibility() {
+        val prefs = FlowBanglaApp.instance.preferencesManager
+        val shouldShow = KeyboardVisibilityDetector.shouldBubbleBeVisible(
+            isMasterSwitchEnabled = prefs.isMasterSwitchEnabled,
+            isRecordingOrProcessing = currentState !is TranscriptionState.Idle,
+            isDismissedForCurrentSession = isDismissedForCurrentKeyboardSession,
+            showOnlyWhenTyping = prefs.showOnlyWhenTyping,
+            isKeyboardVisible = isKeyboardCurrentlyVisible
+        )
+        setOverlayViewVisibility(shouldShow)
+    }
+
+    private fun setOverlayViewVisibility(visible: Boolean) {
+        val view = bubbleContainer ?: return
+        val targetVis = if (visible) View.VISIBLE else View.GONE
+        if (view.visibility != targetVis) {
+            view.visibility = targetVis
+        }
+    }
+
+    fun applyVisibilityRule() {
+        refreshBubbleVisibility()
     }
 
     private fun refreshLanguageBadge() {
@@ -763,25 +839,9 @@ class FloatingBubbleService : Service() {
     private fun setupKeyboardListener() {
         val accessibilityService = TextInjectorAccessibilityService.instance
         accessibilityService?.onKeyboardVisibilityChanged = { isVisible ->
-            isKeyboardActive = isVisible
-            applyVisibilityRule()
+            onKeyboardVisibilityChanged(isVisible)
         }
-        accessibilityService?.checkInputFocusState()
-    }
-
-    fun applyVisibilityRule() {
-        val prefs = FlowBanglaApp.instance.preferencesManager
-        if (isManuallyDismissed) {
-            bubbleContainer?.visibility = View.GONE
-            return
-        }
-        val shouldShow = if (prefs.showOnlyWithKeyboard) {
-            isKeyboardActive || currentState !is TranscriptionState.Idle
-        } else {
-            true
-        }
-
-        bubbleContainer?.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        accessibilityService?.syncKeyboardVisibilityWithBubble()
     }
 
     fun updateDimensionsAndOpacity() {

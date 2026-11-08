@@ -7,6 +7,8 @@ import android.accessibilityservice.InputMethod
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import com.flowbangla.app.data.PreferencesManager
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
@@ -95,6 +97,45 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     private var lastPastedTimestampMs: Long = 0L
     private val AUTO_LEARN_WINDOW_MS = 15_000L
 
+    private var isBubbleServiceBound = false
+
+    private val bubbleServiceConnection = object : android.content.ServiceConnection {
+        override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+            isBubbleServiceBound = true
+            syncKeyboardVisibilityWithBubble()
+        }
+
+        override fun onServiceDisconnected(name: android.content.ComponentName?) {
+            isBubbleServiceBound = false
+            ensureBubbleServiceAliveAndBound()
+        }
+    }
+
+    fun ensureBubbleServiceAliveAndBound() {
+        try {
+            val prefs = PreferencesManager(this)
+            if (!prefs.isMasterSwitchEnabled) return
+
+            val intent = Intent(this, FloatingBubbleService::class.java)
+            if (FloatingBubbleService.instance == null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+            if (!isBubbleServiceBound) {
+                bindService(
+                    intent,
+                    bubbleServiceConnection,
+                    Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Watchdog re-bind warning: ${e.message}")
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -112,6 +153,10 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             }
         }
         Log.i(TAG, "TextInjectorAccessibilityService connected with multi-window flags.")
+
+        // Bind FloatingBubbleService with BIND_IMPORTANT so it shares AccessibilityService's unkillable priority
+        ensureBubbleServiceAliveAndBound()
+        syncKeyboardVisibilityWithBubble()
     }
 
     // Track live IME session state on Android 13+ (API 33+)
@@ -131,6 +176,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
                 super.onStartInput(attribute, restarting)
                 isInputConnectionStarted = true
                 currentEditorPackage = attribute.packageName
+                syncKeyboardVisibilityWithBubble()
                 // If we have pending deferred text waiting for a text box to focus, commit it immediately!
                 val deferred = pendingDeferredText
                 if (!deferred.isNullOrBlank()) {
@@ -149,6 +195,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             override fun onFinishInput() {
                 super.onFinishInput()
                 isInputConnectionStarted = false
+                syncKeyboardVisibilityWithBubble()
             }
         }
         a11yInputMethod = im
@@ -658,44 +705,34 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         return ActiveAppContextExtractor.extract(target)
     }
 
+    fun syncKeyboardVisibilityWithBubble() {
+        // 1. If OEM killed FloatingBubbleService while phone was idle, revive it right now!
+        if (FloatingBubbleService.instance == null) {
+            ensureBubbleServiceAliveAndBound()
+        }
+
+        val windowList = try { windows } catch (_: Exception) { emptyList() }
+        val activeRoot = try { rootInActiveWindow } catch (_: Exception) { null }
+
+        val snapshot = KeyboardVisibilityDetector.evaluateKeyboardState(
+            context = this,
+            windows = windowList,
+            activeRoot = activeRoot,
+            isImeInputStarted = isInputConnectionStarted
+        )
+
+        FloatingBubbleService.instance?.onKeyboardVisibilityChanged(
+            keyboardVisible = snapshot.isKeyboardVisible,
+            keyboardTopY = snapshot.keyboardTopY,
+            isRestrictedAppOrField = snapshot.isRestrictedFieldOrApp
+        )
+        mainHandler.post {
+            onKeyboardVisibilityChanged?.invoke(snapshot.isKeyboardVisible)
+        }
+    }
+
     fun checkInputFocusState() {
-        val prefs = FlowBanglaApp.instance.preferencesManager
-        if (!prefs.showOnlyWithKeyboard) {
-            onKeyboardVisibilityChanged?.invoke(true)
-            return
-        }
-
-        try {
-            val windowList = try { windows } catch (_: Exception) { emptyList() }
-            var imeVisible = false
-            for (w in windowList) {
-                if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-                    imeVisible = true
-                    break
-                }
-                // Detect Samsung Honeyboard, Gboard, SwiftKey, or vendor-specific soft keyboard windows
-                val root = try { w.root } catch (_: Exception) { null }
-                val pkgName = root?.packageName?.toString().orEmpty()
-                if (pkgName.contains("honeyboard", ignoreCase = true) ||
-                    pkgName.contains("inputmethod", ignoreCase = true) ||
-                    pkgName.contains("gboard", ignoreCase = true) ||
-                    pkgName.contains("latin", ignoreCase = true) ||
-                    pkgName.contains("swiftkey", ignoreCase = true)
-                ) {
-                    imeVisible = true
-                    break
-                }
-            }
-
-            val target = findBestTargetNode(allowCachedFallback = true)
-            val isEditable = target != null && isCandidateInputNode(target)
-
-            val isVisible = imeVisible || isEditable
-            mainHandler.post {
-                onKeyboardVisibilityChanged?.invoke(isVisible)
-            }
-        } catch (_: Exception) {
-        }
+        syncKeyboardVisibilityWithBubble()
     }
 
     fun injectText(textToInject: String): Boolean {
@@ -712,6 +749,12 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         instance = null
         _isConnected.value = false
         lastFocusedEditableNode = null
+        if (isBubbleServiceBound) {
+            try {
+                unbindService(bubbleServiceConnection)
+            } catch (_: Exception) {}
+            isBubbleServiceBound = false
+        }
         super.onDestroy()
     }
 }

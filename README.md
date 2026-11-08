@@ -1,4 +1,4 @@
-# Flow v3.4.0 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
+# Flow v3.5.0 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,32 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.4.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.4.0/Flow-v3.4.0.apk)**  
-  *(Zero-Fail 6-Tier IME Injection, Ink & Danda Action Pod with Live Cancellation, Zero-Wait Real-Time Streaming ASR, and Automatic Period-to-Danda Conversion)*
+* **[Flow-v3.5.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.5.0/Flow-v3.5.0.apk)**  
+  *(Keyboard-Synced Visibility, Per-Session Dismiss & Auto-Revive, Accessibility-Bound Watchdog, TYPE_ACCESSIBILITY_OVERLAY, and Multi-OEM Autostart Launcher)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v3.5.0 (Keyboard Sync, Per-Session Dismiss & OEM Survival)
+
+1. **Strict 3-Signal Keyboard Visibility Detection (`KeyboardVisibilityDetector`)**:
+   - Floating mic is strictly synchronized with the soft keyboard lifecycle: appears *only* when the keyboard is open and vanishes within 150ms when the keyboard closes.
+   - Evaluates primary `AccessibilityWindowInfo.TYPE_INPUT_METHOD` with height $\ge 100\text{dp}$, backed by secondary detection for Gboard, Samsung Honeyboard, Ridmik Keyboard, SwiftKey, Mayabi, and Xiaomi Mint.
+   - Automatically excludes sensitive banking applications (bKash, Nagad, Cellfin, Nexus Pay, Upay) and password fields.
+2. **Per-Keyboard-Session Dismiss (`✕`) with Auto-Revival**:
+   - Dragging the floating mic to the bottom `✕` target now dismisses the bubble **only for the current typing session** instead of permanently disabling it.
+   - The instant the user finishes and closes the keyboard, `isDismissedForCurrentKeyboardSession` automatically resets to `false`—the mic seamlessly re-appears the very next time any text box is opened!
+   - `PreferencesManager.showOnlyWhenTyping` defaults to `true`.
+3. **Unkillable Accessibility-Bound Watchdog (`BIND_IMPORTANT`)**:
+   - `TextInjectorAccessibilityService` maintains a persistent `Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT` binder connection to `FloatingBubbleService`, elevating it to Android's `system_server` process priority.
+   - The watchdog automatically monitors and revives `FloatingBubbleService` if terminated by aggressive OEM background cleaners.
+4. **`TYPE_ACCESSIBILITY_OVERLAY` System Token Promotion**:
+   - Overlays are hosted via the `TextInjectorAccessibilityService` window context using `TYPE_ACCESSIBILITY_OVERLAY`, exempting Flow from background cached-process freezer kills and overlay restrictions on MIUI/HyperOS, One UI, ColorOS, and OriginOS.
+5. **Boot, Update & Unlock Auto-Revive Receiver (`FlowSystemReviveReceiver`)**:
+   - Listens for `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `QUICKBOOT_POWERON`, and `USER_PRESENT` to guarantee background readiness after device reboot or deep sleep.
+6. **Multi-OEM Autostart & Battery Deep-Linker (`OemAutostartHelper`)**:
+   - Native deep-linking to proprietary Autostart / Auto-Launch management for Xiaomi/Redmi/POCO, Samsung One UI, OPPO/Realme/OnePlus, Vivo/iQOO, Huawei/Honor, and Transsion (Tecno/Infinix/itel).
+   - Upgraded `SetupPermissionsSheet` with a 2-step setup card providing manufacturer-specific step-by-step guidance.
 
 ---
 

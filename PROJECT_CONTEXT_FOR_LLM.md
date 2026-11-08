@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.4.0 (Build 13)  
+> **Document Version**: 3.5.0 (Build 14)  
 > **Last Updated**: November 8, 2026  
-> **Status**: Production Debug Release (`Flow-v3.4.0.apk` active)  
+> **Status**: Production Debug Release (`Flow-v3.5.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -233,6 +233,26 @@
   - Automatically converts trailing periods after Bengali words into proper Bengali Danda (`।`) in `TranscriptPostProcessor`.
 - **100% Passing Unit Test Suite**:
   - 64 unit tests covering `RollingChunkTranscriberTest`, `ActionPodHitResolverTest`, `FormattingChainFastPathTest`, `TranscriptPostProcessorTest`, `TextSpliceHelperTest`, and `WisprContextFormatterTest`. All 64 passed.
+
+### Phase 12: v3.5.0 (Build 14) — Keyboard-Synced Visibility, Per-Session Dismiss & Unkillable OEM Survival (Current Release)
+- **Strict 3-Signal Keyboard Visibility Detection (`KeyboardVisibilityDetector`)**:
+  - Solved "floating mic always on screen" by strictly evaluating `AccessibilityWindowInfo.TYPE_INPUT_METHOD` with height $\ge 100\text{dp}$ and known IME package windows (Gboard, Samsung Honeyboard, Ridmik Keyboard, SwiftKey, Mayabi, Xiaomi Mint).
+  - Automatically suppresses mic overlay on banking/sensitive apps (bKash, Nagad, Cellfin, Nexus Pay, Upay, Bitwarden, 1Password) and password fields.
+- **Per-Keyboard-Session Dismiss (`✕`) with Auto-Revival**:
+  - Dragging floating mic to bottom `✕` target hides it *only* for the current keyboard session (`isDismissedForCurrentKeyboardSession = true`).
+  - Closing the soft keyboard automatically resets `isDismissedForCurrentKeyboardSession = false`. Next time the keyboard is opened, the mic smoothly re-appears.
+- **Unkillable Accessibility-Bound Watchdog (`BIND_IMPORTANT`)**:
+  - `TextInjectorAccessibilityService` maintains persistent `Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT` connection to `FloatingBubbleService`, elevating it to system server process priority.
+  - Automatically monitors and revives `FloatingBubbleService` if terminated by OEM battery managers.
+- **`TYPE_ACCESSIBILITY_OVERLAY` Window Token Promotion**:
+  - Overlays hosted using `TextInjectorAccessibilityService` context with `TYPE_ACCESSIBILITY_OVERLAY`, preventing cached-process freezer kills and overlay restrictions on MIUI/HyperOS, One UI, ColorOS, OriginOS.
+- **Boot, Update & Unlock Auto-Revive Receiver (`FlowSystemReviveReceiver`)**:
+  - Broadcast receiver registered for `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `QUICKBOOT_POWERON`, and `USER_PRESENT`.
+- **Multi-OEM Autostart & Battery Deep-Linker (`OemAutostartHelper`)**:
+  - Deep-links to OEM-specific autostart/auto-launch management for Xiaomi, Samsung, OPPO/Realme/OnePlus, Vivo/iQOO, Huawei, Transsion.
+  - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
+- **69 Unit Tests Passing (100% pass rate)**:
+  - Added `KeyboardVisibilityDetectorTest` covering restricted package detection, known keyboard packages, height thresholds, and session dismiss reset transitions.
 
 ---
 

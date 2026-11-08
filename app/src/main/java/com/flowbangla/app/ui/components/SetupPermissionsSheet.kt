@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowbangla.app.ui.theme.*
 import com.flowbangla.app.util.FlowPermissionState
+import com.flowbangla.app.util.OemAutostartHelper
 
 /**
  * Setup and Permissions Sheet according to FLOW_PREMIUM_REDESIGN_GUIDE.md §6.9:
@@ -145,24 +146,91 @@ fun SetupPermissionsSheet(
                 )
             }
 
-            // Step 4: Samsung One UI Background Protection (Issue 3)
-            if (Build.MANUFACTURER.contains("samsung", ignoreCase = true)) {
-                Spacer(modifier = Modifier.height(16.dp))
-                FlowHairline()
-                Spacer(modifier = Modifier.height(16.dp))
+            // Step 4: Universal OEM Background & Autostart Survival
+            Spacer(modifier = Modifier.height(16.dp))
+            FlowHairline()
+            Spacer(modifier = Modifier.height(16.dp))
 
-                PermissionRow(
-                    stepNumber = if (permissionState.isRestrictedSettingsPossible && !permissionState.hasAccessibilityPermission) 4 else 3,
-                    title = if (isBn) "স্যামসাং ব্যাকগ্রাউন্ড সুরক্ষা" else "Samsung Background Protection",
-                    description = if (isBn)
-                        "স্যামসাং One UI ব্যাকগ্রাউন্ডে সার্ভিস বন্ধ করে দেওয়া ঠেকাতে Device Care -> Battery -> Never sleeping apps-এ Flow যুক্ত রাখুন।"
+            val oemGuide = OemAutostartHelper.getOemInstructions(isBn)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isBn) "ব্যাকগ্রাউন্ড ও অটো-স্টার্ট সুরক্ষা" else "Background & Autostart Survival",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DarkInk
+                    )
+                    if (permissionState.isIgnoringBatteryOptimizations) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Done",
+                                tint = SageDark,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isBn) "সচল" else "Active",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = SageDark
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isBn)
+                        "ফোন যাতে ব্যাকগ্রাউন্ডে Flow বন্ধ না করে দেয়:\n$oemGuide"
                     else
-                        "Prevent Samsung One UI from killing Flow. Add Flow to 'Never sleeping apps' in Device Care -> Battery.",
-                    isDone = permissionState.isIgnoringBatteryOptimizations,
-                    actionLabel = if (isBn) "Device Care সেটিংস খুলুন" else "Open Device Care",
-                    onAction = onRequestSamsungDeviceCare,
-                    isBn = isBn
+                        "Prevent your phone from killing Flow in the background:\n$oemGuide",
+                    fontSize = 13.sp,
+                    color = DarkInkMuted,
+                    lineHeight = 18.sp
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onRequestBatteryExemption,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DarkInk,
+                            contentColor = DarkInkOnAccent
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = if (isBn) "ব্যাটারি সীমাহীন" else "Battery Unrestricted",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Button(
+                        onClick = onRequestXiaomiAutostart,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DarkSurfaceRaised,
+                            contentColor = DarkInk
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = if (isBn) "অটো-স্টার্ট চালু" else "Enable Autostart",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
