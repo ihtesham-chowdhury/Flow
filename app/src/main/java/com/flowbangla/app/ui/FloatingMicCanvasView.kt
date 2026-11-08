@@ -9,7 +9,15 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
+import androidx.compose.ui.graphics.toArgb
+import com.flowbangla.app.FlowBanglaApp
 import com.flowbangla.app.model.TranscriptionState
+
+enum class PodHitZone {
+    MAIN_OR_CONFIRM, // ✓ Tick button (or Idle Mic button)
+    CANCEL,          // ✕ Cross button
+    NONE
+}
 
 /**
  * Ink & Danda Floating Mic Canvas View.
@@ -88,6 +96,48 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         color = colorMutedRing
     }
 
+    // Action Pod Paints (Confirm ✓ / Cancel ✕ Capsule Pod)
+    private val pillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb((255 * 0.96f).toInt(), 0x16, 0x18, 0x1B) // #F516181B
+    }
+    private val pillBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF2A2E33.toInt() // 1dp hairline
+    }
+    private val cancelBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF1F2226.toInt() // Raised Obsidian #1F2226
+    }
+    private val cancelBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF2A2E33.toInt()
+    }
+    private val cancelGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = 0xFFEEEBE3.toInt() // Ivory #EEEBE3
+    }
+    private val confirmBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = colorSuccessSage // Sage #8FBF9F
+    }
+    private val confirmGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = 0xFF0D0E10.toInt() // Dark Ink #0D0E10
+    }
+    private val waveformBarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = colorDiscRecording // Vermilion #E8473A
+    }
+
+    // Hit-testing bounds
+    val cancelCircleBounds = RectF()
+    val confirmCircleBounds = RectF()
+    var isDockedOnRight: Boolean = true
+
     // Language Chip Paints (§7.5)
     private var activeLanguageBadge: String? = null
     private val chipBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -152,6 +202,31 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         dashedRingPaint.strokeWidth = 1.5f * density
         dashedRingPaint.pathEffect = DashPathEffect(floatArrayOf(6f * density, 4f * density), 0f)
         chipKeylinePaint.strokeWidth = 2f * density
+        pillBorderPaint.strokeWidth = 1f * density
+        cancelBorderPaint.strokeWidth = 1.5f * density
+        cancelGlyphPaint.strokeWidth = 2.2f * density
+        confirmGlyphPaint.strokeWidth = 2.6f * density
+        waveformBarPaint.strokeWidth = 3f * density
+    }
+
+    fun resolveHitZone(touchX: Float, touchY: Float): PodHitZone {
+        val density = resources.displayMetrics.density
+        val slop = 12f * density
+        return ActionPodHitResolver.resolve(
+            touchX = touchX,
+            touchY = touchY,
+            isRecording = currentState is TranscriptionState.Recording,
+            isProcessing = currentState is TranscriptionState.Processing,
+            cancelLeft = cancelCircleBounds.left,
+            cancelRight = cancelCircleBounds.right,
+            cancelTop = cancelCircleBounds.top,
+            cancelBottom = cancelCircleBounds.bottom,
+            confirmLeft = confirmCircleBounds.left,
+            confirmRight = confirmCircleBounds.right,
+            confirmTop = confirmCircleBounds.top,
+            confirmBottom = confirmCircleBounds.bottom,
+            slop = slop
+        )
     }
 
     fun setLanguageBadge(badge: String?) {
@@ -267,6 +342,88 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         val isProcessing = currentState is TranscriptionState.Processing
         val isSuccess = isShowingSuccessAnimation || currentState is TranscriptionState.Success
         val isError = currentState is TranscriptionState.Error
+
+        if (isRecording) {
+            // Draw Expanded Recording Action Pod
+            val pillRadius = h / 2f
+            canvas.drawRoundRect(0f, 0f, w, h, pillRadius, pillRadius, pillBgPaint)
+            canvas.drawRoundRect(0f, 0f, w, h, pillRadius, pillRadius, pillBorderPaint)
+
+            // Cancel Button (✕) on Left
+            val cancelRadius = 21f * density
+            val cancelCx = 26f * density
+            cancelCircleBounds.set(cancelCx - cancelRadius, cy - cancelRadius, cancelCx + cancelRadius, cy + cancelRadius)
+            canvas.drawCircle(cancelCx, cy, cancelRadius, cancelBgPaint)
+            canvas.drawCircle(cancelCx, cy, cancelRadius, cancelBorderPaint)
+            drawCross(canvas, cancelCx, cy, 11f * density, cancelGlyphPaint)
+
+            // Confirm Button (✓) with 60fps rotating ring on Right
+            val confirmRadius = 22f * density
+            val confirmCx = w - (27f * density)
+            confirmCircleBounds.set(confirmCx - confirmRadius, cy - confirmRadius, confirmCx + confirmRadius, cy + confirmRadius)
+
+            val arcRadius = confirmRadius + (3.5f * density)
+            val arcRect = RectF(confirmCx - arcRadius, cy - arcRadius, confirmCx + arcRadius, cy + arcRadius)
+            canvas.drawCircle(confirmCx, cy, arcRadius, recordingTrackPaint)
+            canvas.save()
+            canvas.rotate(recordingRingRotation, confirmCx, cy)
+            canvas.drawArc(arcRect, 0f, 95f, false, recordingArcPaint)
+            canvas.drawArc(arcRect, 180f, 95f, false, recordingArcPaint)
+            canvas.restore()
+
+            try {
+                val accent = FlowBanglaApp.instance.preferencesManager.accentColorKey
+                confirmBgPaint.color = com.flowbangla.app.ui.theme.getAccentColor(accent).toArgb()
+            } catch (_: Exception) {
+                confirmBgPaint.color = colorSuccessSage
+            }
+            canvas.drawCircle(confirmCx, cy, confirmRadius, confirmBgPaint)
+            drawCheckmark(canvas, confirmCx, cy, confirmRadius * 0.72f, confirmGlyphPaint)
+
+            // Center: Live audio amplitude waveform bars
+            val centerStartX = cancelCx + cancelRadius + (8f * density)
+            val centerEndX = confirmCx - confirmRadius - (8f * density)
+            val barSpacing = 7f * density
+            val numBars = 4
+            val totalWidth = (numBars - 1) * barSpacing
+            val startX = (centerStartX + centerEndX) / 2f - (totalWidth / 2f)
+            val barHeights = floatArrayOf(6f, 15f, 12f, 7f)
+            for (i in 0 until numBars) {
+                val bx = startX + (i * barSpacing)
+                val bh = (barHeights[i] * density) * (0.35f + smoothedAmplitude * 0.95f)
+                canvas.drawLine(bx, cy - bh, bx, cy + bh, waveformBarPaint)
+            }
+            return
+        }
+
+        if (isProcessing) {
+            // Draw Expanded Processing Action Pod
+            val pillRadius = h / 2f
+            canvas.drawRoundRect(0f, 0f, w, h, pillRadius, pillRadius, pillBgPaint)
+            canvas.drawRoundRect(0f, 0f, w, h, pillRadius, pillRadius, pillBorderPaint)
+
+            // Cancel Button (✕) on Left
+            val cancelRadius = 21f * density
+            val cancelCx = 26f * density
+            cancelCircleBounds.set(cancelCx - cancelRadius, cy - cancelRadius, cancelCx + cancelRadius, cy + cancelRadius)
+            canvas.drawCircle(cancelCx, cy, cancelRadius, cancelBgPaint)
+            canvas.drawCircle(cancelCx, cy, cancelRadius, cancelBorderPaint)
+            drawCross(canvas, cancelCx, cy, 11f * density, cancelGlyphPaint)
+            confirmCircleBounds.setEmpty()
+
+            // Right: Orbiting 90° Ochre spinner
+            val spinnerCx = w - (26f * density)
+            val spinnerRadius = 18f * density
+            val arcRect = RectF(spinnerCx - spinnerRadius, cy - spinnerRadius, spinnerCx + spinnerRadius, cy + spinnerRadius)
+            canvas.save()
+            canvas.rotate(spinnerRotation, spinnerCx, cy)
+            canvas.drawArc(arcRect, 0f, 90f, false, spinnerPaint)
+            canvas.restore()
+            return
+        }
+
+        cancelCircleBounds.setEmpty()
+        confirmCircleBounds.set(0f, 0f, w, h)
 
         // 1. Live Recording Active Ring + Dynamic Voice Aura (Recording only)
         if (isRecording) {
@@ -398,6 +555,12 @@ class FloatingMicCanvasView(context: Context) : View(context) {
 
         // 3. Stem (the vertical danda)
         canvas.drawLine(cx, cy + (9f * u), cx, cy + (13f * u), strokePaint)
+    }
+
+    private fun drawCross(canvas: Canvas, cx: Float, cy: Float, size: Float, paint: Paint) {
+        val half = size / 2f
+        canvas.drawLine(cx - half, cy - half, cx + half, cy + half, paint)
+        canvas.drawLine(cx - half, cy + half, cx + half, cy - half, paint)
     }
 
     private fun drawCheckmark(canvas: Canvas, cx: Float, cy: Float, size: Float, paint: Paint) {

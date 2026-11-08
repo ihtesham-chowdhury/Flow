@@ -98,6 +98,9 @@ object TranscriptPostProcessor {
         str = str.replace(Regex("([।])\\."), "$1")
         str = str.replace(Regex("\\.([।])"), "$1")
 
+        // Convert any trailing or inline period after Bengali letters into proper Bengali Danda ।
+        str = str.replace(Regex("([$BN])\\."), "$1।")
+
         // Ensure single space after punctuation (unless newline, quote, or end of string)
         str = str.replace(Regex("([।.,?!:;])([^\\s।.,?!:;\\n\"'”’])"), "$1 $2")
 

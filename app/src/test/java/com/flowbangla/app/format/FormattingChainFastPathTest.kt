@@ -39,4 +39,16 @@ class FormattingChainFastPathTest {
     fun testFastPathAlwaysAllowedWhenCleanupLevelIsNone() {
         assertTrue(FormattingChain.shouldUseInstantLocalFastPath("Let's make a recipe no wait", AutoCleanupLevel.NONE))
     }
+
+    @Test
+    fun testSmartModeBacktrackRegexDetection() {
+        val cleanSpeech = "আমি কালকে বাজারে যাব এবং কিছু ফল কিনব"
+        assertFalse(FormattingChain.BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(cleanSpeech))
+
+        val backtrackSpeech1 = "আমি কালকে যাব না না পরশু যাব"
+        assertTrue(FormattingChain.BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(backtrackSpeech1))
+
+        val backtrackSpeech2 = "Let's meet at 5, scratch that, 6 PM"
+        assertTrue(FormattingChain.BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(backtrackSpeech2))
+    }
 }

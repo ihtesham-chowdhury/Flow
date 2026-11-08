@@ -77,6 +77,11 @@ class FloatingBubbleService : Service() {
     private lateinit var groqWhisperClient: GroqWhisperClient
     private lateinit var onDeviceRecognizer: OnDeviceSpeechRecognizer
     private lateinit var formattingChain: FormattingChain
+    private lateinit var okHttpClient: OkHttpClient
+
+    private var liveTranscribeStreamer: com.flowbangla.app.api.GeminiLiveTranscribeStreamer? = null
+    private var rollingChunkTranscriber: com.flowbangla.app.audio.RollingChunkTranscriber? = null
+    private var activeDictationJob: Job? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var currentState: TranscriptionState = TranscriptionState.Idle
@@ -117,7 +122,7 @@ class FloatingBubbleService : Service() {
 
     private fun initializeEngines() {
         val prefs = FlowBanglaApp.instance.preferencesManager
-        val okHttpClient = OkHttpClient()
+        okHttpClient = OkHttpClient()
         audioRecorder = AudioRecorder(this)
         geminiInteractionsAdapter = GeminiInteractionsAdapter(okHttpClient)
         groqWhisperClient = GroqWhisperClient(okHttpClient)
@@ -230,6 +235,9 @@ class FloatingBubbleService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
+        activeDictationJob?.cancel()
+        liveTranscribeStreamer?.cancelAndClose()
+        rollingChunkTranscriber?.cancelAll()
         TextInjectorAccessibilityService.instance?.onKeyboardVisibilityChanged = null
         removeFloatingBubble()
         onDeviceRecognizer.release()
@@ -712,9 +720,44 @@ class FloatingBubbleService : Service() {
     private fun handleSingleTap() {
         when (currentState) {
             is TranscriptionState.Idle -> startRecordingAction()
-            is TranscriptionState.Recording -> stopRecordingAndProcess()
+            is TranscriptionState.Recording -> onUserConfirmDictation()
             else -> { /* Busy processing */ }
         }
+    }
+
+    fun onUserConfirmDictation() {
+        if (currentState !is TranscriptionState.Recording) return
+        vibrateShort()
+        stopRecordingAndProcess()
+    }
+
+    fun onUserCancelDictation() {
+        vibrateShort()
+        activeDictationJob?.cancel(CancellationException("User tapped Cancel (✕)"))
+        activeDictationJob = null
+
+        try {
+            audioRecorder.cancelAndDeleteRecording()
+        } catch (_: Exception) {}
+
+        try {
+            onDeviceRecognizer.cancel()
+        } catch (_: Exception) {}
+
+        try {
+            liveTranscribeStreamer?.cancelAndClose()
+        } catch (_: Exception) {}
+        liveTranscribeStreamer = null
+
+        try {
+            rollingChunkTranscriber?.cancelAll()
+        } catch (_: Exception) {}
+        rollingChunkTranscriber = null
+
+        hidePendingPasteBanner()
+        hideThrottledPreviewText()
+        currentState = TranscriptionState.Idle
+        updateUiState(currentState)
     }
 
     private fun setupKeyboardListener() {
@@ -819,19 +862,28 @@ class FloatingBubbleService : Service() {
                     }
                     return true
                 } else if (duration < 500 && prefs.interactionMode == InteractionMode.TAP_TO_TALK) {
-                    if (currentState is TranscriptionState.Recording) {
-                        // Instant stop on tap while recording (no double-tap delay needed during speech)
-                        stopRecordingAndProcess()
-                    } else if (prefs.isDoubleTapLanguageToggleEnabled) {
-                        // Dispatch UP to gestureDetector for double-tap vs single-tap resolution
-                        canvasView?.gestureDetector?.onTouchEvent(event)
-                    } else {
-                        // Double-tap disabled: execute immediately with zero delay
-                        handleSingleTap()
+                    val hitZone = canvasView?.resolveHitZone(event.x, event.y) ?: com.flowbangla.app.ui.PodHitZone.MAIN_OR_CONFIRM
+                    if (hitZone == com.flowbangla.app.ui.PodHitZone.CANCEL) {
+                        onUserCancelDictation()
+                    } else if (hitZone == com.flowbangla.app.ui.PodHitZone.MAIN_OR_CONFIRM) {
+                        if (currentState is TranscriptionState.Recording) {
+                            onUserConfirmDictation()
+                        } else if (currentState is TranscriptionState.Processing) {
+                            // in-flight processing; can cancel via Cancel (✕) button
+                        } else if (prefs.isDoubleTapLanguageToggleEnabled) {
+                            // Dispatch UP to gestureDetector for double-tap vs single-tap resolution
+                            canvasView?.gestureDetector?.onTouchEvent(event)
+                        } else {
+                            // Double-tap disabled: execute immediately with zero delay
+                            handleSingleTap()
+                        }
                     }
                 } else if (prefs.interactionMode == InteractionMode.PUSH_TO_TALK) {
-                    if (currentState is TranscriptionState.Recording) {
-                        stopRecordingAndProcess()
+                    val hitZone = canvasView?.resolveHitZone(event.x, event.y) ?: com.flowbangla.app.ui.PodHitZone.MAIN_OR_CONFIRM
+                    if (hitZone == com.flowbangla.app.ui.PodHitZone.CANCEL) {
+                        onUserCancelDictation()
+                    } else if (currentState is TranscriptionState.Recording) {
+                        onUserConfirmDictation()
                     }
                 }
 
@@ -883,8 +935,46 @@ class FloatingBubbleService : Service() {
 
         when (prefs.engineMode) {
             EngineMode.CLOUD_AUDIO -> {
+                if (prefs.geminiApiKey.isNotBlank()) {
+                    val a11y = TextInjectorAccessibilityService.instance
+                    val fieldContext = a11y?.extractActiveFieldContext() ?: ActiveFieldContext()
+                    val dictionaryManager = FlowBanglaApp.instance.personalDictionaryManager
+                    val customVocab = (prefs.getPersonalVocabularyList() +
+                        dictionaryManager.buildCustomVocabularyList(fieldContext.screenProperNouns))
+                        .distinct()
+                        .take(250)
+
+                    // 1. Live WebSocket streamer (Pillar 1)
+                    liveTranscribeStreamer?.cancelAndClose()
+                    val streamer = com.flowbangla.app.api.GeminiLiveTranscribeStreamer(okHttpClient, prefs.geminiApiKey)
+                    streamer.startStreamingSession(customVocab)
+                    liveTranscribeStreamer = streamer
+
+                    audioRecorder.onPcmChunkAvailable = { bytes, length ->
+                        streamer.sendPcmChunk(bytes, length)
+                    }
+
+                    // 2. Rolling VAD chunk uploader (Pillar 2)
+                    rollingChunkTranscriber?.cancelAll()
+                    val chunker = com.flowbangla.app.audio.RollingChunkTranscriber(
+                        serviceScope,
+                        geminiInteractionsAdapter,
+                        prefs.geminiApiKey,
+                        customVocab
+                    )
+                    rollingChunkTranscriber = chunker
+
+                    audioRecorder.onRollingPauseDetected = { segmentFile ->
+                        chunker.submitCompletedSegmentAsync(segmentFile)
+                    }
+                }
+
                 val result = audioRecorder.startRecording()
                 if (result.isFailure) {
+                    liveTranscribeStreamer?.cancelAndClose()
+                    liveTranscribeStreamer = null
+                    rollingChunkTranscriber?.cancelAll()
+                    rollingChunkTranscriber = null
                     Toast.makeText(this, "Microphone failed to start / মাইক্রোফোন চালু করা যায়নি", Toast.LENGTH_SHORT).show()
                     currentState = TranscriptionState.Idle
                     updateUiState(currentState)
@@ -916,19 +1006,40 @@ class FloatingBubbleService : Service() {
         currentState = TranscriptionState.Processing
         updateUiState(currentState)
 
-        val prefs = FlowBanglaApp.instance.preferencesManager
-        when (prefs.engineMode) {
-            EngineMode.CLOUD_AUDIO -> {
-                val result = audioRecorder.stopRecording()
-                val audioFile = result.getOrNull()?.file
-                val durationMs = result.getOrNull()?.durationMs ?: 0
+        activeDictationJob?.cancel()
+        activeDictationJob = serviceScope.launch {
+            val prefs = FlowBanglaApp.instance.preferencesManager
+            when (prefs.engineMode) {
+                EngineMode.CLOUD_AUDIO -> {
+                    val streamer = liveTranscribeStreamer
+                    liveTranscribeStreamer = null
+                    val chunker = rollingChunkTranscriber
+                    rollingChunkTranscriber = null
 
-                if (audioFile == null) {
-                    handleError("Recording file not found / অডিও ফাইল পাওয়া যায়নি")
-                    return
-                }
+                    // 1. Pillar 1: Attempt sub-300ms live streaming completion
+                    val liveTranscript = streamer?.finishAndAwaitTranscript(650L)
 
-                serviceScope.launch {
+                    val result = audioRecorder.stopRecording()
+                    val audioFile = result.getOrNull()?.file
+                    val durationMs = result.getOrNull()?.durationMs ?: 0
+
+                    if (!liveTranscript.isNullOrBlank()) {
+                        audioFile?.delete()
+                        chunker?.cancelAll()
+                        processCloudTranscript(
+                            rawTranscript = liveTranscript,
+                            durationMs = durationMs,
+                            recognitionSource = RecognitionSource.GEMINI_LIVE_STREAM
+                        )
+                        return@launch
+                    }
+
+                    if (audioFile == null) {
+                        chunker?.cancelAll()
+                        handleError("Recording file not found / অডিও ফাইল পাওয়া যায়নি")
+                        return@launch
+                    }
+
                     val a11y = TextInjectorAccessibilityService.instance
                     val fieldContext = a11y?.extractActiveFieldContext() ?: ActiveFieldContext()
                     val dictionaryManager = FlowBanglaApp.instance.personalDictionaryManager
@@ -937,25 +1048,49 @@ class FloatingBubbleService : Service() {
                         .distinct()
                         .take(250)
 
+                    // 2. Pillar 2: If rolling chunks completed in background, transcribe only final tail
+                    if (chunker != null && chunker.hasPendingChunks()) {
+                        var tailTranscript = ""
+                        try {
+                            val tailRes = geminiInteractionsAdapter.transcribeAudioFile(
+                                audioFile = audioFile,
+                                rawApiKey = prefs.geminiApiKey,
+                                customVocabulary = customVocab,
+                                useVerbatimMode = false
+                            )
+                            tailTranscript = tailRes.text
+                        } catch (_: Exception) {}
+                        audioFile.delete()
+
+                        val joined = chunker.awaitAllSegmentsAndJoin(tailTranscript)
+                        if (joined.isNotBlank()) {
+                            processCloudTranscript(
+                                rawTranscript = joined,
+                                durationMs = durationMs,
+                                recognitionSource = RecognitionSource.GEMINI_TRANSCRIBE
+                            )
+                            return@launch
+                        }
+                    }
+
+                    // 3. Pillar 3: Single-Pass Smart Mode on whole audio file
                     var recognitionSource = RecognitionSource.GEMINI_TRANSCRIBE
                     var rawTranscript = ""
                     var lastErrorMsg: String? = null
 
-                    // 1. Primary Cloud ASR: Gemini Interactions API (gemini-3.5-transcribe)
                     try {
                         val interactionRes = geminiInteractionsAdapter.transcribeAudioFile(
                             audioFile = audioFile,
                             rawApiKey = prefs.geminiApiKey,
-                            languageCodes = emptyList(), // Automatic Bangla + English code-switching
+                            languageCodes = emptyList(),
                             customVocabulary = customVocab,
-                            useVerbatimMode = true
+                            useVerbatimMode = false // SMART mode!
                         )
                         rawTranscript = interactionRes.text
                         recognitionSource = RecognitionSource.GEMINI_TRANSCRIBE
                     } catch (e: Exception) {
                         Log.w(TAG, "Gemini transcription failed (${e.message}), checking Groq Whisper...")
                         lastErrorMsg = e.message
-                        // 2. Secondary Cloud ASR: Groq Whisper Large V3 fallback
                         if (prefs.groqApiKey.isNotBlank()) {
                             try {
                                 val groqRes = groqWhisperClient.transcribeAudio(
@@ -974,51 +1109,69 @@ class FloatingBubbleService : Service() {
                     }
 
                     if (rawTranscript.isNotBlank()) {
-                        // Check for Voice Command Mode on highlighted text
-                        if (fieldContext.hasSelectedText && fieldContext.selectedText.isNotBlank() && prefs.geminiApiKey.isNotBlank()) {
-                            try {
-                                val transformResult = geminiInteractionsAdapter.runCommandTransform(
-                                    selectedText = fieldContext.selectedText,
-                                    spokenInstruction = rawTranscript,
-                                    rawApiKey = prefs.geminiApiKey
-                                )
-                                if (transformResult.text.isNotBlank()) {
-                                    deliverFormattedTextToTargetApp(
-                                        rawTranscript = rawTranscript,
-                                        formattedText = transformResult.text,
-                                        durationSec = (durationMs / 1000).toInt(),
-                                        provenance = "Command Mode (${transformResult.modelId})"
-                                    )
-                                    return@launch
-                                }
-                            } catch (ce: Exception) {
-                                Log.w(TAG, "Command Mode transformation failed: ${ce.message}")
-                            }
-                        }
-
-                        // Step 2 & 3: Decoupled formatting through FormattingChain with Screen/Cursor Context
-                        val formatResult = formattingChain.format(rawTranscript, recognitionSource, fieldContext)
-                        deliverFormattedTextToTargetApp(
+                        processCloudTranscript(
                             rawTranscript = rawTranscript,
-                            formattedText = formatResult.formattedText,
-                            durationSec = (durationMs / 1000).toInt(),
-                            provenance = formatResult.displaySummary
+                            durationMs = durationMs,
+                            recognitionSource = recognitionSource
                         )
                     } else {
                         handleError(lastErrorMsg ?: "কোন কথা শনাক্ত করা যায়নি (No speech detected).")
                     }
                 }
-            }
-            EngineMode.HYBRID_CLOUD_POLISH,
-            EngineMode.OFFLINE_LIGHTWEIGHT,
-            EngineMode.OFFLINE_LOCAL_LLM -> {
-                onDeviceRecognizer.stopListening()
+                EngineMode.HYBRID_CLOUD_POLISH,
+                EngineMode.OFFLINE_LIGHTWEIGHT,
+                EngineMode.OFFLINE_LOCAL_LLM -> {
+                    onDeviceRecognizer.stopListening()
+                }
             }
         }
     }
 
+    private suspend fun processCloudTranscript(
+        rawTranscript: String,
+        durationMs: Long,
+        recognitionSource: RecognitionSource
+    ) {
+        val a11y = TextInjectorAccessibilityService.instance
+        val fieldContext = a11y?.extractActiveFieldContext() ?: ActiveFieldContext()
+        val prefs = FlowBanglaApp.instance.preferencesManager
+
+        // Check for Voice Command Mode on highlighted text
+        if (fieldContext.hasSelectedText && fieldContext.selectedText.isNotBlank() && prefs.geminiApiKey.isNotBlank()) {
+            try {
+                val transformResult = geminiInteractionsAdapter.runCommandTransform(
+                    selectedText = fieldContext.selectedText,
+                    spokenInstruction = rawTranscript,
+                    rawApiKey = prefs.geminiApiKey
+                )
+                if (transformResult.text.isNotBlank()) {
+                    deliverFormattedTextToTargetApp(
+                        rawTranscript = rawTranscript,
+                        formattedText = transformResult.text,
+                        durationSec = (durationMs / 1000).toInt(),
+                        provenance = "Command Mode (${transformResult.modelId})"
+                    )
+                    return
+                }
+            } catch (ce: Exception) {
+                Log.w(TAG, "Command Mode transformation failed: ${ce.message}")
+            }
+        }
+
+        // Formatting through FormattingChain with Screen/Cursor Context
+        val isSmart = recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE || recognitionSource == RecognitionSource.GEMINI_LIVE_STREAM
+        val formatResult = formattingChain.format(rawTranscript, recognitionSource, fieldContext, isSmartMode = isSmart)
+        deliverFormattedTextToTargetApp(
+            rawTranscript = rawTranscript,
+            formattedText = formatResult.formattedText,
+            durationSec = (durationMs / 1000).toInt(),
+            provenance = formatResult.displaySummary
+        )
+    }
+
     private fun processOnDeviceTranscript(rawTranscript: String) {
-        serviceScope.launch {
+        activeDictationJob?.cancel()
+        activeDictationJob = serviceScope.launch {
             currentState = TranscriptionState.Processing
             updateUiState(currentState)
 
@@ -1054,7 +1207,7 @@ class FloatingBubbleService : Service() {
             }
 
             // Step 2 & 3: Format the on-device transcript through FormattingChain with Screen/Cursor Context
-            val formatResult = formattingChain.format(rawTranscript, RecognitionSource.ANDROID_STT, fieldContext)
+            val formatResult = formattingChain.format(rawTranscript, RecognitionSource.ANDROID_STT, fieldContext, isSmartMode = false)
             deliverFormattedTextToTargetApp(
                 rawTranscript = rawTranscript,
                 formattedText = formatResult.formattedText,
@@ -1168,8 +1321,41 @@ class FloatingBubbleService : Service() {
     }
 
     private fun updateUiState(state: TranscriptionState) {
+        updateBubbleDimensionsForState(state)
         canvasView?.setState(state)
         applyVisibilityRule()
+    }
+
+    private fun updateBubbleDimensionsForState(state: TranscriptionState) {
+        val prefs = FlowBanglaApp.instance.preferencesManager
+        val displayMetrics = resources.displayMetrics
+        val density = displayMetrics.density
+        val screenWidth = displayMetrics.widthPixels
+        val idleSizePx = (prefs.bubbleSizeDp * density).toInt()
+
+        val targetWidthDp = when (state) {
+            is TranscriptionState.Recording -> 176
+            is TranscriptionState.Processing -> 124
+            else -> prefs.bubbleSizeDp
+        }
+        val targetWidthPx = (targetWidthDp * density).toInt()
+        val targetHeightPx = idleSizePx
+
+        val isDockedOnRight = (windowParams.x + windowParams.width / 2) >= (screenWidth / 2)
+        canvasView?.isDockedOnRight = isDockedOnRight
+
+        if (isDockedOnRight) {
+            windowParams.x = (screenWidth - targetWidthPx - (16 * density).toInt()).coerceAtLeast(0)
+        } else {
+            windowParams.x = (16 * density).toInt()
+        }
+
+        windowParams.width = targetWidthPx
+        windowParams.height = targetHeightPx
+
+        try {
+            windowManager?.updateViewLayout(bubbleContainer, windowParams)
+        } catch (_: Exception) {}
     }
 
     private fun vibrateShort() {

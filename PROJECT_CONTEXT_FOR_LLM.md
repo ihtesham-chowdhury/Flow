@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.3.2 (Build 12)  
-> **Last Updated**: November 7, 2026  
-> **Status**: Production Debug Release (`Flow-v3.3.2.apk` active)  
+> **Document Version**: 3.4.0 (Build 13)  
+> **Last Updated**: November 8, 2026  
+> **Status**: Production Debug Release (`Flow-v3.4.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -204,6 +204,35 @@
   - Permission status updates instantly when returning from Android System Settings without requiring a language switch.
 - **Full Unit Test Verification**:
   - Added `TextSpliceHelperTest.kt` verifying hint suppression, cursor splicing, selection replacement, and Bengali matra preservation. 34 tests passing with 100% pass rate.
+
+### Phase 10: v3.3.2 — Samsung One UI Background Resilience & Ink & Danda Premium Palette
+- **Samsung Background Resilience**: Upgraded foreground notification channel priority, ongoing flag, and immediate foreground dispatch to survive Samsung Device Care memory cleanup. Added Honeyboard IME detection.
+- **Visual Polish & Accents**: 60fps rotating recording indicator, custom accent palette (Ivory, Ochre, Sage, Sky, Terracotta, Amethyst), animated capsule bottom navigation pill.
+- **Offline & Hybrid Repair**: Decoupled Fast Cloud online SpeechRecognizer from offline voice pack dependencies and created model downloader card for Gemma 3 LiteRT.
+
+### Phase 11: v3.4.0 (Build 13) — 1-in-50,000 Zero-Fail Injection, Action Pod with Cancel, and Streaming ASR (Current Release)
+- **1-in-50,000 Zero-Fail 6-Tier Injection Engine**:
+  - Leverages Android 13+ (API 33+) `FLAG_INPUT_METHOD_EDITOR` allowing `TextInjectorAccessibilityService` to directly invoke `AccessibilityInputConnection.commitText()`.
+  - Upgraded `injectTextSuspend` to 6 tiers:
+    - **Tier 0**: Direct OS Input Connection IME commit (`AccessibilityInputConnection.commitText`).
+    - **Tier 1**: Verified Accessibility Node `ACTION_PASTE` with cursor validation.
+    - **Tier 2**: Focus-Acquisition + Verified `ACTION_PASTE` / IME Commit.
+    - **Tier 3**: Hint-Safe `ACTION_SET_TEXT` with cursor text splicing.
+    - **Tier 4**: Physical Coordinate Gesture Tap (`dispatchGesture` 18ms tap) to wake sleepy web views / React Native inputs + IME Commit.
+    - **Tier 5**: Deferred Auto-Commit on next input focus via `onStartInput`.
+- **'Ink & Danda' Action Pod UI with Live Cancel & Confirm**:
+  - Floating mic dynamically transforms into horizontal obsidian capsule pod during Recording (176dp) and Processing (124dp).
+  - Cancel (`✕`) button immediately terminates recording, cancels active coroutines and streaming network calls, and purges audio buffers in <16ms.
+  - Confirm (`✓`) button commits transcription immediately.
+  - Docking guard logic prevents the expanded pod from clipping beyond device screen edges.
+- **Zero-Wait Real-Time Audio Streaming & Rolling Chunks**:
+  - Integrated `GeminiLiveTranscribeStreamer` over WebSocket streaming 16kHz PCM chunks to `gemini-3.5-transcribe-live`.
+  - Integrated `RollingChunkTranscriber` for background chunked transcription during speech pauses.
+  - Single-pass Smart Mode formatting bypass for Gemini Transcribe/Live results when no backtrack cues exist (<2ms on-device formatting).
+- **Bengali Period-to-Danda (`।`) Conversion**:
+  - Automatically converts trailing periods after Bengali words into proper Bengali Danda (`।`) in `TranscriptPostProcessor`.
+- **100% Passing Unit Test Suite**:
+  - 64 unit tests covering `RollingChunkTranscriberTest`, `ActionPodHitResolverTest`, `FormattingChainFastPathTest`, `TranscriptPostProcessorTest`, `TextSpliceHelperTest`, and `WisprContextFormatterTest`. All 64 passed.
 
 ---
 

@@ -58,7 +58,8 @@ class FormattingChain(
     suspend fun format(
         rawTranscript: String,
         recognitionSource: RecognitionSource,
-        context: ActiveFieldContext = ActiveFieldContext()
+        context: ActiveFieldContext = ActiveFieldContext(),
+        isSmartMode: Boolean = (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE || recognitionSource == RecognitionSource.GEMINI_LIVE_STREAM)
     ): FormattingResult {
         if (rawTranscript.isBlank()) {
             return FormattingResult(
@@ -112,6 +113,36 @@ class FormattingChain(
                 documentType = fastEnvelope.documentType,
                 recognitionSource = recognitionSource,
                 formattingSource = FormattingSource.LOCAL_RULES,
+                latencyMs = latency,
+                fallbackUsed = false
+            )
+        }
+
+        // Single-Pass Smart Mode: gemini-3.5-transcribe and gemini-3.5-transcribe-live
+        // natively punctuate, strip disfluencies, and correct inline speech.
+        // If no complex multi-item backtrack cues exist, format locally in <2ms!
+        val isSmartCandidate = isSmartMode &&
+            (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE || recognitionSource == RecognitionSource.GEMINI_LIVE_STREAM) &&
+            prefs.engineMode == EngineMode.CLOUD_AUDIO
+
+        val hasComplexBacktrack = BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(workingTranscript)
+
+        if (isSmartCandidate && !hasComplexBacktrack) {
+            val resolvedBacktracks = LocalBacktrackResolver.resolveOfflineBacktracks(workingTranscript)
+            val postProcessed = TranscriptPostProcessor.process(resolvedBacktracks, numeralPreference = plan.numeralPreference)
+            val dictionaryCleaned = applyDictionaryReplacementsSafely(postProcessed)
+            val smartFormatted = WisprContextFormatter.applyCursorBoundaryFormatting(
+                text = dictionaryCleaned,
+                context = context,
+                dropCasualPeriod = prefs.casualMessagingDropPeriod
+            )
+            val latency = SystemClock.elapsedRealtime() - startTime
+            return FormattingResult(
+                rawTranscript = rawTranscript,
+                formattedText = smartFormatted,
+                documentType = plan.documentType,
+                recognitionSource = recognitionSource,
+                formattingSource = FormattingSource.GEMINI_SMART_SINGLE_PASS,
                 latencyMs = latency,
                 fallbackUsed = false
             )

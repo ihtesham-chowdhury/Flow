@@ -263,6 +263,16 @@ class OnDeviceSpeechRecognizer(
         }
     }
 
+    fun cancel() {
+        mainHandler.post {
+            isUserRecording = false
+            mainHandler.removeCallbacksAndMessages(null)
+            accumulatedSegments.clear()
+            latestPartialSegment = ""
+            destroyRecognizerInternal()
+        }
+    }
+
     fun release() {
         mainHandler.post {
             isUserRecording = false

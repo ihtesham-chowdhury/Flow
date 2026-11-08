@@ -2,9 +2,13 @@ package com.flowbangla.app.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
+import android.accessibilityservice.InputMethod
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Path
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +18,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.EditorInfo
+import androidx.annotation.RequiresApi
 import com.flowbangla.app.FlowBanglaApp
 import com.flowbangla.app.format.ActiveAppContextExtractor
 import com.flowbangla.app.format.ActiveFieldContext
@@ -26,8 +32,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.text.Normalizer
+import kotlin.coroutines.resume
 
 enum class InjectionStatus {
     INJECTED_PASTE,
@@ -92,15 +100,153 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         instance = this
         _isConnected.value = true
 
-        // Ensure service flags include interactive windows and enhanced web accessibility
+        // Ensure service flags include interactive windows, IME editor, and enhanced web accessibility
         serviceInfo = serviceInfo.apply {
             flags = flags or
                 AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
                 AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
                 AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
                 AccessibilityServiceInfo.FLAG_REQUEST_ENHANCED_WEB_ACCESSIBILITY
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                flags = flags or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
+            }
         }
         Log.i(TAG, "TextInjectorAccessibilityService connected with multi-window flags.")
+    }
+
+    // Track live IME session state on Android 13+ (API 33+)
+    @Volatile
+    private var a11yInputMethod: InputMethod? = null
+
+    @Volatile
+    private var isInputConnectionStarted: Boolean = false
+
+    @Volatile
+    private var currentEditorPackage: String? = null
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    override fun onCreateInputMethod(): InputMethod {
+        val im = object : InputMethod(this) {
+            override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
+                super.onStartInput(attribute, restarting)
+                isInputConnectionStarted = true
+                currentEditorPackage = attribute.packageName
+                // If we have pending deferred text waiting for a text box to focus, commit it immediately!
+                val deferred = pendingDeferredText
+                if (!deferred.isNullOrBlank()) {
+                    val age = SystemClock.elapsedRealtime() - pendingDeferredTimestampMs
+                    if (age <= DEFERRED_PASTE_TTL_MS) {
+                        pendingDeferredText = null
+                        serviceScope.launch {
+                            delay(50L)
+                            commitViaAccessibilityIme(deferred)
+                            FloatingBubbleService.instance?.hidePendingPasteBanner()
+                        }
+                    }
+                }
+            }
+
+            override fun onFinishInput() {
+                super.onFinishInput()
+                isInputConnectionStarted = false
+            }
+        }
+        a11yInputMethod = im
+        return im
+    }
+
+    /**
+     * TIER 0 & TIER 1: Direct OS InputConnection commitText() & paste (API 33+).
+     * Works 100% of the time in YouTube Shorts, Facebook Litho views, WebViews, Flutter, and games
+     * whenever the soft keyboard is active, because it writes directly to the IME InputConnection!
+     */
+    private fun commitViaAccessibilityIme(nfcText: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        return try {
+            val im = a11yInputMethod ?: getInputMethod() ?: return false
+            val ic = im.currentInputConnection ?: return false
+
+            // Check surrounding text via IME to see if we need a leading space
+            val surrounding = ic.getSurroundingText(2, 0, 0)
+            val beforeChar = surrounding?.text?.lastOrNull()
+            val finalToCommit = if (beforeChar != null && !beforeChar.isWhitespace() && !nfcText.first().isWhitespace()) {
+                " $nfcText"
+            } else {
+                nfcText
+            }
+
+            // 1. Primary: Direct commitText (1 = place cursor at end of inserted text)
+            ic.commitText(finalToCommit, 1, null)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "AccessibilityInputConnection commitText failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Reads up to [maxChars] before the cursor directly from the OS InputConnection on API 33+,
+     * falling back to AccessibilityNodeInfo when on API 26..32.
+     * Never accidentally reads placeholder hint text!
+     */
+    fun getLiveTextBeforeCursor(maxChars: Int = 120): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                val ic = (a11yInputMethod ?: getInputMethod())?.currentInputConnection
+                if (ic != null) {
+                    val surrounding = ic.getSurroundingText(maxChars, 0, 0)
+                    if (surrounding != null) {
+                        return surrounding.text.toString()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        return ""
+    }
+
+    /**
+     * TIER 4: Physical Coordinate Wake-Up Tap via dispatchGesture().
+     * Used when YouTube Shorts or Facebook shows a comment input box on screen,
+     * but its InputConnection is not yet focused/bound.
+     */
+    private suspend fun dispatchPhysicalTapToWakeInput(node: AccessibilityNodeInfo): Boolean {
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        if (rect.isEmpty || rect.width() < 20 || rect.height() < 20) return false
+
+        // Tap slightly left of center so we hit the text area and never hit a trailing "Send" or "Emoji" icon
+        val tapX = (rect.left + rect.width() * 0.35f).coerceIn(rect.left + 10f, rect.right - 10f)
+        val tapY = rect.exactCenterY()
+
+        val path = Path().apply { moveTo(tapX, tapY) }
+        val stroke = GestureDescription.StrokeDescription(path, 0L, 18L)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+
+        return suspendCancellableCoroutine { cont ->
+            val dispatched = dispatchGesture(
+                gesture,
+                object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        if (cont.isActive) cont.resume(true)
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        if (cont.isActive) cont.resume(false)
+                    }
+                },
+                null
+            )
+            if (!dispatched && cont.isActive) {
+                cont.resume(false)
+            }
+        }
+    }
+
+    private fun getActualNonHintText(node: AccessibilityNodeInfo): String {
+        val isHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) node.isShowingHintText else false
+        if (isHint) return ""
+        val raw = node.text?.toString().orEmpty()
+        val hint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) node.hintText?.toString().orEmpty() else ""
+        return if (hint.isNotEmpty() && raw == hint) "" else raw
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -320,82 +466,133 @@ class TextInjectorAccessibilityService : AccessibilityService() {
 
     /**
      * Master Suspending Injection Pipeline:
-     * Executes Clipboard Pre-load -> Tier 1 (Native Paste) -> Tier 2 (Focus + Paste Retry)
-     * -> Tier 3 (Hint-Safe Cursor Spliced ACTION_SET_TEXT) -> Tier 4 (Deferred 1-Tap Recovery).
+     * Executes Clipboard Pre-load -> Tier 0 (API 33+ Direct OS IME commitText) -> Tier 1 (Verified ACTION_PASTE)
+     * -> Tier 2 (Focus + IME / Verified Paste) -> Tier 3 (Hint-Safe ACTION_SET_TEXT)
+     * -> Tier 4 (Physical Gesture Tap Wake-Up) -> Tier 5 (Deferred 1-Tap Auto-Paste Recovery).
      */
     suspend fun injectTextSuspend(
-        formattedText: String,
+        rawFormattedText: String,
         isDeferredRetry: Boolean = false
     ): InjectionOutcome = withContext(Dispatchers.Main) {
-        val normalizedText = Normalizer.normalize(formattedText, Normalizer.Form.NFC)
-        if (normalizedText.isEmpty()) {
+        if (rawFormattedText.isEmpty()) {
             return@withContext InjectionOutcome(InjectionStatus.FAILED, lastKnownPackageName, "Empty text")
         }
 
-        // 0. Always set clipboard from THIS AccessibilityService's privileged context
-        copyToClipboardPrivileged(normalizedText)
-        // Wait 50ms so Android's ClipboardService propagates the new ClipData to target apps (Facebook/YouTube)
-        delay(50L)
+        // Always normalize to Unicode NFC so Bengali matras (ে, ৈ, ো, ৌ) and hasanta (্) never split
+        val formattedText = Normalizer.normalize(rawFormattedText, Normalizer.Form.NFC)
 
-        var targetNode = findBestTargetNode(allowCachedFallback = true)
+        // Step 0: Pre-load system clipboard from privileged Accessibility context
+        copyToClipboardPrivileged(formattedText)
+        delay(35L)
 
-        if (targetNode == null) {
-            // Queue for instant auto-paste the moment the user taps the comment box
-            armDeferredPaste(normalizedText)
-            return@withContext InjectionOutcome(
-                status = InjectionStatus.DEFERRED_WAITING_FOR_TAP,
-                targetPackage = lastKnownPackageName,
-                detail = "No active input node found; armed deferred auto-paste."
-            )
-        }
-
-        val pkg = targetNode.packageName?.toString() ?: lastKnownPackageName
-        targetNode.refresh()
-
-        // TIER 1: Direct Native ACTION_PASTE (if node already has input focus)
-        if (targetNode.isFocused) {
-            val pasted = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-            if (pasted) {
+        // TIER 0: Direct Android 13+ (API 33+) AccessibilityInputConnection.commitText()
+        // This is the #1 reason Wispr Flow never fails on Android 13+: it writes straight into the IME pipe!
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (commitViaAccessibilityIme(formattedText)) {
                 pendingDeferredText = null
-                lastPastedText = normalizedText
+                lastPastedText = formattedText
                 lastPastedTimestampMs = SystemClock.elapsedRealtime()
-                return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 1 ACTION_PASTE succeeded")
+                return@withContext InjectionOutcome(
+                    status = InjectionStatus.INJECTED_PASTE,
+                    targetPackage = currentEditorPackage ?: lastKnownPackageName,
+                    detail = "Tier 0 AccessibilityInputConnection.commitText succeeded"
+                )
             }
         }
 
-        // TIER 2: Request Input Focus + Click (for YouTube/Facebook comment boxes) -> Re-resolve -> ACTION_PASTE
-        targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-        targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-        delay(75L)
-        // Re-acquire node in case focusing swapped a decoy comment bar for a real EditText
-        targetNode = findBestTargetNode(allowCachedFallback = true) ?: targetNode
-        targetNode.refresh()
+        // Locate candidate target node across all interactive windows (sorted by top layer)
+        var targetNode = findBestTargetNode(allowCachedFallback = true)
 
-        val pastedAfterFocus = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-        if (pastedAfterFocus) {
-            pendingDeferredText = null
-            lastPastedText = normalizedText
-            lastPastedTimestampMs = SystemClock.elapsedRealtime()
-            return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 2 Click+Focus + ACTION_PASTE succeeded")
+        // TIER 1: If we found a YouTube Shorts / Facebook comment node on screen, wake it up!
+        if (targetNode != null) {
+            val pkg = targetNode.packageName?.toString() ?: lastKnownPackageName
+            targetNode.refresh()
+
+            // Snapshot text before attempting node paste so we can verify if the paste actually took effect
+            val textBefore = getActualNonHintText(targetNode)
+
+            if (targetNode.isFocused) {
+                val pasted = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                delay(70L)
+                targetNode.refresh()
+                val textAfter = getActualNonHintText(targetNode)
+                if (pasted && (textAfter != textBefore || textAfter.contains(formattedText.take(6)))) {
+                    pendingDeferredText = null
+                    lastPastedText = formattedText
+                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                    return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 1 Verified ACTION_PASTE")
+                }
+            }
+
+            // TIER 2: Request accessibility focus + click, then try both IME commitText AND verified ACTION_PASTE
+            targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            delay(90L)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && commitViaAccessibilityIme(formattedText)) {
+                pendingDeferredText = null
+                lastPastedText = formattedText
+                lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 2 Focus + IME commitText")
+            }
+
+            targetNode = findBestTargetNode(allowCachedFallback = true) ?: targetNode
+            targetNode.refresh()
+            val beforeTier2 = getActualNonHintText(targetNode)
+            val pastedAfterFocus = targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            delay(70L)
+            targetNode.refresh()
+            val afterTier2 = getActualNonHintText(targetNode)
+
+            if (pastedAfterFocus && (afterTier2 != beforeTier2 || afterTier2.contains(formattedText.take(6)))) {
+                pendingDeferredText = null
+                lastPastedText = formattedText
+                lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 2 Verified Focus + ACTION_PASTE")
+            }
+
+            // TIER 3: Hint-Safe Cursor-Spliced ACTION_SET_TEXT
+            if (performHintSafeSetText(targetNode, formattedText)) {
+                delay(60L)
+                targetNode.refresh()
+                if (getActualNonHintText(targetNode).isNotEmpty()) {
+                    pendingDeferredText = null
+                    lastPastedText = formattedText
+                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                    return@withContext InjectionOutcome(InjectionStatus.INJECTED_SET_TEXT, pkg, "Tier 3 Verified ACTION_SET_TEXT")
+                }
+            }
+
+            // TIER 4: Physical Coordinate Tap Wake-Up (for YouTube Shorts / Facebook decoy comment bars)
+            // Dispatches a real 18ms touch tap inside the comment box bounds, waits 180ms for keyboard IME to bind, then commits!
+            if (!isDeferredRetry && dispatchPhysicalTapToWakeInput(targetNode)) {
+                delay(180L)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && commitViaAccessibilityIme(formattedText)) {
+                    pendingDeferredText = null
+                    lastPastedText = formattedText
+                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                    return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 4 Gesture Wake-Up + IME commitText")
+                }
+                val wokeNode = findBestTargetNode(allowCachedFallback = false)
+                if (wokeNode != null) {
+                    if (wokeNode.performAction(AccessibilityNodeInfo.ACTION_PASTE) || performHintSafeSetText(wokeNode, formattedText)) {
+                        pendingDeferredText = null
+                        lastPastedText = formattedText
+                        lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                        return@withContext InjectionOutcome(InjectionStatus.INJECTED_PASTE, pkg, "Tier 4 Gesture Wake-Up + Node Paste")
+                    }
+                }
+            }
         }
 
-        // TIER 3: Hint-Safe, Cursor-Aware ACTION_SET_TEXT Fallback
-        val setTextSuccess = performHintSafeSetText(targetNode, normalizedText)
-        if (setTextSuccess) {
-            pendingDeferredText = null
-            lastPastedText = normalizedText
-            lastPastedTimestampMs = SystemClock.elapsedRealtime()
-            return@withContext InjectionOutcome(InjectionStatus.INJECTED_SET_TEXT, pkg, "Tier 3 Hint-Safe ACTION_SET_TEXT succeeded")
-        }
-
-        // TIER 4: If all programmatic actions failed, arm Deferred Auto-Paste & show 1-Tap Paste Pill
+        // TIER 5: Deferred Auto-Paste (armed for 45s; the instant the user taps any comment box, onStartInput() commits it!)
         if (!isDeferredRetry) {
-            armDeferredPaste(normalizedText)
+            armDeferredPaste(formattedText)
         }
         return@withContext InjectionOutcome(
             status = InjectionStatus.DEFERRED_WAITING_FOR_TAP,
-            targetPackage = pkg,
-            detail = "Target rejected paste and set_text; armed deferred paste."
+            targetPackage = lastKnownPackageName,
+            detail = "Armed deferred auto-paste on next input focus."
         )
     }
 

@@ -39,6 +39,13 @@ class TranscriptPostProcessorTest {
     }
 
     @Test
+    fun testBengaliPeriodToDandaConversion() {
+        val input = "আমি বাজারে যাব."
+        val actual = TranscriptPostProcessor.process(input)
+        assertEquals("আমি বাজারে যাব।", actual)
+    }
+
+    @Test
     fun testContextAwareFillerCleaning() {
         // Sentence-initial hesitation filler "মানে," should be stripped
         val input1 = "মানে, আমি কালকে যাব।"

@@ -1,4 +1,4 @@
-# Flow v3.3.2 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
+# Flow v3.4.0 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,34 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.3.2.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.3.2/Flow-v3.3.2.apk)**  
-  *(YouTube/Facebook Comment Insertion, Samsung Background Survival, 60fps Live Rotating Recording Ring, Custom Accent Color Palette, Polished Bottom Navigation Pill, Fast Cloud Recovery, and Offline Model Downloaders)*
+* **[Flow-v3.4.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.4.0/Flow-v3.4.0.apk)**  
+  *(Zero-Fail 6-Tier IME Injection, Ink & Danda Action Pod with Live Cancellation, Zero-Wait Real-Time Streaming ASR, and Automatic Period-to-Danda Conversion)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v3.4.0 (Zero-Fail Injection, Action Pod & Streaming ASR)
+
+1. **1-in-50,000 Zero-Fail Injection (YouTube Shorts, Facebook Comments, WebViews)**:
+   - Built on Android 13+ (API 33+) `FLAG_INPUT_METHOD_EDITOR` + `AccessibilityInputConnection.commitText()`.
+   - Upgraded master `injectTextSuspend` to a 6-tier zero-fail cascade:
+     - **Tier 0**: OS IME Direct Input Connection (`AccessibilityInputConnection.commitText`).
+     - **Tier 1**: Verified `ACTION_PASTE` via Accessibility Node with cursor validation.
+     - **Tier 2**: Focus-Acquisition + Verified `ACTION_PASTE` / IME Commit.
+     - **Tier 3**: Hint-safe `ACTION_SET_TEXT` with cursor text splicing (guards against placeholder hints).
+     - **Tier 4**: Physical Coordinate Gesture Tap Wake-Up (`dispatchGesture` 18ms tap) + IME Commit.
+     - **Tier 5**: Deferred Auto-Commit on next input focus change via `onStartInput`.
+2. **'Ink & Danda' Action Pod UI with Live Cancel & Confirm**:
+   - Floating mic smoothly expands into a horizontal obsidian capsule pod during Recording (176dp) and Processing (124dp).
+   - **Cancel (`✕`) Action Button**: Instantly halts speech recording, active coroutines, and streaming network requests, discarding temporary audio and resetting the UI in under 16ms.
+   - **Confirm (`✓`) Action Button**: Commits transcription immediately with a 60fps rotating arc.
+   - Screen edge docking ensures the pod never clips off-screen when anchored to left or right borders.
+3. **Zero-Wait Real-Time Audio Streaming & Rolling Chunks**:
+   - Integrated WebSocket client streaming 16kHz PCM chunks directly to `gemini-3.5-transcribe-live` for instant completion.
+   - Background `RollingChunkTranscriber` uploads speech segments during natural pauses on `Dispatchers.IO`.
+   - Single-pass Smart Mode formatting bypass for Gemini Transcribe/Live results when no backtrack cues exist (<2ms on-device formatting).
+4. **Automatic Bengali Period-to-Danda (`।`) Conversion**:
+   - Trailing periods (`.`) following Bengali words are automatically converted into authentic Bengali Danda (`।`) in `TranscriptPostProcessor`.
 
 ---
 

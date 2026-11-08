@@ -1,6 +1,7 @@
 package com.flowbangla.app.format
 
 enum class RecognitionSource(val label: String) {
+    GEMINI_LIVE_STREAM("Gemini Live Stream"),
     GEMINI_TRANSCRIBE("Gemini Transcribe"),
     GROQ_WHISPER("Groq Whisper Large V3"),
     ANDROID_STT("On-Device Android STT"),
@@ -8,6 +9,7 @@ enum class RecognitionSource(val label: String) {
 }
 
 enum class FormattingSource(val label: String) {
+    GEMINI_SMART_SINGLE_PASS("Gemini Smart Mode (Single Pass)"),
     GEMINI_CLOUD("Gemini Format"),
     GROQ_CLOUD("Groq Format"),
     CEREBRAS_CLOUD("Cerebras Format"),
