@@ -26,8 +26,15 @@ data class InteractionCallResult(
 )
 
 class GeminiInteractionsAdapter(
-    private val http: OkHttpClient
+    baseHttp: OkHttpClient
 ) {
+    private val http: OkHttpClient = baseHttp.newBuilder()
+        .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(7, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
     companion object {
         private const val BASE_URL = "https://generativelanguage.googleapis.com"
         private const val INTERACTIONS_URL = "$BASE_URL/v1beta/interactions"
@@ -116,7 +123,10 @@ class GeminiInteractionsAdapter(
     ): InteractionCallResult = withContext(Dispatchers.IO) {
         val key = rawApiKey.trim()
         val audioMeta = AudioFileInspector.inspectAndValidate(audioFile)
-        val liveModels = ModelCatalog.getOrFetchLiveModels(http, key)
+        val liveModels = ModelCatalog.getCachedLiveModels()
+        if (liveModels.isEmpty()) {
+            ModelCatalog.triggerBackgroundModelFetch(http, key)
+        }
 
         val asrCandidates = ModelCatalog.selectCandidates(ModelTask.AUDIO_TRANSCRIPTION, liveModels)
         val fallbackCandidates = ModelCatalog.selectCandidates(ModelTask.MULTIMODAL_AUDIO_FALLBACK, liveModels)
@@ -206,9 +216,67 @@ class GeminiInteractionsAdapter(
                 }
             }
 
+            // 3. Multimodal Audio Fallback to /v1beta/models/gemini-3.5-flash-lite:generateContent with inline Base64 audio
+            try {
+                val startMs = System.currentTimeMillis()
+                val text = executeGenerateContentAudioFallback(audioBytes, audioMeta.verifiedMimeType, key, "gemini-3.5-flash-lite")
+                if (text.isNotBlank()) {
+                    return@withContext InteractionCallResult(text, "gemini-3.5-flash-lite", System.currentTimeMillis() - startMs)
+                }
+            } catch (ge: Throwable) {
+                Log.w("GeminiInteractionsAdapter", "generateContent audio fallback warning: ${ge.message}")
+            }
+
             throw FlowApiException(404, ErrorCategory.MODEL_NOT_AVAILABLE, "All live transcription candidates failed.")
         } finally {
             uploadedHandle?.let { deleteUploadedFileQuietly(it.name, key) }
+        }
+    }
+
+    /**
+     * Multimodal audio transcription fallback via /v1beta/models/{model}:generateContent
+     * with inline Base64 audio.
+     */
+    private fun executeGenerateContentAudioFallback(
+        audioBytes: ByteArray,
+        mimeType: String,
+        cleanKey: String,
+        modelId: String = "gemini-3.5-flash-lite"
+    ): String {
+        val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
+        val url = "$BASE_URL/v1beta/models/$modelId:generateContent"
+
+        val inlineDataObj = JSONObject().apply {
+            put("mime_type", mimeType)
+            put("data", base64Audio)
+        }
+        val promptObj = JSONObject().apply {
+            put("text", "Transcribe this speech verbatim in its exact spoken language(s) (Bengali, English, or mixed). Output only the spoken words without extra commentary.")
+        }
+        val partsArr = JSONArray().put(promptObj).put(JSONObject().put("inline_data", inlineDataObj))
+        val contentsArr = JSONArray().put(JSONObject().apply {
+            put("role", "user")
+            put("parts", partsArr)
+        })
+        val payload = JSONObject().apply {
+            put("contents", contentsArr)
+            put("generationConfig", JSONObject().put("temperature", 0.0))
+        }
+
+        val req = Request.Builder()
+            .url(url)
+            .header("x-goog-api-key", cleanKey)
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA))
+            .build()
+
+        http.newCall(req).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                val cat = ModelCatalog.mapHttpToErrorCategory(resp.code, body)
+                throw FlowApiException(resp.code, cat, ModelCatalog.parseShortError(body))
+            }
+            return TranscriptExtractor.fromInteractionJson(body)
         }
     }
 
@@ -221,7 +289,10 @@ class GeminiInteractionsAdapter(
         rawApiKey: String
     ): InteractionCallResult = withContext(Dispatchers.IO) {
         val key = rawApiKey.trim()
-        val liveModels = ModelCatalog.getOrFetchLiveModels(http, key)
+        val liveModels = ModelCatalog.getCachedLiveModels()
+        if (liveModels.isEmpty()) {
+            ModelCatalog.triggerBackgroundModelFetch(http, key)
+        }
         val candidates = ModelCatalog.selectCandidates(ModelTask.TEXT_FORMATTING, liveModels)
 
         if (candidates.isEmpty()) {
@@ -283,7 +354,10 @@ class GeminiInteractionsAdapter(
         rawApiKey: String
     ): InteractionCallResult = withContext(Dispatchers.IO) {
         val key = rawApiKey.trim()
-        val liveModels = ModelCatalog.getOrFetchLiveModels(http, key)
+        val liveModels = ModelCatalog.getCachedLiveModels()
+        if (liveModels.isEmpty()) {
+            ModelCatalog.triggerBackgroundModelFetch(http, key)
+        }
         val candidates = ModelCatalog.selectCandidates(ModelTask.TEXT_FORMATTING, liveModels)
 
         if (candidates.isEmpty()) {

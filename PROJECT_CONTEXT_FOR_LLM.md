@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.5.0 (Build 14)  
-> **Last Updated**: November 8, 2026  
-> **Status**: Production Debug Release (`Flow-v3.5.0.apk` active)  
+> **Document Version**: 3.5.1 (Build 15)  
+> **Last Updated**: November 9, 2026  
+> **Status**: Production Release (`Flow-v3.5.1.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -234,7 +234,7 @@
 - **100% Passing Unit Test Suite**:
   - 64 unit tests covering `RollingChunkTranscriberTest`, `ActionPodHitResolverTest`, `FormattingChainFastPathTest`, `TranscriptPostProcessorTest`, `TextSpliceHelperTest`, and `WisprContextFormatterTest`. All 64 passed.
 
-### Phase 12: v3.5.0 (Build 14) — Keyboard-Synced Visibility, Per-Session Dismiss & Unkillable OEM Survival (Current Release)
+### Phase 12: v3.5.0 (Build 14) — Keyboard-Synced Visibility, Per-Session Dismiss & Unkillable OEM Survival
 - **Strict 3-Signal Keyboard Visibility Detection (`KeyboardVisibilityDetector`)**:
   - Solved "floating mic always on screen" by strictly evaluating `AccessibilityWindowInfo.TYPE_INPUT_METHOD` with height $\ge 100\text{dp}$ and known IME package windows (Gboard, Samsung Honeyboard, Ridmik Keyboard, SwiftKey, Mayabi, Xiaomi Mint).
   - Automatically suppresses mic overlay on banking/sensitive apps (bKash, Nagad, Cellfin, Nexus Pay, Upay, Bitwarden, 1Password) and password fields.
@@ -251,8 +251,25 @@
 - **Multi-OEM Autostart & Battery Deep-Linker (`OemAutostartHelper`)**:
   - Deep-links to OEM-specific autostart/auto-launch management for Xiaomi, Samsung, OPPO/Realme/OnePlus, Vivo/iQOO, Huawei, Transsion.
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
-- **69 Unit Tests Passing (100% pass rate)**:
-  - Added `KeyboardVisibilityDetectorTest` covering restricted package detection, known keyboard packages, height thresholds, and session dismiss reset transitions.
+- **69 Unit Tests Passing (100% pass rate)**.
+
+### Phase 13: v3.5.1 (Build 15) — Emergency Processing Freeze, ANR & Crash Resolution (Current Release)
+- **Forensic Diagnosis of the 00:15 Freeze & Crash in Screen Recording (`1000375544.mp4`)**:
+  - *Bug 1*: Concurrent `AudioRecord` streaming + blocking `AudioRecorder.stop()` on `Dispatchers.Main` with `runBlocking` froze the Choreographer animation thread.
+  - *Bug 2*: `dispatchPhysicalTapToWakeInput` (`dispatchGesture` with `suspendCancellableCoroutine`) hung indefinitely on `Dispatchers.Main` when touch coordinates collided with overlay or unsupported ROM gestures.
+  - *Bug 3*: Unbounded DFS tree traversal (depth 18, 1000+ nodes) and `getWindows()` in `findBestTargetNode` saturated the binder IPC buffer on `Dispatchers.Main` during 60fps spinner rotation.
+  - *Bug 4*: `WindowManager.BadTokenException` triggered when `FloatingBubbleService` mixed `TYPE_ACCESSIBILITY_OVERLAY` or switched WindowManagers on state transitions.
+  - *Bug 5*: `updateViewLayout` called on `RECORDING` $\to$ `PROCESSING` triggered cross-process relayout and recursive `TYPE_WINDOWS_CHANGED` accessibility event storms.
+  - *Bug 6*: Absence of a watchdog timer left the bubble stuck in `PROCESSING` indefinitely upon network stall.
+- **Complete 6-Point Technical Fix**:
+  1. **Non-Blocking Off-Main-Thread Audio Finalization (`stopRecordingSafelyIo`)**: Single exclusive audio capture (MediaRecorder 24kHz 64kbps AAC `.m4a`) running strictly on `Dispatchers.IO` with timeouts and `try/catch/finally` around `stop()`, `reset()`, and `release()`.
+  2. **8.5-Second Hard Watchdog Timer (`startProcessingWatchdog`)**: Independent coroutine resetting `PROCESSING` $\to$ `IDLE` after 8.5 seconds if processing exceeds time bounds.
+  3. **Low-Latency Single-Pass Cloud ASR with Multimodal Fallback**: Dedicated `OkHttpClient` (4s connect, 5s write, 6s read, 7s call). Non-blocking `ModelCatalog` cache lookup with background refresh. Multimodal `/v1beta/models/gemini-3.5-flash-lite:generateContent` Base64 audio fallback.
+  4. **Zero-IPC Fixed-Size Overlay Canvas**: Action Pod maintains identical dimensions (`176dp x 64dp`) in both `RECORDING` and `PROCESSING`. Zero `windowManager.updateViewLayout()` calls on user confirm (`✓`)—pure in-memory canvas redraw (`invalidate()`). Strictly `TYPE_APPLICATION_OVERLAY` inside `FloatingBubbleService`.
+  5. **Accessibility Isolation & 220ms Debounce**: `TextInjectorAccessibilityService` ignores all events where `pkg == packageName`. Skips `syncKeyboardVisibilityWithBubble()` completely during `RECORDING` and `PROCESSING`. Debounces keyboard sync by 220ms.
+  6. **Bounded 30-Node Traversal & Zero-Wait Native Injection (`injectTextFastAndSafe`)**: `findTargetNodeBounded()` prioritizes $O(1)$ `findFocus(FOCUS_INPUT)`, cached node, multi-window `FOCUS_INPUT`, and caps fallback DFS to max 30 nodes visited (`depth <= 7`). Removed blocking `dispatchPhysicalTapToWakeInput`.
+- **72 Unit Tests Passing (100% pass rate)**:
+  - Added `DictationPipelineWatchdogTest` verifying timeout safety, bounded 30-node cap, and ModelCatalog fallback specifications.
 
 ---
 

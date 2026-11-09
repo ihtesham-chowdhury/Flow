@@ -39,11 +39,18 @@ class AudioRecorder(private val context: Context) {
     @Synchronized
     fun startRecording(): Result<File> {
         stopRecordingInternal()
+
+        // 1. Primary: MediaRecorder (24kHz 64kbps AAC .m4a) for lightweight, exclusive, fast-upload audio capture
+        val m4aResult = startMediaRecorderFallback()
+        if (m4aResult.isSuccess) {
+            return m4aResult
+        }
+
+        // 2. Secondary: Fallback to AudioRecord (WAV) if MediaRecorder is blocked
         val outputFile = File(context.cacheDir, "dictation_${System.currentTimeMillis()}.wav")
         currentOutputFile = outputFile
         startTimeMillis = System.currentTimeMillis()
 
-        // 1. Try AudioRecord for real-time 16kHz PCM streaming & WAV persistence
         val minBufSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         val bufSize = minBufSize.coerceAtLeast(CHUNK_SIZE_BYTES * 4)
 
@@ -67,14 +74,13 @@ class AudioRecorder(private val context: Context) {
                 startPcmCaptureLoop(outputFile)
                 return Result.success(outputFile)
             } catch (e: Exception) {
-                Log.w(TAG, "AudioRecord start failed, falling back to MediaRecorder: ${e.message}")
+                Log.w(TAG, "AudioRecord start failed: ${e.message}")
                 recordInstance.release()
                 audioRecord = null
             }
         }
 
-        // 2. Fallback to MediaRecorder (M4A) if AudioRecord is blocked by OS
-        return startMediaRecorderFallback()
+        return Result.failure(IllegalStateException("Failed to initialize any audio recording engine"))
     }
 
     private fun startPcmCaptureLoop(outputFile: File) {
@@ -265,6 +271,55 @@ class AudioRecorder(private val context: Context) {
         }
     }
 
+    /**
+     * Stop and finalize audio recording strictly inside withContext(Dispatchers.IO).
+     * Guarantees zero blocking of the Android Main/Choreographer thread.
+     */
+    suspend fun stopRecordingSafelyIo(): File? = withContext(Dispatchers.IO) {
+        try {
+            isRecording.set(false)
+            try {
+                recordingJob?.cancel()
+            } catch (_: Exception) {}
+            recordingJob = null
+
+            val recorder = fallbackMediaRecorder
+            fallbackMediaRecorder = null
+            if (recorder != null) {
+                try {
+                    recorder.stop()
+                } catch (e: Exception) {
+                    Log.w(TAG, "MediaRecorder.stop() warning (clip too short or interrupted): ${e.message}")
+                } finally {
+                    try { recorder.reset() } catch (_: Exception) {}
+                    try { recorder.release() } catch (_: Exception) {}
+                }
+            }
+
+            val ar = audioRecord
+            audioRecord = null
+            if (ar != null) {
+                try {
+                    ar.stop()
+                } catch (e: Exception) {
+                    Log.w(TAG, "AudioRecord.stop() warning: ${e.message}")
+                } finally {
+                    try { ar.release() } catch (_: Exception) {}
+                }
+            }
+
+            val file = currentOutputFile
+            if (file != null && file.exists() && file.length() > 44L) {
+                file
+            } else {
+                null
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error stopping recorder on IO", t)
+            null
+        }
+    }
+
     @Synchronized
     fun stopRecording(): Result<RecordingResult> {
         isRecording.set(false)
@@ -280,13 +335,14 @@ class AudioRecorder(private val context: Context) {
 
             fallbackMediaRecorder?.apply {
                 try { stop() } catch (_: Exception) {}
+                try { reset() } catch (_: Exception) {}
                 release()
             }
             fallbackMediaRecorder = null
 
-            runBlocking {
-                recordingJob?.join()
-            }
+            try {
+                recordingJob?.cancel()
+            } catch (_: Exception) {}
             recordingJob = null
 
             if (file != null && file.exists() && file.length() > 44L) {

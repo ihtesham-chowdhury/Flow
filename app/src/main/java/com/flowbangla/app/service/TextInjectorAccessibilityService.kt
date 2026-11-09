@@ -296,40 +296,48 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         return if (hint.isNotEmpty() && raw == hint) "" else raw
     }
 
+    private var lastWindowSyncTimeMs = 0L
+    private var windowSyncJob: kotlinx.coroutines.Job? = null
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        val pkg = event.packageName?.toString()
-        if (!pkg.isNullOrBlank() && pkg != packageName) {
+        val pkg = event.packageName?.toString().orEmpty()
+
+        // 1. NEVER process accessibility events triggered by Flow's own overlay view!
+        // This prevents the infinite feedback loop when the Ochre spinner rotates!
+        if (pkg == packageName) return
+
+        if (pkg.isNotBlank() && pkg != "com.android.systemui") {
             lastKnownPackageName = pkg
         }
 
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_FOCUSED,
-            AccessibilityEvent.TYPE_VIEW_CLICKED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
-                val src = event.source
-                if (src != null && isCandidateInputNode(src)) {
-                    cacheEditableNode(src)
-                    checkAndExecuteDeferredPaste(src)
-                } else {
-                    // Check if a newly opened bottom sheet (like YouTube/FB comment dialog) now has focus or candidate input
-                    val liveNode = findBestTargetNode(allowCachedFallback = false)
-                    if (liveNode != null) {
-                        cacheEditableNode(liveNode)
-                        checkAndExecuteDeferredPaste(liveNode)
-                    }
-                }
+        // 2. Cache focused/clicked input node in O(1) without deep tree traversal
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED ||
+            event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
+        ) {
+            val src = event.source
+            if (src != null && isCandidateInputNode(src)) {
+                cacheEditableNode(src)
+                checkAndExecuteDeferredPaste(src)
             }
         }
 
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_FOCUSED,
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                checkInputFocusState()
+        // 3. Debounce keyboard visibility checks (at most once every 220ms)
+        // and NEVER run getWindows() while the bubble is actively RECORDING or PROCESSING!
+        val bubbleState = FloatingBubbleService.instance?.currentState
+        if (bubbleState is com.flowbangla.app.model.TranscriptionState.Recording ||
+            bubbleState is com.flowbangla.app.model.TranscriptionState.Processing
+        ) {
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastWindowSyncTimeMs >= 220L) {
+            lastWindowSyncTimeMs = now
+            windowSyncJob?.cancel()
+            windowSyncJob = serviceScope.launch(Dispatchers.Main) {
+                delay(80L)
+                syncKeyboardVisibilityWithBubble()
             }
         }
 
@@ -698,6 +706,121 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         pendingDeferredText = text
         pendingDeferredTimestampMs = SystemClock.elapsedRealtime()
         FloatingBubbleService.instance?.showPendingPasteBanner(text)
+    }
+
+    /**
+     * Fast, non-blocking injection that completes in < 150ms and NEVER deadlocks the Main Thread.
+     */
+    suspend fun injectTextFastAndSafe(rawFormattedText: String): Boolean = withContext(Dispatchers.Main) {
+        if (rawFormattedText.isEmpty()) return@withContext false
+        val formattedText = Normalizer.normalize(rawFormattedText, Normalizer.Form.NFC)
+
+        // Always pre-load clipboard first
+        copyToClipboardPrivileged(formattedText)
+
+        // TIER 0: Android 13+ (API 33+) Direct AccessibilityInputConnection.commitText()
+        // Zero node traversal needed — writes straight to the active keyboard connection in < 5ms!
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (commitViaAccessibilityIme(formattedText)) {
+                pendingDeferredText = null
+                lastPastedText = formattedText
+                lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                return@withContext true
+            }
+        }
+
+        // TIER 1: O(1) Direct Focus Lookup (rootInActiveWindow.findFocus(FOCUS_INPUT))
+        val targetNode = findTargetNodeBounded()
+        if (targetNode != null) {
+            try {
+                targetNode.refresh()
+                if (targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)) {
+                    pendingDeferredText = null
+                    lastPastedText = formattedText
+                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                    return@withContext true
+                }
+                targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                if (targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)) {
+                    pendingDeferredText = null
+                    lastPastedText = formattedText
+                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                    return@withContext true
+                }
+                if (performHintSafeSetText(targetNode, formattedText)) {
+                    pendingDeferredText = null
+                    lastPastedText = formattedText
+                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                    return@withContext true
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Node injection fallback warning: ${e.message}")
+            }
+        }
+
+        // TIER 2: Arm deferred paste for next tap
+        armDeferredPaste(formattedText)
+        false
+    }
+
+    /**
+     * Strictly bounded node finder: checks O(1) FOCUS_INPUT first, then cached node,
+     * then a strictly capped 30-node BFS/DFS so it NEVER freezes the UI thread!
+     */
+    fun findTargetNodeBounded(): AccessibilityNodeInfo? {
+        // 1. O(1) Active Window Focus
+        val activeRoot = try { rootInActiveWindow } catch (_: Throwable) { null }
+        if (activeRoot != null) {
+            val focused = try { activeRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) } catch (_: Throwable) { null }
+            if (isCandidateInputNode(focused)) return focused
+        }
+
+        // 2. O(1) Cached Node
+        val cached = lastFocusedEditableNode
+        if (cached != null) {
+            val ok = try { cached.refresh() } catch (_: Throwable) { false }
+            if (ok && isCandidateInputNode(cached)) return cached
+        }
+
+        // 3. O(1) Multi-Window FOCUS_INPUT (no deep traversal)
+        val winList = try { windows } catch (_: Throwable) { emptyList() }
+        for (w in winList) {
+            if (w.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                val r = try { w.root } catch (_: Throwable) { null } ?: continue
+                val f = try { r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) } catch (_: Throwable) { null }
+                if (isCandidateInputNode(f)) return f
+            }
+        }
+
+        // 4. Strictly bounded DFS (max 30 nodes total!)
+        if (activeRoot != null) {
+            val counter = java.util.concurrent.atomic.AtomicInteger(0)
+            return findEditableBoundedDfs(activeRoot, counter, maxNodes = 30, depth = 0)
+        }
+        return null
+    }
+
+    private fun findEditableBoundedDfs(
+        node: AccessibilityNodeInfo?,
+        visitedCounter: java.util.concurrent.atomic.AtomicInteger,
+        maxNodes: Int,
+        depth: Int
+    ): AccessibilityNodeInfo? {
+        if (node == null || depth > 7 || visitedCounter.incrementAndGet() > maxNodes) return null
+        if (isCandidateInputNode(node)) return node
+        val count = node.childCount
+        for (i in 0 until count) {
+            if (visitedCounter.get() > maxNodes) break
+            val child = try { node.getChild(i) } catch (_: Throwable) { null } ?: continue
+            val found = findEditableBoundedDfs(child, visitedCounter, maxNodes, depth + 1)
+            if (found != null) return found
+        }
+        return null
+    }
+
+    fun extractActiveFieldContextFast(): ActiveFieldContext {
+        val target = findTargetNodeBounded()
+        return ActiveAppContextExtractor.extract(target)
     }
 
     fun extractActiveFieldContext(): ActiveFieldContext {

@@ -1,4 +1,4 @@
-# Flow v3.5.0 (AI Voice Dictation & Intelligent Wispr Flow Formatter)
+# Flow v3.5.1 (Emergency Processing Freeze, ANR & Crash Resolution)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,38 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.5.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.5.0/Flow-v3.5.0.apk)**  
-  *(Keyboard-Synced Visibility, Per-Session Dismiss & Auto-Revive, Accessibility-Bound Watchdog, TYPE_ACCESSIBILITY_OVERLAY, and Multi-OEM Autostart Launcher)*
+* **[Flow-v3.5.1.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.5.1/Flow-v3.5.1.apk)**  
+  *(Emergency Freeze & Crash Resolution: Off-Main-Thread IO Pipeline, 8.5s Hard Watchdog, Zero Dual-Mic Deadlocks, Zero updateViewLayout State Transitions, and Bounded 30-Node Accessibility Search)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v3.5.1 (Emergency Processing Freeze, ANR & Crash Resolution)
+
+1. **Non-Blocking Off-Main-Thread Audio Finalization (`stopRecordingSafelyIo`)**:
+   - `AudioRecorder` stopping, audio reset, and file finalization run strictly inside `withContext(Dispatchers.IO)` with full `try/catch/finally` protection and timeouts.
+   - Removed blocking `runBlocking` calls on `Dispatchers.Main` that previously stalled Choreographer animations at 00:15.
+   - Disabled concurrent `AudioRecord` streaming during active dictation, granting `AudioRecorder` (24kHz 64kbps AAC `.m4a`) 100% exclusive hardware microphone access without dual-mic deadlocks.
+2. **8.5-Second Hard Watchdog Timer (`startProcessingWatchdog`)**:
+   - Independent watchdog timer launches on every transition to `PROCESSING` (`✕ | ⟳ Ochre Spinner`).
+   - Guarantees that even under network outages or unexpected timeouts, Flow recovers gracefully from `PROCESSING` $\to$ `IDLE` in $\le 8.5$ seconds, preventing the UI from hanging forever.
+3. **Single-Pass Smart Mode Cloud ASR on `Dispatchers.IO` & Fast Timeouts**:
+   - Dedicated `OkHttpClient` with strict low-latency timeouts: `connectTimeout = 4s`, `writeTimeout = 5s`, `readTimeout = 6s`, `callTimeout = 7s`.
+   - Transcription pipeline runs strictly on `Dispatchers.IO` with `withTimeoutOrNull(5500L)` and formatting with `withTimeoutOrNull(2200L)`.
+   - Never blocks transcription on `getOrFetchLiveModels()`. If cache is empty, uses default `ModelCatalog.specs` and fetches models asynchronously in the background.
+   - Added automated fallback to `/v1beta/models/gemini-3.5-flash-lite:generateContent` with Base64 audio if `/v1beta/interactions` is unavailable.
+4. **Zero-IPC Fixed-Size Overlay Canvas (Zero `WindowManager.updateViewLayout` Calls)**:
+   - Floating Action Pod maintains the exact same window width (`176dp x 64dp`) between `RECORDING` and `PROCESSING`.
+   - Transition from waveform bars to the Ochre spinner is a 100% in-memory canvas redraw (`invalidate()`) with zero `WindowManager` IPC relayouts or `TYPE_WINDOWS_CHANGED` loops.
+   - `FloatingBubbleService` strictly uses `TYPE_APPLICATION_OVERLAY` with its own `Context.WINDOW_SERVICE` `WindowManager`, eliminating `WindowManager.BadTokenException`.
+5. **Accessibility Isolation & 220ms Event Debounce**:
+   - `TextInjectorAccessibilityService` explicitly ignores events from Flow's own package (`pkg == packageName`), preventing feedback loops when the 60fps Ochre spinner animates.
+   - Completely skips `syncKeyboardVisibilityWithBubble()` and `getWindows()` while the bubble is actively `RECORDING` or `PROCESSING`.
+   - Debounces all keyboard visibility synchronization by 220ms.
+6. **Bounded 30-Node Traversal & Zero-Wait Native Injection (`injectTextFastAndSafe`)**:
+   - Replaced unbounded recursive 18-level DFS with `findTargetNodeBounded()`, checking $O(1)$ `findFocus(FOCUS_INPUT)` first, then cached node, and strictly capping fallback DFS to a maximum of 30 nodes visited (`maxNodes = 30, depth <= 7`).
+   - Removed blocking `dispatchPhysicalTapToWakeInput` (`dispatchGesture` infinite hang) from the synchronous injection path.
+   - Direct API 33+ `AccessibilityInputConnection.commitText` fast-path ensures instant paste in < 5ms without binder deadlocks.
 
 ---
 

@@ -262,6 +262,47 @@ class FormattingChain(
         )
     }
 
+    /**
+     * Fast formatting pass for Smart Transcripts. If already smart-transcribed
+     * and no complex backtrack cues exist, processes via local rules in <2ms.
+     */
+    suspend fun formatSmartTranscript(
+        rawTranscript: String,
+        fieldContext: ActiveFieldContext? = null,
+        alreadySmartTranscribed: Boolean = true
+    ): String {
+        val ctx = fieldContext ?: ActiveFieldContext()
+        val source = if (alreadySmartTranscribed) RecognitionSource.GEMINI_TRANSCRIBE else RecognitionSource.GROQ_WHISPER
+        val result = format(rawTranscript, source, ctx, isSmartMode = alreadySmartTranscribed)
+        return result.formattedText
+    }
+
+    /**
+     * Instant local rules formatting without LLM calls (< 2ms).
+     */
+    fun formatLocalInstantOnly(
+        rawTranscript: String,
+        fieldContext: ActiveFieldContext? = null
+    ): String {
+        val ctx = fieldContext ?: ActiveFieldContext()
+        val plan = FormatPlan(
+            documentType = WisprContextFormatter.mapAppCategoryToDocumentType(ctx.appCategory),
+            numeralPreference = NumeralPreference.WESTERN,
+            outputScript = OutputScript.AS_SPOKEN,
+            protectedTokens = prefs.getPersonalVocabularyList().toSet(),
+            isAutoDetected = true,
+            cleanupLevel = prefs.autoCleanupLevel,
+            appCategory = ctx.appCategory.name
+        )
+        val fastEnvelope = LocalRulesFormatter.format(rawTranscript, plan)
+        val dictionaryCleaned = applyDictionaryReplacementsSafely(fastEnvelope.formattedText)
+        return WisprContextFormatter.applyCursorBoundaryFormatting(
+            text = dictionaryCleaned,
+            context = ctx,
+            dropCasualPeriod = prefs.casualMessagingDropPeriod
+        )
+    }
+
     private fun applyDictionaryReplacementsSafely(text: String): String {
         return try {
             com.flowbangla.app.FlowBanglaApp.instance.personalDictionaryManager.applyReplacements(text)

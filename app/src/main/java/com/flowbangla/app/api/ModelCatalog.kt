@@ -1,5 +1,6 @@
 package com.flowbangla.app.api
 
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -128,6 +129,23 @@ object ModelCatalog {
         disabledForSession.clear()
     }
 
+    fun getCachedLiveModels(): List<RemoteModel> = cachedLiveModels
+
+    fun triggerBackgroundModelFetch(http: OkHttpClient, rawApiKey: String) {
+        val cleanKey = rawApiKey.trim()
+        if (cleanKey.isEmpty()) return
+        val now = System.currentTimeMillis()
+        if (cachedLiveModels.isNotEmpty() && (now - cacheTimestampMs) < CACHE_TTL_MS) return
+
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                getOrFetchLiveModels(http, cleanKey, forceRefresh = false)
+            } catch (e: Exception) {
+                android.util.Log.w("ModelCatalog", "Background live model fetch warning: ${e.message}")
+            }
+        }
+    }
+
     fun getOrFetchLiveModels(http: OkHttpClient, rawApiKey: String, forceRefresh: Boolean = false): List<RemoteModel> {
         val cleanKey = rawApiKey.trim()
         if (cleanKey.isEmpty()) {
@@ -145,38 +163,53 @@ object ModelCatalog {
             .get()
             .build()
 
-        http.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                val category = mapHttpToErrorCategory(response.code, body)
-                throw FlowApiException(response.code, category, parseShortError(body))
-            }
-
-            val modelsArray = JSONObject(body).optJSONArray("models") ?: return emptyList()
-            val parsed = (0 until modelsArray.length()).mapNotNull { idx ->
-                val obj = modelsArray.optJSONObject(idx) ?: return@mapNotNull null
-                val name = obj.optString("name", "")
-                if (name.isBlank()) return@mapNotNull null
-                val methodsJson = obj.optJSONArray("supportedGenerationMethods")
-                val methods = if (methodsJson == null) emptySet() else {
-                    (0 until methodsJson.length()).mapNotNull { mIdx -> methodsJson.optString(mIdx) }.toSet()
+        try {
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val category = mapHttpToErrorCategory(response.code, body)
+                    throw FlowApiException(response.code, category, parseShortError(body))
                 }
-                RemoteModel(id = normalizeId(name), methods = methods)
-            }
 
-            cachedLiveModels = parsed
-            cacheTimestampMs = now
-            return parsed
+                val modelsArray = JSONObject(body).optJSONArray("models") ?: return emptyList()
+                val parsed = (0 until modelsArray.length()).mapNotNull { idx ->
+                    val obj = modelsArray.optJSONObject(idx) ?: return@mapNotNull null
+                    val name = obj.optString("name", "")
+                    if (name.isBlank()) return@mapNotNull null
+                    val methodsJson = obj.optJSONArray("supportedGenerationMethods")
+                    val methods = if (methodsJson == null) emptySet() else {
+                        (0 until methodsJson.length()).mapNotNull { mIdx -> methodsJson.optString(mIdx) }.toSet()
+                    }
+                    RemoteModel(id = normalizeId(name), methods = methods)
+                }
+
+                cachedLiveModels = parsed
+                cacheTimestampMs = now
+                return parsed
+            }
+        } catch (e: FlowApiException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("ModelCatalog", "getOrFetchLiveModels network exception: ${e.message}")
+            return cachedLiveModels
         }
     }
 
     fun selectCandidates(task: ModelTask, liveModels: List<RemoteModel>): List<ModelSpec> {
+        if (liveModels.isEmpty()) {
+            return specs.filter { spec ->
+                spec.task == task && spec.id !in disabledForSession
+            }
+        }
         val liveIds = liveModels.associateBy { it.id }
-        return specs.filter { spec ->
+        val matched = specs.filter { spec ->
             spec.task == task &&
                 spec.id !in disabledForSession &&
                 liveIds.containsKey(spec.id) &&
                 (spec.requiredMethod == null || liveIds[spec.id]?.methods?.contains(spec.requiredMethod) == true)
+        }
+        return if (matched.isNotEmpty()) matched else {
+            specs.filter { spec -> spec.task == task && spec.id !in disabledForSession }
         }
     }
 
