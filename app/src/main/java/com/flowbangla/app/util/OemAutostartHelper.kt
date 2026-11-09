@@ -31,6 +31,13 @@ object OemAutostartHelper {
         ComponentName("com.transsion.phonemaster", "com.cyin.himgr.autostart.AutoStartActivity")
     )
 
+    private val XIAOMI_LOCK_APPS_COMPONENTS = listOf(
+        ComponentName("com.miui.securitycenter", "com.miui.optimizemanage.memoryclean.LockAppManageActivity"),
+        ComponentName("com.miui.cleanmaster", "com.miui.optimizecenter.clean.lock.LockAppManageActivity"),
+        ComponentName("com.miui.securitycenter", "com.miui.optimizemanage.OptimizemanageMainActivity"),
+        ComponentName("com.miui.securitycenter", "com.miui.securityscan.MainActivity")
+    )
+
     /**
      * 1. Requests standard Android ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS dialog.
      */
@@ -65,6 +72,26 @@ object OemAutostartHelper {
         return openAppDetailsSettings(context)
     }
 
+    /**
+     * 3. Opens Xiaomi HyperOS / MIUI "Lock Apps in Memory" (Boost Speed -> Lock Apps)
+     * or falls back to Xiaomi Security App main screen with step-by-step instructions.
+     */
+    fun openXiaomiLockAppsInRecents(context: Context): Boolean {
+        for (component in XIAOMI_LOCK_APPS_COMPONENTS) {
+            try {
+                val intent = Intent().apply {
+                    this.component = component
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                if (context.packageManager.resolveActivity(intent, 0) != null) {
+                    context.startActivity(intent)
+                    return true
+                }
+            } catch (_: Throwable) {}
+        }
+        return openOemAutostartSettings(context)
+    }
+
     private fun openAppDetailsSettings(context: Context): Boolean {
         return try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -78,12 +105,17 @@ object OemAutostartHelper {
         }
     }
 
+    fun isXiaomiFamily(): Boolean {
+        val brand = "${Build.MANUFACTURER} ${Build.BRAND}".lowercase()
+        return "xiaomi" in brand || "redmi" in brand || "poco" in brand
+    }
+
     fun getOemInstructions(isBangla: Boolean): String {
         val brand = "${Build.MANUFACTURER} ${Build.BRAND}".lowercase()
         return when {
             "xiaomi" in brand || "redmi" in brand || "poco" in brand ->
-                if (isBangla) "১. Autostart চালু করুন\n২. Battery Saver -> No restrictions দিন\n৩. Recent Apps-এ Flow লক করুন"
-                else "1. Enable Autostart\n2. Set Battery Saver to 'No restrictions'\n3. Lock Flow in Recent Apps"
+                if (isBangla) "১. Autostart চালু করুন\n২. Battery Saver -> No restrictions দিন\n৩. Security অ্যাপ -> ⚙️ (Settings) -> Boost speed -> Lock apps -> Flow চালু করুন"
+                else "1. Enable Autostart\n2. Set Battery Saver to 'No restrictions'\n3. Open Security App -> ⚙️ (Settings) -> Boost speed -> Lock apps -> Turn ON Flow"
             "samsung" in brand ->
                 if (isBangla) "১. Battery -> Unrestricted সিলেক্ট করুন\n২. Never sleeping apps-এ Flow যোগ করুন"
                 else "1. Select Battery -> Unrestricted\n2. Add Flow to 'Never sleeping apps'"

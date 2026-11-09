@@ -36,7 +36,8 @@ fun SetupPermissionsSheet(
     onRequestOverlay: () -> Unit,
     onRequestXiaomiAutostart: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
-    onRequestSamsungDeviceCare: () -> Unit = {}
+    onRequestSamsungDeviceCare: () -> Unit = {},
+    onRequestXiaomiLockApps: () -> Unit = {}
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -226,6 +227,26 @@ fun SetupPermissionsSheet(
                     ) {
                         Text(
                             text = if (isBn) "অটো-স্টার্ট চালু" else "Enable Autostart",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                if (OemAutostartHelper.isXiaomiFamily()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = onRequestXiaomiLockApps,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DarkSurfaceRaised,
+                            contentColor = DarkInk
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (isBn) "মেমোরিতে Flow লক করুন (HyperOS)" else "Lock Flow in Memory (HyperOS)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )

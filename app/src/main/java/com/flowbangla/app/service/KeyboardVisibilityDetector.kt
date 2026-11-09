@@ -2,6 +2,7 @@ package com.flowbangla.app.service
 
 import android.content.Context
 import android.graphics.Rect
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 
@@ -9,7 +10,8 @@ data class KeyboardStateSnapshot(
     val isKeyboardVisible: Boolean,
     val keyboardTopY: Int,
     val keyboardHeightPx: Int,
-    val isRestrictedFieldOrApp: Boolean
+    val isRestrictedFieldOrApp: Boolean,
+    val matchedSignal: String = "NONE"
 )
 
 object KeyboardVisibilityDetector {
@@ -29,97 +31,202 @@ object KeyboardVisibilityDetector {
     private val KNOWN_KEYBOARD_PACKAGES = setOf(
         "com.google.android.inputmethod.latin", // Gboard
         "com.samsung.android.honeyboard",       // Samsung Keyboard
-        "net.hasnath.android.keyboard",         // Ridmik Keyboard (popular in Bangladesh!)
+        "net.hasnath.android.keyboard",         // Ridmik Keyboard
         "com.touchtype.swiftkey",               // Microsoft SwiftKey
         "com.mayabi.mayabikeyboard",            // Mayabi Bangla Keyboard
-        "com.xiaomi.inputmethod"                // Xiaomi Mint Keyboard
+        "com.xiaomi.inputmethod",               // Xiaomi Mint Keyboard
+        "com.baidu.input_mi"                    // Xiaomi MIUI Keyboard
     )
 
     /**
-     * Evaluates whether the soft keyboard is physically visible on screen right now.
-     *
-     * Signal 1 (Primary): An interactive window of type TYPE_INPUT_METHOD exists
-     *                     and has a visible height >= 100dp on screen.
-     * Signal 2 (Fallback for OEMs that mask TYPE_INPUT_METHOD): A window belonging to a
-     *                     known keyboard package is visible at the bottom of the screen
-     *                     WITH an active InputConnection or focused editable node.
+     * Pure evaluator testing the 5 independent keyboard signals.
      */
+    fun evaluateSignals(
+        isBankingOrSensitive: Boolean,
+        isPasswordField: Boolean,
+        hasTypeInputMethod: Boolean,
+        typeInputMethodHeightPx: Int,
+        typeInputMethodBottomPx: Int,
+        screenHeightPx: Int,
+        density: Float,
+        hasKnownKeyboardPackage: Boolean,
+        knownKeyboardHeightPx: Int,
+        isImeInputStarted: Boolean,
+        hasActiveEditableFocus: Boolean,
+        appWindowBottomGapPx: Int,
+        hasAppWindow: Boolean,
+        msSinceLastTouch: Long
+    ): KeyboardStateSnapshot {
+        val minKeyboardHeightPx = (100f * density).toInt()
+        val defaultKeyboardTopY = (screenHeightPx * 0.62f).toInt()
+
+        // 0. Security Exclusion: Banking apps & password fields
+        if (isBankingOrSensitive) {
+            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "RESTRICTED_PKG")
+        }
+        if (isPasswordField) {
+            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "PASSWORD_FIELD")
+        }
+
+        // SIGNAL 1: Explicit TYPE_INPUT_METHOD window with height >= 100dp
+        if (hasTypeInputMethod && typeInputMethodHeightPx >= minKeyboardHeightPx && typeInputMethodBottomPx >= (screenHeightPx * 0.60f).toInt()) {
+            return KeyboardStateSnapshot(
+                isKeyboardVisible = true,
+                keyboardTopY = screenHeightPx - typeInputMethodHeightPx,
+                keyboardHeightPx = typeInputMethodHeightPx,
+                isRestrictedFieldOrApp = false,
+                matchedSignal = "SIGNAL_1_TYPE_INPUT_METHOD"
+            )
+        }
+
+        // SIGNAL 2: Known Keyboard Package Window
+        if (hasKnownKeyboardPackage && knownKeyboardHeightPx >= minKeyboardHeightPx) {
+            return KeyboardStateSnapshot(
+                isKeyboardVisible = true,
+                keyboardTopY = screenHeightPx - knownKeyboardHeightPx,
+                keyboardHeightPx = knownKeyboardHeightPx,
+                isRestrictedFieldOrApp = false,
+                matchedSignal = "SIGNAL_2_KEYBOARD_PKG"
+            )
+        }
+
+        // SIGNAL 3: Android 13+ AccessibilityInputConnection is actively bound to a real input editor!
+        // On Xiaomi HyperOS after a Recents swipe, getWindows() can return empty even though
+        // onStartInput() fired with a real EditorInfo!
+        if (isImeInputStarted && hasActiveEditableFocus) {
+            return KeyboardStateSnapshot(
+                isKeyboardVisible = true,
+                keyboardTopY = defaultKeyboardTopY,
+                keyboardHeightPx = screenHeightPx - defaultKeyboardTopY,
+                isRestrictedFieldOrApp = false,
+                matchedSignal = "SIGNAL_3_IME_INPUT_STARTED"
+            )
+        }
+
+        // SIGNAL 4: Application Window Bottom Compression (Active window is pushed up by >= 140dp at bottom)
+        if (hasAppWindow && hasActiveEditableFocus && appWindowBottomGapPx >= (140f * density).toInt()) {
+            return KeyboardStateSnapshot(
+                isKeyboardVisible = true,
+                keyboardTopY = screenHeightPx - appWindowBottomGapPx,
+                keyboardHeightPx = appWindowBottomGapPx,
+                isRestrictedFieldOrApp = false,
+                matchedSignal = "SIGNAL_4_WINDOW_BOTTOM_COMPRESSED"
+            )
+        }
+
+        // SIGNAL 5: User just tapped or focused an editable text box within the last 10 seconds
+        // AND the editable node still holds input focus (fallback when HyperOS hides window bounds)
+        if (hasActiveEditableFocus && msSinceLastTouch in 0L..10_000L) {
+            return KeyboardStateSnapshot(
+                isKeyboardVisible = true,
+                keyboardTopY = defaultKeyboardTopY,
+                keyboardHeightPx = screenHeightPx - defaultKeyboardTopY,
+                isRestrictedFieldOrApp = false,
+                matchedSignal = "SIGNAL_5_RECENT_EDITABLE_FOCUS"
+            )
+        }
+
+        return KeyboardStateSnapshot(
+            isKeyboardVisible = false,
+            keyboardTopY = screenHeightPx,
+            keyboardHeightPx = 0,
+            isRestrictedFieldOrApp = false,
+            matchedSignal = "NONE"
+        )
+    }
+
     fun evaluateKeyboardState(
         context: Context,
         windows: List<AccessibilityWindowInfo>,
         activeRoot: AccessibilityNodeInfo?,
-        isImeInputStarted: Boolean
+        isImeInputStarted: Boolean,
+        hasActiveEditableFocus: Boolean = false,
+        lastEditableTouchElapsedMs: Long = 0L
     ): KeyboardStateSnapshot {
         val density = context.resources.displayMetrics.density
         val screenHeight = context.resources.displayMetrics.heightPixels
         val minKeyboardHeightPx = (100f * density).toInt()
 
-        // 1. Check if the foreground app or focused field is a restricted banking app or password field
-        val activePkg = activeRoot?.packageName?.toString().orEmpty()
-        if (BANKING_AND_SENSITIVE_PACKAGES.any { activePkg.contains(it, ignoreCase = true) }) {
-            return KeyboardStateSnapshot(
-                isKeyboardVisible = false,
-                keyboardTopY = screenHeight,
-                keyboardHeightPx = 0,
-                isRestrictedFieldOrApp = true
-            )
-        }
+        // 0. Security Exclusion: Banking apps & password fields
+        val activePkg = try { activeRoot?.packageName?.toString().orEmpty() } catch (_: Throwable) { "" }
+        val isBanking = BANKING_AND_SENSITIVE_PACKAGES.any { activePkg.contains(it, ignoreCase = true) }
 
         val focusedNode = try {
             activeRoot?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
-        if (focusedNode?.isPassword == true) {
-            return KeyboardStateSnapshot(
-                isKeyboardVisible = false,
-                keyboardTopY = screenHeight,
-                keyboardHeightPx = 0,
-                isRestrictedFieldOrApp = true
-            )
-        }
+        val isPassword = focusedNode?.isPassword == true
 
-        // 2. Primary Check: Look for AccessibilityWindowInfo.TYPE_INPUT_METHOD with height >= 100dp
+        var hasTypeInputMethod = false
+        var typeInputMethodHeight = 0
+        var typeInputMethodBottom = 0
+
+        var hasKnownKeyboard = false
+        var knownKeyboardHeight = 0
+
         val rect = Rect()
         for (window in windows) {
             if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
                 window.getBoundsInScreen(rect)
-                val height = rect.height()
-                if (height >= minKeyboardHeightPx && rect.bottom >= (screenHeight * 0.65f).toInt()) {
-                    return KeyboardStateSnapshot(
-                        isKeyboardVisible = true,
-                        keyboardTopY = rect.top,
-                        keyboardHeightPx = height,
-                        isRestrictedFieldOrApp = false
-                    )
+                val h = rect.height()
+                if (h >= minKeyboardHeightPx && rect.bottom >= (screenHeight * 0.60f).toInt()) {
+                    hasTypeInputMethod = true
+                    typeInputMethodHeight = h
+                    typeInputMethodBottom = rect.bottom
+                    break
                 }
             }
         }
 
-        // 3. Secondary Fallback: Check if a known keyboard package window is open at the bottom
-        for (window in windows) {
-            val pkg = try { window.root?.packageName?.toString().orEmpty() } catch (_: Exception) { "" }
-            if (pkg in KNOWN_KEYBOARD_PACKAGES || KNOWN_KEYBOARD_PACKAGES.any { pkg.contains(it, ignoreCase = true) }) {
-                window.getBoundsInScreen(rect)
-                val height = rect.height()
-                if (height >= minKeyboardHeightPx && rect.bottom >= (screenHeight * 0.65f).toInt()) {
-                    return KeyboardStateSnapshot(
-                        isKeyboardVisible = true,
-                        keyboardTopY = rect.top,
-                        keyboardHeightPx = height,
-                        isRestrictedFieldOrApp = false
-                    )
+        if (!hasTypeInputMethod) {
+            for (window in windows) {
+                val pkg = try { window.root?.packageName?.toString().orEmpty() } catch (_: Throwable) { "" }
+                if (pkg in KNOWN_KEYBOARD_PACKAGES || KNOWN_KEYBOARD_PACKAGES.any { pkg.contains(it, ignoreCase = true) }) {
+                    window.getBoundsInScreen(rect)
+                    val h = rect.height()
+                    if (h >= minKeyboardHeightPx) {
+                        hasKnownKeyboard = true
+                        knownKeyboardHeight = h
+                        break
+                    }
                 }
             }
         }
 
-        // 4. If no keyboard window is open on screen, the keyboard is CLOSED!
-        // (Even if an EditText still holds stale focus in the background!)
-        return KeyboardStateSnapshot(
-            isKeyboardVisible = false,
-            keyboardTopY = screenHeight,
-            keyboardHeightPx = 0,
-            isRestrictedFieldOrApp = false
+        var appWindowBottomGap = 0
+        var hasAppWindow = false
+        if (activeRoot != null) {
+            try {
+                activeRoot.getBoundsInScreen(rect)
+                if (rect.height() > minKeyboardHeightPx) {
+                    hasAppWindow = true
+                    appWindowBottomGap = screenHeight - rect.bottom
+                }
+            } catch (_: Throwable) {}
+        }
+
+        val msSinceTouch = if (lastEditableTouchElapsedMs > 0L) {
+            SystemClock.elapsedRealtime() - lastEditableTouchElapsedMs
+        } else {
+            -1L
+        }
+
+        return evaluateSignals(
+            isBankingOrSensitive = isBanking,
+            isPasswordField = isPassword,
+            hasTypeInputMethod = hasTypeInputMethod,
+            typeInputMethodHeightPx = typeInputMethodHeight,
+            typeInputMethodBottomPx = typeInputMethodBottom,
+            screenHeightPx = screenHeight,
+            density = density,
+            hasKnownKeyboardPackage = hasKnownKeyboard,
+            knownKeyboardHeightPx = knownKeyboardHeight,
+            isImeInputStarted = isImeInputStarted,
+            hasActiveEditableFocus = hasActiveEditableFocus,
+            appWindowBottomGapPx = appWindowBottomGap,
+            hasAppWindow = hasAppWindow,
+            msSinceLastTouch = msSinceTouch
         )
     }
 

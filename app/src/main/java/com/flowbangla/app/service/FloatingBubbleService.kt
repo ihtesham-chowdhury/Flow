@@ -130,6 +130,7 @@ class FloatingBubbleService : Service() {
         setupLivePreviewPill()
         setupPendingPasteBanner()
         setupKeyboardListener()
+        TextInjectorAccessibilityService.instance?.requestImmediateKeyboardSync()
     }
 
     private fun initializeEngines() {
@@ -179,6 +180,7 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        TextInjectorAccessibilityService.instance?.requestImmediateKeyboardSync()
         when (intent?.action) {
             ACTION_STOP_SERVICE -> stopSelf()
             ACTION_REFRESH_SETTINGS -> {

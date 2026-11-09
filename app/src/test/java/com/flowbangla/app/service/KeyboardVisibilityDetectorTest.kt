@@ -1,5 +1,6 @@
 package com.flowbangla.app.service
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,6 +28,7 @@ class KeyboardVisibilityDetectorTest {
         assertTrue(KeyboardVisibilityDetector.isKnownKeyboard("com.touchtype.swiftkey")) // SwiftKey
         assertTrue(KeyboardVisibilityDetector.isKnownKeyboard("com.mayabi.mayabikeyboard")) // Mayabi
         assertTrue(KeyboardVisibilityDetector.isKnownKeyboard("com.xiaomi.inputmethod")) // Xiaomi Mint
+        assertTrue(KeyboardVisibilityDetector.isKnownKeyboard("com.baidu.input_mi")) // Xiaomi MIUI
 
         assertFalse(KeyboardVisibilityDetector.isKnownKeyboard("com.google.android.youtube"))
         assertFalse(KeyboardVisibilityDetector.isKnownKeyboard("com.android.chrome"))
@@ -39,6 +41,198 @@ class KeyboardVisibilityDetectorTest {
         assertTrue(KeyboardVisibilityDetector.isKeyboardHeightValid(200, 2.0f))
         assertFalse(KeyboardVisibilityDetector.isKeyboardHeightValid(150, 2.0f))
         assertFalse(KeyboardVisibilityDetector.isKeyboardHeightValid(1, 2.0f)) // hidden 1px IME stub
+    }
+
+    @Test
+    fun testSignal1TypeInputMethodWindow() {
+        val snapshot = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = true,
+            typeInputMethodHeightPx = 600,
+            typeInputMethodBottomPx = 2400,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = false,
+            hasActiveEditableFocus = false,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = true,
+            msSinceLastTouch = -1L
+        )
+
+        assertTrue(snapshot.isKeyboardVisible)
+        assertEquals("SIGNAL_1_TYPE_INPUT_METHOD", snapshot.matchedSignal)
+        assertEquals(600, snapshot.keyboardHeightPx)
+        assertFalse(snapshot.isRestrictedFieldOrApp)
+    }
+
+    @Test
+    fun testSignal2KnownKeyboardPackage() {
+        val snapshot = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = false,
+            typeInputMethodHeightPx = 0,
+            typeInputMethodBottomPx = 0,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = true,
+            knownKeyboardHeightPx = 550,
+            isImeInputStarted = false,
+            hasActiveEditableFocus = false,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = true,
+            msSinceLastTouch = -1L
+        )
+
+        assertTrue(snapshot.isKeyboardVisible)
+        assertEquals("SIGNAL_2_KEYBOARD_PKG", snapshot.matchedSignal)
+        assertEquals(550, snapshot.keyboardHeightPx)
+    }
+
+    @Test
+    fun testSignal3ImeInputStartedOnHyperOsWhenWindowsEmpty() {
+        // Simulates Xiaomi HyperOS after Recents swipe: windows list is empty / mask flags,
+        // but onStartInput() fired with real EditorInfo and user is focused on an editable box!
+        val snapshot = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = false,
+            typeInputMethodHeightPx = 0,
+            typeInputMethodBottomPx = 0,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = true,
+            hasActiveEditableFocus = true,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = false,
+            msSinceLastTouch = -1L
+        )
+
+        assertTrue("Keyboard MUST be detected on HyperOS via onStartInput even when windows is empty!", snapshot.isKeyboardVisible)
+        assertEquals("SIGNAL_3_IME_INPUT_STARTED", snapshot.matchedSignal)
+    }
+
+    @Test
+    fun testSignal4ApplicationWindowBottomCompression() {
+        // App window is pushed up by 600px (300dp at density 2.0)
+        val snapshot = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = false,
+            typeInputMethodHeightPx = 0,
+            typeInputMethodBottomPx = 0,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = false,
+            hasActiveEditableFocus = true,
+            appWindowBottomGapPx = 600,
+            hasAppWindow = true,
+            msSinceLastTouch = -1L
+        )
+
+        assertTrue(snapshot.isKeyboardVisible)
+        assertEquals("SIGNAL_4_WINDOW_BOTTOM_COMPRESSED", snapshot.matchedSignal)
+        assertEquals(600, snapshot.keyboardHeightPx)
+    }
+
+    @Test
+    fun testSignal5RecentEditableFocusFallback() {
+        // User tapped input box 2.5 seconds ago (2500ms <= 10000ms)
+        val snapshot = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = false,
+            typeInputMethodHeightPx = 0,
+            typeInputMethodBottomPx = 0,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = false,
+            hasActiveEditableFocus = true,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = false,
+            msSinceLastTouch = 2500L
+        )
+
+        assertTrue(snapshot.isKeyboardVisible)
+        assertEquals("SIGNAL_5_RECENT_EDITABLE_FOCUS", snapshot.matchedSignal)
+    }
+
+    @Test
+    fun testSecurityExclusionsOverrideAllSignals() {
+        // Banking app
+        val bankingSnap = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = true,
+            isPasswordField = false,
+            hasTypeInputMethod = true,
+            typeInputMethodHeightPx = 600,
+            typeInputMethodBottomPx = 2400,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = true,
+            hasActiveEditableFocus = true,
+            appWindowBottomGapPx = 600,
+            hasAppWindow = true,
+            msSinceLastTouch = 1000L
+        )
+        assertFalse(bankingSnap.isKeyboardVisible)
+        assertTrue(bankingSnap.isRestrictedFieldOrApp)
+        assertEquals("RESTRICTED_PKG", bankingSnap.matchedSignal)
+
+        // Password field
+        val passwordSnap = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = true,
+            hasTypeInputMethod = true,
+            typeInputMethodHeightPx = 600,
+            typeInputMethodBottomPx = 2400,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = true,
+            hasActiveEditableFocus = true,
+            appWindowBottomGapPx = 600,
+            hasAppWindow = true,
+            msSinceLastTouch = 1000L
+        )
+        assertFalse(passwordSnap.isKeyboardVisible)
+        assertTrue(passwordSnap.isRestrictedFieldOrApp)
+        assertEquals("PASSWORD_FIELD", passwordSnap.matchedSignal)
+    }
+
+    @Test
+    fun testNoSignalsMatched() {
+        val snapshot = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = false,
+            typeInputMethodHeightPx = 0,
+            typeInputMethodBottomPx = 0,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = false,
+            hasActiveEditableFocus = false,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = false,
+            msSinceLastTouch = -1L
+        )
+
+        assertFalse(snapshot.isKeyboardVisible)
+        assertEquals("NONE", snapshot.matchedSignal)
+        assertEquals(0, snapshot.keyboardHeightPx)
     }
 
     @Test

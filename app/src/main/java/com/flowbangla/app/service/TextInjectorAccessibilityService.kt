@@ -136,22 +136,33 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         }
     }
 
+    fun ensureInteractiveWindowsFlagRegistered() {
+        try {
+            val info = serviceInfo ?: return
+            val requiredFlags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                AccessibilityServiceInfo.FLAG_REQUEST_ENHANCED_WEB_ACCESSIBILITY or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
+                } else 0)
+
+            if ((info.flags and requiredFlags) != requiredFlags) {
+                info.flags = info.flags or requiredFlags
+                serviceInfo = info
+                Log.i(TAG, "Re-asserted interactive windows flags for OEM survival.")
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to re-assert flags: ${e.message}")
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         _isConnected.value = true
 
-        // Ensure service flags include interactive windows, IME editor, and enhanced web accessibility
-        serviceInfo = serviceInfo.apply {
-            flags = flags or
-                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-                AccessibilityServiceInfo.FLAG_REQUEST_ENHANCED_WEB_ACCESSIBILITY
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                flags = flags or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
-            }
-        }
+        ensureInteractiveWindowsFlagRegistered()
         Log.i(TAG, "TextInjectorAccessibilityService connected with multi-window flags.")
 
         // Bind FloatingBubbleService with BIND_IMPORTANT so it shares AccessibilityService's unkillable priority
@@ -169,13 +180,20 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     @Volatile
     private var currentEditorPackage: String? = null
 
+    @Volatile
+    private var lastEditableTouchElapsedMs: Long = 0L
+
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreateInputMethod(): InputMethod {
         val im = object : InputMethod(this) {
             override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
                 super.onStartInput(attribute, restarting)
-                isInputConnectionStarted = true
+                val isRealInput = attribute.inputType != android.text.InputType.TYPE_NULL
+                isInputConnectionStarted = isRealInput
                 currentEditorPackage = attribute.packageName
+                if (isRealInput) {
+                    lastEditableTouchElapsedMs = SystemClock.elapsedRealtime()
+                }
                 syncKeyboardVisibilityWithBubble()
                 // If we have pending deferred text waiting for a text box to focus, commit it immediately!
                 val deferred = pendingDeferredText
@@ -195,6 +213,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             override fun onFinishInput() {
                 super.onFinishInput()
                 isInputConnectionStarted = false
+                lastEditableTouchElapsedMs = 0L
                 syncKeyboardVisibilityWithBubble()
             }
         }
@@ -311,14 +330,22 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             lastKnownPackageName = pkg
         }
 
-        // 2. Cache focused/clicked input node in O(1) without deep tree traversal
+        // 2. Auto-revive: If FloatingBubbleService was killed by OEM, revive it on the very next user event!
+        if (FloatingBubbleService.instance == null) {
+            ensureBubbleServiceAliveAndBound()
+        }
+
+        // 3. Cache focused/clicked/selection input node in O(1) without deep tree traversal
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED ||
-            event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED
+            event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+            event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED
         ) {
             val src = event.source
             if (src != null && isCandidateInputNode(src)) {
                 cacheEditableNode(src)
+                lastEditableTouchElapsedMs = SystemClock.elapsedRealtime()
                 checkAndExecuteDeferredPaste(src)
+                syncKeyboardVisibilityWithBubble()
             }
         }
 
@@ -828,6 +855,10 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         return ActiveAppContextExtractor.extract(target)
     }
 
+    fun requestImmediateKeyboardSync() {
+        syncKeyboardVisibilityWithBubble()
+    }
+
     fun syncKeyboardVisibilityWithBubble() {
         // 1. If OEM killed FloatingBubbleService while phone was idle, revive it right now!
         if (FloatingBubbleService.instance == null) {
@@ -835,13 +866,24 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         }
 
         val windowList = try { windows } catch (_: Exception) { emptyList() }
+        if (windowList.isEmpty()) {
+            ensureInteractiveWindowsFlagRegistered()
+        }
+
         val activeRoot = try { rootInActiveWindow } catch (_: Exception) { null }
+
+        val focusedNode = try { activeRoot?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) } catch (_: Throwable) { null }
+        val cached = lastFocusedEditableNode
+        val hasFocus = (focusedNode != null && isCandidateInputNode(focusedNode)) ||
+                (cached != null && isCandidateInputNode(cached))
 
         val snapshot = KeyboardVisibilityDetector.evaluateKeyboardState(
             context = this,
             windows = windowList,
             activeRoot = activeRoot,
-            isImeInputStarted = isInputConnectionStarted
+            isImeInputStarted = isInputConnectionStarted,
+            hasActiveEditableFocus = hasFocus,
+            lastEditableTouchElapsedMs = lastEditableTouchElapsedMs
         )
 
         FloatingBubbleService.instance?.onKeyboardVisibilityChanged(

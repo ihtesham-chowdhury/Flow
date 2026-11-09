@@ -1,6 +1,7 @@
 package com.flowbangla.app.ui
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -120,7 +121,8 @@ class MainActivity : ComponentActivity() {
                     onRequestAccessibilityPermission = { requestAccessibilityPermission() },
                     onRequestXiaomiAutostart = { requestXiaomiAutostart() },
                     onRequestBatteryExemption = { requestBatteryOptimizationExemption() },
-                    onRequestSamsungDeviceCare = { requestSamsungDeviceCare() }
+                    onRequestSamsungDeviceCare = { requestSamsungDeviceCare() },
+                    onRequestXiaomiLockApps = { requestXiaomiLockApps() }
                 )
             }
         }
@@ -162,6 +164,24 @@ class MainActivity : ComponentActivity() {
 
     private fun requestSamsungDeviceCare() {
         com.flowbangla.app.util.OemAutostartHelper.openOemAutostartSettings(this)
+    }
+
+    private fun requestXiaomiLockApps() {
+        com.flowbangla.app.util.OemAutostartHelper.openXiaomiLockAppsInRecents(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Whenever all critical permissions are granted and the user leaves the Flow app,
+        // hide Flow's task card from the Recent Apps list so Xiaomi's "Clear All" gesture NEVER kills it!
+        try {
+            if (PermissionHelper.checkAllPermissions(this).allCriticalGranted) {
+                val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                am?.appTasks?.forEach { task ->
+                    task.setExcludeFromRecents(true)
+                }
+            }
+        } catch (_: Throwable) {}
     }
 }
 
@@ -305,7 +325,8 @@ fun MainScreen(
     onRequestAccessibilityPermission: () -> Unit,
     onRequestXiaomiAutostart: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
-    onRequestSamsungDeviceCare: () -> Unit
+    onRequestSamsungDeviceCare: () -> Unit,
+    onRequestXiaomiLockApps: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { FlowBanglaApp.instance.preferencesManager }
@@ -1665,7 +1686,8 @@ fun MainScreen(
             onRequestOverlay = onRequestOverlayPermission,
             onRequestXiaomiAutostart = onRequestXiaomiAutostart,
             onRequestBatteryExemption = onRequestBatteryExemption,
-            onRequestSamsungDeviceCare = onRequestSamsungDeviceCare
+            onRequestSamsungDeviceCare = onRequestSamsungDeviceCare,
+            onRequestXiaomiLockApps = onRequestXiaomiLockApps
         )
     }
 

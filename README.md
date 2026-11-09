@@ -1,4 +1,4 @@
-# Flow v3.5.1 (Emergency Processing Freeze, ANR & Crash Resolution)
+# Flow v3.6.0 (Zero-Kill Xiaomi HyperOS Survival, Invisible Recents Shield & Self-Healing Keyboard Sync)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,32 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.5.1.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.5.1/Flow-v3.5.1.apk)**  
-  *(Emergency Freeze & Crash Resolution: Off-Main-Thread IO Pipeline, 8.5s Hard Watchdog, Zero Dual-Mic Deadlocks, Zero updateViewLayout State Transitions, and Bounded 30-Node Accessibility Search)*
+* **[Flow-v3.6.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.6.0/Flow-v3.6.0.apk)**  
+  *(Zero-Kill Xiaomi HyperOS Survival: Invisible Recents Shield, 5-Signal Self-Healing Keyboard Detector, Bidirectional Service Sync & HyperOS Boost Speed Lock Deep Link)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v3.6.0 (Zero-Kill Xiaomi HyperOS Survival & Self-Healing Keyboard Sync)
+
+1. **Invisible Recents Shield (`excludeFromRecents` & Dynamic Task Shield)**:
+   - Configured `android:excludeFromRecents="true"`, `android:autoRemoveFromRecents="true"`, and `android:launchMode="singleTask"` on `MainActivity`.
+   - In `MainActivity.onStop()`, dynamically excludes all app tasks from the Recent Apps switcher once critical permissions are granted.
+   - When the user swipes away all Recent Apps or taps Xiaomi HyperOS's **"Clear All" (✕)** button, Flow leaves zero card in the switcher—meaning MIUI `ProcessManager` never targets Flow with `forceStopPackage`!
+2. **5-Signal Self-Healing Keyboard Detector (`KeyboardVisibilityDetector`)**:
+   - Resolves the issue where swiping Recent Apps caused `getWindows()` to temporarily return empty or drop `TYPE_INPUT_METHOD` on HyperOS.
+   - **Signal 1**: `TYPE_INPUT_METHOD` window with height $\ge 100\text{dp}$.
+   - **Signal 2**: Known keyboard packages (`Gboard`, `Honeyboard`, `Ridmik`, `SwiftKey`, `Mayabi`, `Mint`, `Baidu MIUI`).
+   - **Signal 3**: Android 13+ `AccessibilityInputConnection` `onStartInput` (`EditorInfo.inputType != TYPE_NULL`) with active editable focus.
+   - **Signal 4**: Application window bottom compression ($\ge 140\text{dp}$ bottom gap when keyboard is opened).
+   - **Signal 5**: Direct editable node touch/focus fallback within 10 seconds.
+3. **Auto-Reassert Interactive Windows Flags & Bidirectional Service Sync**:
+   - `TextInjectorAccessibilityService` checks `windows.isEmpty()` and automatically re-asserts `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` and `FLAG_INPUT_METHOD_EDITOR` dynamically.
+   - `FloatingBubbleService` pulls live keyboard state immediately on `onCreate()` and `onStartCommand()` via `requestImmediateKeyboardSync()`, preventing it from ever being stuck in `isKeyboardCurrentlyVisible = false`.
+   - On every accessibility interaction, if `FloatingBubbleService` was trimmed, `ensureBubbleServiceAliveAndBound()` revives it instantly in $< 50\text{ms}$.
+4. **Xiaomi HyperOS "Boost Speed $\to$ Lock Apps" Deep Link**:
+   - Direct launcher targeting `com.miui.securitycenter` and `LockAppManageActivity` with one-tap deep link and bilingual (Bangla & English) step-by-step guidance.
+   - Direct "মেমোরিতে Flow লক করুন (HyperOS) / Lock Flow in Memory" action in `SetupPermissionsSheet`.
 
 ---
 

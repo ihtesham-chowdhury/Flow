@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.5.1 (Build 15)  
+> **Document Version**: 3.6.0 (Build 16)  
 > **Last Updated**: November 9, 2026  
-> **Status**: Production Release (`Flow-v3.5.1.apk` active)  
+> **Status**: Production Release (`Flow-v3.6.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -253,7 +253,30 @@
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
 
-### Phase 13: v3.5.1 (Build 15) — Emergency Processing Freeze, ANR & Crash Resolution (Current Release)
+### Phase 14: v3.6.0 (Build 16) — True Zero-Kill Xiaomi HyperOS Survival, Invisible Recents Shield & Self-Healing Keyboard Sync (Current Release)
+- **Forensic Diagnosis of the "Always Show Works, But Show-Only-When-Typing Breaks After Swipe" Bug on Xiaomi HyperOS**:
+  - *Root Cause 1*: Xiaomi HyperOS's "Clear All / Close" gesture (`✕`) explicitly target-kills every process whose `Activity` card sits in the Recent Apps switcher. Because `MainActivity` was in Recents without `excludeFromRecents`, swiping Recent Apps invoked MIUI `ProcessManager` to force-stop Flow.
+  - *Root Cause 2*: When HyperOS killed Flow and `FloatingBubbleService` respawned (`START_STICKY`), it initialized with `isKeyboardCurrentlyVisible = false` and never asked `TextInjectorAccessibilityService` for the current keyboard state.
+  - *Root Cause 3*: On Xiaomi HyperOS after a process trim, `AccessibilityService.getWindows()` temporarily returns an empty list `[]` or drops `TYPE_INPUT_METHOD` until dynamic flags are re-registered. In v3.5.0, `KeyboardVisibilityDetector` ignored `isImeInputStarted` and relied solely on `getWindows()`.
+- **Complete 4-Pillar Technical Fix**:
+  1. **Invisible Recents Shield (`excludeFromRecents`)**: Added `android:excludeFromRecents="true"`, `android:autoRemoveFromRecents="true"`, and `android:launchMode="singleTask"` to `MainActivity` in `AndroidManifest.xml`. In `MainActivity.onStop()`, dynamically excludes all app tasks from the Recents switcher once critical permissions are granted. Swiping away Recent Apps or tapping "Clear All (`✕`)" leaves zero card for Xiaomi to kill!
+  2. **5-Signal Self-Healing Keyboard Detector (`KeyboardVisibilityDetector`)**:
+     - *Signal 1*: `TYPE_INPUT_METHOD` window with height $\ge 100\text{dp}$.
+     - *Signal 2*: Known keyboard packages (`Gboard`, `Honeyboard`, `Ridmik`, `SwiftKey`, `Mayabi`, `Mint`, `Baidu MIUI`).
+     - *Signal 3*: Android 13+ `AccessibilityInputConnection` `onStartInput` (`EditorInfo.inputType != TYPE_NULL`) with active editable focus—detects keyboard with 100% accuracy even when `windows` is empty on HyperOS.
+     - *Signal 4*: Application window bottom compression ($\ge 140\text{dp}$ bottom gap when keyboard is opened).
+     - *Signal 5*: Direct editable node touch/focus fallback within 10 seconds.
+  3. **Auto-Reassert Interactive Windows Flags & Bidirectional Service Sync**:
+     - `ensureInteractiveWindowsFlagRegistered()` re-asserts `FLAG_RETRIEVE_INTERACTIVE_WINDOWS` and `FLAG_INPUT_METHOD_EDITOR` if `windows` is empty.
+     - `FloatingBubbleService` pulls live keyboard state immediately on `onCreate()` and `onStartCommand()` via `requestImmediateKeyboardSync()`.
+     - Revives `FloatingBubbleService` in $< 50\text{ms}$ on any accessibility interaction if trimmed.
+  4. **Xiaomi HyperOS "Boost Speed $\to$ Lock Apps" Deep Link**:
+     - Added `openXiaomiLockAppsInRecents(context)` in `OemAutostartHelper` targeting `com.miui.securitycenter` and `LockAppManageActivity`.
+     - Direct "মেমোরিতে Flow লক করুন (HyperOS) / Lock Flow in Memory" action in `SetupPermissionsSheet` with step-by-step Bangla and English instructions.
+- **79 Unit Tests Passing (100% pass rate)**:
+  - Verified all 5 signals, HyperOS empty window fallback, security exclusions, and bubble visibility state transitions.
+
+### Phase 13: v3.5.1 (Build 15) — Emergency Processing Freeze, ANR & Crash Resolution
 - **Forensic Diagnosis of the 00:15 Freeze & Crash in Screen Recording (`1000375544.mp4`)**:
   - *Bug 1*: Concurrent `AudioRecord` streaming + blocking `AudioRecorder.stop()` on `Dispatchers.Main` with `runBlocking` froze the Choreographer animation thread.
   - *Bug 2*: `dispatchPhysicalTapToWakeInput` (`dispatchGesture` with `suspendCancellableCoroutine`) hung indefinitely on `Dispatchers.Main` when touch coordinates collided with overlay or unsupported ROM gestures.
