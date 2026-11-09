@@ -747,7 +747,7 @@ class FloatingBubbleService : Service() {
     fun refreshBubbleVisibility() {
         val prefs = FlowBanglaApp.instance.preferencesManager
         val isRecordingOrProcessing = currentState !is TranscriptionState.Idle
-        val shouldShow = (prefs.enableFloatingMic || isRecordingOrProcessing) && KeyboardVisibilityDetector.shouldBubbleBeVisible(
+        val shouldShow = prefs.enableFloatingMic && KeyboardVisibilityDetector.shouldBubbleBeVisible(
             isMasterSwitchEnabled = prefs.isMasterSwitchEnabled,
             isRecordingOrProcessing = isRecordingOrProcessing,
             isDismissedForCurrentSession = isDismissedForCurrentKeyboardSession,
@@ -1369,14 +1369,14 @@ class FloatingBubbleService : Service() {
     private fun updateUiState(state: TranscriptionState) {
         updateBubbleDimensionsForState(state)
         canvasView?.setState(state)
-        val chipState = when (state) {
-            is TranscriptionState.Idle -> KeyboardStripOverlayController.ChipState.IDLE
-            is TranscriptionState.Recording -> KeyboardStripOverlayController.ChipState.RECORDING
-            is TranscriptionState.Processing -> KeyboardStripOverlayController.ChipState.PROCESSING
-            is TranscriptionState.Success -> KeyboardStripOverlayController.ChipState.INSERTED
-            is TranscriptionState.Error -> KeyboardStripOverlayController.ChipState.IDLE
+        val stripState = when (state) {
+            is TranscriptionState.Idle -> KeyboardStripOverlayController.StripState.IDLE
+            is TranscriptionState.Recording -> KeyboardStripOverlayController.StripState.RECORDING
+            is TranscriptionState.Processing -> KeyboardStripOverlayController.StripState.PROCESSING
+            is TranscriptionState.Success -> KeyboardStripOverlayController.StripState.INSERTED
+            is TranscriptionState.Error -> KeyboardStripOverlayController.StripState.IDLE
         }
-        TextInjectorAccessibilityService.instance?.updateKeyboardChipState(chipState)
+        TextInjectorAccessibilityService.instance?.updateKeyboardChipState(stripState)
         applyVisibilityRule()
     }
 

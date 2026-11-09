@@ -53,6 +53,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Invisible, zero-UI trampoline Activity for native Gboard inline Autofill chip trigger -->
+        <activity
+            android:name=".autofill.FlowInlineTriggerActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
         <!-- Floating Bubble Foreground Service -->
         <service
             android:name=".service.FloatingBubbleService"

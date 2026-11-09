@@ -1,15 +1,37 @@
-# Flow v3.7.0 (Bitwarden-Style Native Gboard Autofill Chip, Accessibility-Hosted Keyboard Strip & Unkillable OS Wake-Up)
+# Flow v3.8.0 (True In-Strip Gboard Integration, Exact Bitwarden Placement & In-Bar Expansion)
 
-**Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
+**Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly inside **Gboard's suggestion bar** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
 ---
 
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.7.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.7.0/Flow-v3.7.0.apk)**  
-  *(Bitwarden-Style Native Gboard Suggestion Strip Autofill Chip, Unkillable Accessibility Overlay Keyboard Strip, OS Kernel Wake-Up & Multi-Mode Trigger Style)*
+* **[Flow-v3.8.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.8.0/Flow-v3.8.0.apk)**  
+  *(True In-Strip Gboard Integration: Exact Bitwarden Suggestion-Bar Placement, Compact 68dp Mini-Chip, In-Strip Expanding Pod & Native Autofill Trampoline)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v3.8.0 (True In-Strip Gboard Suggestion Bar Integration)
+
+1. **Exact Bitwarden Geometry Inside Gboard's Top Strip (`y = keyboardTopY + 4dp`)**:
+   - Fixed the Y-coordinate offset from v3.7.0: the chip now sits strictly **inside** Gboard's 44dp suggestion/toolbar row (`y = keyboardTopY + 4dp`), never above `keyboardTopY`.
+   - Never covers a single pixel of Google Keep's bottom formatting toolbar (`+`, palette, `A`), WhatsApp's attachments, or YouTube comment fields!
+2. **Compact 68dp Mini-Button in Idle Mode**:
+   - In `IDLE`, draws a compact `68dp x 36dp` mini-pill (**`[ 🎙️ বাং ]`**) docked right beside Gboard's native mic icon (`x = screenWidth - 116dp`).
+   - Leaves over 75% of Gboard's top bar completely open for word suggestions, autocorrect, and left toolbar buttons (`⊞`, clipboard, translate).
+   - Single-tap to start recording; double-tap (< 320ms) to toggle dictation language (`বাং` ↔ `EN`).
+3. **In-Strip Expansion Pod (`50dp .. screenWidth - 50dp`, `height = 36dp`)**:
+   - Expands horizontally **inside Gboard's suggestion bar** showing **`[ ✕ ]   🔴 শুনছি • বলুন...   [ ✓ ]`**.
+   - Tap `✓` to stop and format; tap `✕` to cancel instantly.
+   - On completion, flashes Sage (`#8FBF9F`) `"✓ লেখা বসেছে"` for 260ms and shrinks smoothly back to the 68dp mini-button.
+4. **Native Gboard Autofill Trampoline (`FlowInlineTriggerActivity`) & Broad `AssistStructure` Scanner**:
+   - Created translucent 0ms `FlowInlineTriggerActivity` using `PendingIntent.getActivity()` for `Dataset.setAuthentication` (fixing the Android 12–15 bug where `getForegroundService` PendingIntents were ignored by Autofill).
+   - Upgraded `AssistStructure` scanner to match custom editors (Google Keep, Chrome, Facebook, WebViews) with `View.AUTOFILL_TYPE_TEXT || inputType != 0 || htmlInfo != null`.
+   - Automatic duplicate suppression: when the native Gboard Autofill chip is present, the fallback overlay hides automatically during `IDLE` so you only ever see one button.
+5. **Clean Default In-Strip Mode (Zero Floating Clutter)**:
+   - Defaults to `TRIGGER_STYLE_KEYBOARD_ONLY` (`enableKeyboardBarChip = true`, `enableFloatingMic = false`), completely eliminating the duplicate floating circle from the screen.
 
 ---
 

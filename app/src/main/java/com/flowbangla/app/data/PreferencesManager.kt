@@ -168,11 +168,11 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_ENABLE_KEYBOARD_BAR_CHIP, value).apply()
 
     var enableFloatingMic: Boolean
-        get() = prefs.getBoolean(KEY_ENABLE_FLOATING_MIC, true)
+        get() = prefs.getBoolean(KEY_ENABLE_FLOATING_MIC, false)
         set(value) = prefs.edit().putBoolean(KEY_ENABLE_FLOATING_MIC, value).apply()
 
     var triggerStyle: String
-        get() = prefs.getString(KEY_TRIGGER_STYLE, TRIGGER_STYLE_BOTH) ?: TRIGGER_STYLE_BOTH
+        get() = prefs.getString(KEY_TRIGGER_STYLE, TRIGGER_STYLE_KEYBOARD_ONLY) ?: TRIGGER_STYLE_KEYBOARD_ONLY
         set(value) {
             prefs.edit().putString(KEY_TRIGGER_STYLE, value).apply()
             when (value) {

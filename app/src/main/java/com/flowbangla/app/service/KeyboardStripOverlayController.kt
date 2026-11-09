@@ -14,15 +14,23 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import com.flowbangla.app.autofill.FlowInlineAutofillService
 import com.flowbangla.app.data.PreferencesManager
 import com.flowbangla.app.model.SttLanguage
+import kotlin.math.abs
+
+typealias ChipState = KeyboardStripOverlayController.StripState
 
 /**
- * Hosted DIRECTLY inside TextInjectorAccessibilityService using TYPE_ACCESSIBILITY_OVERLAY.
- * Because it lives inside the OS-bound AccessibilityService and uses the Accessibility window token,
- * Xiaomi HyperOS, Samsung One UI, OPPO, and Vivo CANNOT kill it!
+ * Renders Flow's voice trigger and recording controls DIRECTLY INSIDE Gboard / Samsung Keyboard's
+ * 44dp top suggestion strip (at `y = keyboardTopY + 4dp`), NEVER above the keyboard!
  *
- * Docks a Bitwarden-style inline voice chip right along the top suggestion bar of Gboard / Samsung Keyboard.
+ * - In IDLE state: A compact 68dp x 36dp pill (`[ 🎙️ বাং ]`) sitting cleanly inside the right side
+ *   of the suggestion strip (just left of Gboard's mic icon), leaving Gboard suggestions & icons open!
+ *   (Or hidden in IDLE when the native Autofill inline chip is already displayed in the strip).
+ * - In RECORDING / PROCESSING state: Expands horizontally INSIDE the suggestion strip
+ *   (`x = 50dp`, `width = screenWidth - 100dp`, `height = 36dp`, `y = keyboardTopY + 4dp`)
+ *   showing `[ ✕ ]  🔴 শুনছি • বলুন...  [ ✓ ]` right inside Gboard's top bar!
  */
 class KeyboardStripOverlayController(
     private val a11yService: AccessibilityService,
@@ -32,22 +40,26 @@ class KeyboardStripOverlayController(
     private val onCancelRecording: () -> Unit,
     private val onToggleLanguage: () -> Unit
 ) {
-    private val windowManager = a11yService.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-    private var chipView: KeyboardInlineChipView? = null
+    private val windowManager = a11yService.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private var stripView: InStripChipView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var isAdded = false
+    private var lastKnownKeyboardTopY: Int = 0
+    private var isKeyboardCurrentlyOpen: Boolean = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    enum class StripState { IDLE, RECORDING, PROCESSING, INSERTED }
+
     fun attachIfNeeded() {
-        if (isAdded || windowManager == null) return
+        if (isAdded) return
         try {
             val density = a11yService.resources.displayMetrics.density
-            val widthPx = (210f * density).toInt()
-            val heightPx = (40f * density).toInt()
+            val compactW = (68f * density).toInt()
+            val stripH = (36f * density).toInt()
 
             val params = WindowManager.LayoutParams(
-                widthPx,
-                heightPx,
+                compactW,
+                stripH,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -55,61 +67,37 @@ class KeyboardStripOverlayController(
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = (16f * density).toInt()
-                y = (a11yService.resources.displayMetrics.heightPixels * 0.58f).toInt()
             }
 
-            val view = KeyboardInlineChipView(a11yService)
+            val view = InStripChipView(a11yService)
             windowManager.addView(view, params)
-            chipView = view
+            stripView = view
             layoutParams = params
             isAdded = true
-            view.visibility = View.GONE // Hidden until keyboard opens!
+            view.visibility = View.GONE
         } catch (_: Throwable) {}
     }
 
-    /**
-     * Docks the Bitwarden-style chip flush with the top suggestion bar of Gboard / Samsung Keyboard!
-     */
     fun updateKeyboardVisibilityAndPosition(isKeyboardOpen: Boolean, keyboardTopY: Int) {
         if (!isAdded) attachIfNeeded()
-        val view = chipView ?: return
-        val params = layoutParams ?: return
-
-        if (!prefs.isMasterSwitchEnabled || !prefs.enableKeyboardBarChip) {
-            view.visibility = View.GONE
-            return
+        isKeyboardCurrentlyOpen = isKeyboardOpen
+        if (keyboardTopY > 0) {
+            lastKnownKeyboardTopY = keyboardTopY
         }
-
-        if (!isKeyboardOpen && view.currentState == ChipState.IDLE) {
-            view.visibility = View.GONE
-            return
-        }
-
-        val density = a11yService.resources.displayMetrics.density
-        // Position flush on the top edge / suggestion strip of the keyboard
-        val targetY = (keyboardTopY - (42f * density).toInt()).coerceAtLeast((80f * density).toInt())
-        if (kotlin.math.abs(params.y - targetY) > (4f * density).toInt()) {
-            params.y = targetY
-            try {
-                windowManager?.updateViewLayout(view, params)
-            } catch (_: Throwable) {}
-        }
-
-        if (view.visibility != View.VISIBLE) {
-            view.invalidate()
-            view.visibility = View.VISIBLE
-        }
+        syncStripBoundsAndVisibility()
     }
 
-    fun setState(newState: ChipState) {
-        chipView?.let { view ->
+    fun setState(newState: StripState) {
+        val view = stripView ?: return
+        if (view.currentState != newState) {
             view.currentState = newState
+            syncStripBoundsAndVisibility()
             view.invalidate()
-            if (newState == ChipState.INSERTED) {
+            if (newState == StripState.INSERTED) {
                 mainHandler.postDelayed({
-                    if (view.currentState == ChipState.INSERTED) {
-                        view.currentState = ChipState.IDLE
+                    if (view.currentState == StripState.INSERTED) {
+                        view.currentState = StripState.IDLE
+                        syncStripBoundsAndVisibility()
                         view.invalidate()
                     }
                 }, 260L)
@@ -117,145 +105,238 @@ class KeyboardStripOverlayController(
         }
     }
 
+    /**
+     * Positions the chip STRICTLY INSIDE Gboard's top suggestion strip:
+     * `y = keyboardTopY + 4dp` (NEVER `keyboardTopY - 42dp`!).
+     */
+    fun syncStripBoundsAndVisibility() {
+        val view = stripView ?: return
+        val params = layoutParams ?: return
+
+        if (!prefs.isMasterSwitchEnabled || !prefs.enableKeyboardBarChip) {
+            view.visibility = View.GONE
+            return
+        }
+
+        val state = view.currentState
+        if (!isKeyboardCurrentlyOpen && state == StripState.IDLE) {
+            view.visibility = View.GONE
+            return
+        }
+
+        // If the native Android 11+ Autofill InlineSuggestion chip is currently displayed inside Gboard,
+        // hide our overlay during IDLE so there is only ONE chip in the strip, and show our overlay
+        // the instant the user taps it to enter RECORDING / PROCESSING!
+        if (state == StripState.IDLE && FlowInlineAutofillService.isNativeInlineChipActiveOnCurrentField) {
+            view.visibility = View.GONE
+            return
+        }
+
+        val metrics = a11yService.resources.displayMetrics
+        val density = metrics.density
+        val screenW = metrics.widthPixels
+        val kbdTop = if (lastKnownKeyboardTopY > 0) lastKnownKeyboardTopY else (metrics.heightPixels * 0.60f).toInt()
+
+        // CRITICAL GEOMETRY FIX:
+        // Place at `kbdTop + 4dp` so it sits INSIDE Gboard's 44dp suggestion strip!
+        val targetY = kbdTop + (4f * density).toInt()
+        val targetH = (36f * density).toInt()
+
+        val targetW: Int
+        val targetX: Int
+
+        if (state == StripState.IDLE) {
+            // Compact 68dp mini-button tucked neatly just to the left of Gboard's right-hand mic icon (48dp)
+            targetW = (68f * density).toInt()
+            targetX = screenW - targetW - (48f * density).toInt()
+        } else {
+            // Expanded in-strip recording pod between Gboard's left [⊞] icon (50dp) and right [🎤] icon (50dp)
+            targetX = (50f * density).toInt()
+            targetW = (screenW - (100f * density).toInt()).coerceAtLeast((180f * density).toInt())
+        }
+
+        val needsLayoutUpdate = abs(params.y - targetY) > 2 ||
+            abs(params.x - targetX) > 2 ||
+            params.width != targetW ||
+            params.height != targetH
+
+        if (needsLayoutUpdate) {
+            params.x = targetX
+            params.y = targetY
+            params.width = targetW
+            params.height = targetH
+            try {
+                windowManager.updateViewLayout(view, params)
+            } catch (_: Throwable) {}
+        }
+
+        if (view.visibility != View.VISIBLE) {
+            view.visibility = View.VISIBLE
+        }
+        view.invalidate()
+    }
+
     fun detach() {
         if (!isAdded) return
         try {
-            chipView?.let { windowManager?.removeView(it) }
+            stripView?.let { windowManager.removeView(it) }
         } catch (_: Throwable) {}
-        chipView = null
+        stripView = null
         isAdded = false
     }
 
-    enum class ChipState { IDLE, RECORDING, PROCESSING, INSERTED }
-
-    private inner class KeyboardInlineChipView(context: Context) : View(context) {
-        var currentState: ChipState = ChipState.IDLE
+    private inner class InStripChipView(context: Context) : View(context) {
+        var currentState: StripState = StripState.IDLE
 
         private val density = resources.displayMetrics.density
-        private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#16181B") }
+        private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#2A2E33")
+            color = Color.parseColor("#3A3F47")
             style = Paint.Style.STROKE
-            strokeWidth = 1.2f * density
+            strokeWidth = 1f * density
+        }
+        private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EEEBE3")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f * density
+            strokeCap = Paint.Cap.ROUND
         }
         private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.parseColor("#EEEBE3")
-            textSize = 13.5f * density
+            textSize = 12.5f * density
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
-        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val pillRect = RectF()
-        private val cancelZone = RectF()
-        private val confirmZone = RectF()
-        private val langBadgeZone = RectF()
+        private val cancelBounds = RectF()
+        private val confirmBounds = RectF()
+        private var lastTapTimeMs = 0L
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val w = width.toFloat()
             val h = height.toFloat()
-            val pad = 2f * density
+            val pad = 1.5f * density
             pillRect.set(pad, pad, w - pad, h - pad)
-            val radius = h / 2f
+            val r = h / 2f
 
-            // Draw Ink & Danda Obsidian Pill Surface
+            // Match Gboard Dark Suggestion Chip surface (#25282D) or Sage on Insert
             bgPaint.color = when (currentState) {
-                ChipState.INSERTED -> Color.parseColor("#8FBF9F") // Sage flash on success
-                else -> Color.parseColor("#16181B")
+                StripState.INSERTED -> Color.parseColor("#8FBF9F")
+                StripState.RECORDING -> Color.parseColor("#1A1C20")
+                else -> Color.parseColor("#25282D")
             }
-            canvas.drawRoundRect(pillRect, radius, radius, bgPaint)
-            canvas.drawRoundRect(pillRect, radius, radius, borderPaint)
+            canvas.drawRoundRect(pillRect, r, r, bgPaint)
+            canvas.drawRoundRect(pillRect, r, r, borderPaint)
 
-            val isBangla = prefs.sttLanguage == SttLanguage.BENGALI || prefs.sttLanguage.localeTag.startsWith("bn")
-            val centerY = h / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
+            val isBangla = prefs.sttLanguage == SttLanguage.BENGALI
+            val textY = h / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
 
             when (currentState) {
-                ChipState.IDLE -> {
-                    // Left Vermilion Mic Dot + Label + Right Language Badge ('বাং' / 'EN')
-                    dotPaint.color = Color.parseColor("#E8473A")
-                    canvas.drawCircle(18f * density, h / 2f, 4.5f * density, dotPaint)
-
+                StripState.IDLE -> {
+                    // Compact Mini-Chip: [ 🎙️ বাং ] (Only 68dp wide!)
+                    drawMiniDandaMicIcon(canvas, cx = 20f * density, cy = h / 2f, color = Color.parseColor("#EEEBE3"))
                     textPaint.color = Color.parseColor("#EEEBE3")
-                    val label = if (isBangla) "বলুন • Flow" else "Speak • Flow"
-                    canvas.drawText(label, 30f * density, centerY, textPaint)
-
-                    // Right Language Toggle Badge
-                    langBadgeZone.set(w - 46f * density, pad, w - pad, h - pad)
-                    dotPaint.color = Color.parseColor("#22262B")
-                    canvas.drawRoundRect(langBadgeZone, radius, radius, dotPaint)
-                    val langStr = if (isBangla) "বাং" else "EN"
-                    val langW = textPaint.measureText(langStr)
-                    canvas.drawText(langStr, langBadgeZone.centerX() - langW / 2f, centerY, textPaint)
+                    textPaint.textSize = 12f * density
+                    val lang = if (isBangla) "বাং" else "EN"
+                    canvas.drawText(lang, 34f * density, textY, textPaint)
                 }
 
-                ChipState.RECORDING -> {
-                    // Left Cancel [✕]  |  Center Recording Label  |  Right Confirm [✓]
-                    cancelZone.set(pad, pad, 40f * density, h - pad)
-                    confirmZone.set(w - 44f * density, pad, w - pad, h - pad)
+                StripState.RECORDING -> {
+                    // Expanded inside Gboard strip: [ ✕ ]   🔴 বলুন / Speak (বাং)   [ ✓ ]
+                    val btnW = 42f * density
+                    cancelBounds.set(pad + 2f * density, pad + 2f * density, pad + btnW, h - pad - 2f * density)
+                    confirmBounds.set(w - pad - btnW, pad + 2f * density, w - pad - 2f * density, h - pad - 2f * density)
 
-                    dotPaint.color = Color.parseColor("#22262B")
-                    canvas.drawRoundRect(cancelZone, radius, radius, dotPaint)
+                    // Left Cancel Circle/Pill
+                    bgPaint.color = Color.parseColor("#2E3238")
+                    canvas.drawRoundRect(cancelBounds, r, r, bgPaint)
                     textPaint.color = Color.parseColor("#EEEBE3")
-                    canvas.drawText("✕", cancelZone.centerX() - 5f * density, centerY, textPaint)
+                    textPaint.textSize = 13f * density
+                    val xW = textPaint.measureText("✕")
+                    canvas.drawText("✕", cancelBounds.centerX() - xW / 2f, textY, textPaint)
 
-                    dotPaint.color = Color.parseColor("#E8473A")
-                    canvas.drawCircle(54f * density, h / 2f, 4.5f * density, dotPaint)
-                    val recText = if (isBangla) "শুনছি..." else "Listening..."
-                    canvas.drawText(recText, 64f * density, centerY, textPaint)
+                    // Center Live Recording Dot + Text
+                    bgPaint.color = Color.parseColor("#E8473A") // Vermilion recording dot
+                    val centerText = if (isBangla) "শুনছি • বলুন..." else "Listening..."
+                    val ctW = textPaint.measureText(centerText)
+                    val centerStart = (w - ctW) / 2f
+                    canvas.drawCircle(centerStart - 10f * density, h / 2f, 4f * density, bgPaint)
+                    canvas.drawText(centerText, centerStart, textY, textPaint)
 
-                    // Right Sage Confirm [✓] Button
-                    dotPaint.color = Color.parseColor("#8FBF9F")
-                    canvas.drawRoundRect(confirmZone, radius, radius, dotPaint)
+                    // Right Confirm [✓] Pill in Sage
+                    bgPaint.color = Color.parseColor("#8FBF9F")
+                    canvas.drawRoundRect(confirmBounds, r, r, bgPaint)
                     textPaint.color = Color.parseColor("#0D0E10")
-                    canvas.drawText("✓", confirmZone.centerX() - 5f * density, centerY, textPaint)
+                    val tickW = textPaint.measureText("✓")
+                    canvas.drawText("✓", confirmBounds.centerX() - tickW / 2f, textY, textPaint)
                 }
 
-                ChipState.PROCESSING -> {
-                    cancelZone.set(pad, pad, 40f * density, h - pad)
-                    dotPaint.color = Color.parseColor("#22262B")
-                    canvas.drawRoundRect(cancelZone, radius, radius, dotPaint)
+                StripState.PROCESSING -> {
+                    val btnW = 42f * density
+                    cancelBounds.set(pad + 2f * density, pad + 2f * density, pad + btnW, h - pad - 2f * density)
+                    bgPaint.color = Color.parseColor("#2E3238")
+                    canvas.drawRoundRect(cancelBounds, r, r, bgPaint)
                     textPaint.color = Color.parseColor("#EEEBE3")
-                    canvas.drawText("✕", cancelZone.centerX() - 5f * density, centerY, textPaint)
+                    val xW = textPaint.measureText("✕")
+                    canvas.drawText("✕", cancelBounds.centerX() - xW / 2f, textY, textPaint)
 
-                    dotPaint.color = Color.parseColor("#E3B257") // Ochre
-                    canvas.drawCircle(54f * density, h / 2f, 4.5f * density, dotPaint)
-                    val procText = if (isBangla) "সাজানো হচ্ছে..." else "Thinking..."
-                    canvas.drawText(procText, 64f * density, centerY, textPaint)
+                    // Ochre processing indicator
+                    bgPaint.color = Color.parseColor("#E3B257")
+                    val procText = if (isBangla) "সাজানো হচ্ছে..." else "Formatting..."
+                    val ptW = textPaint.measureText(procText)
+                    val centerStart = (w - ptW) / 2f + 10f * density
+                    canvas.drawCircle(centerStart - 10f * density, h / 2f, 4f * density, bgPaint)
+                    canvas.drawText(procText, centerStart, textY, textPaint)
                 }
 
-                ChipState.INSERTED -> {
+                StripState.INSERTED -> {
                     textPaint.color = Color.parseColor("#0D0E10")
-                    val okText = if (isBangla) "✓ লেখা বসেছে" else "✓ Inserted"
-                    canvas.drawText(okText, 22f * density, centerY, textPaint)
+                    val okStr = if (isBangla) "✓ লেখা বসেছে" else "✓ Inserted"
+                    val okW = textPaint.measureText(okStr)
+                    canvas.drawText(okStr, (w - okW) / 2f, textY, textPaint)
                 }
             }
+        }
+
+        private fun drawMiniDandaMicIcon(canvas: Canvas, cx: Float, cy: Float, color: Int) {
+            iconPaint.color = color
+            val r = 3f * density
+            val headRect = RectF(cx - r, cy - 6.5f * density, cx + r, cy + 1.5f * density)
+            canvas.drawRoundRect(headRect, r, r, iconPaint)
+            val arcRect = RectF(cx - 5.5f * density, cy - 4f * density, cx + 5.5f * density, cy + 4.5f * density)
+            canvas.drawArc(arcRect, 0f, 180f, false, iconPaint)
+            canvas.drawLine(cx, cy + 4.5f * density, cx, cy + 7.5f * density, iconPaint)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (event.action == MotionEvent.ACTION_UP) {
                 val x = event.x
-                val y = event.y
                 when (currentState) {
-                    ChipState.IDLE -> {
-                        if (langBadgeZone.contains(x, y)) {
+                    StripState.IDLE -> {
+                        val now = System.currentTimeMillis()
+                        if (now - lastTapTimeMs < 320L) {
+                            // Double-tap toggles language (বাং ↔ EN)
                             onToggleLanguage()
                             invalidate()
                         } else {
+                            // Single-tap expands inside the Gboard strip and starts recording!
                             onStartRecording()
                         }
+                        lastTapTimeMs = now
                     }
-                    ChipState.RECORDING -> {
-                        if (cancelZone.contains(x, y)) {
+                    StripState.RECORDING -> {
+                        if (x <= cancelBounds.right + 12f * density) {
                             onCancelRecording()
-                        } else if (confirmZone.contains(x, y)) {
+                        } else if (x >= confirmBounds.left - 12f * density) {
                             onConfirmRecording()
                         }
                     }
-                    ChipState.PROCESSING -> {
-                        if (cancelZone.contains(x, y)) {
+                    StripState.PROCESSING -> {
+                        if (x <= cancelBounds.right + 12f * density) {
                             onCancelRecording()
                         }
                     }
-                    ChipState.INSERTED -> {}
+                    StripState.INSERTED -> {}
                 }
                 return true
             }

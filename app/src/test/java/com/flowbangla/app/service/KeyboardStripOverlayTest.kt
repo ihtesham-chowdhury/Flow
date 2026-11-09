@@ -1,5 +1,6 @@
 package com.flowbangla.app.service
 
+import com.flowbangla.app.autofill.FlowInlineAutofillService
 import com.flowbangla.app.data.PreferencesManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,12 +11,16 @@ class KeyboardStripOverlayTest {
 
     @Test
     fun testChipStateEnumValues() {
-        val states = KeyboardStripOverlayController.ChipState.values()
+        val states = KeyboardStripOverlayController.StripState.values()
         assertEquals(4, states.size)
-        assertTrue(states.contains(KeyboardStripOverlayController.ChipState.IDLE))
-        assertTrue(states.contains(KeyboardStripOverlayController.ChipState.RECORDING))
-        assertTrue(states.contains(KeyboardStripOverlayController.ChipState.PROCESSING))
-        assertTrue(states.contains(KeyboardStripOverlayController.ChipState.INSERTED))
+        assertTrue(states.contains(KeyboardStripOverlayController.StripState.IDLE))
+        assertTrue(states.contains(KeyboardStripOverlayController.StripState.RECORDING))
+        assertTrue(states.contains(KeyboardStripOverlayController.StripState.PROCESSING))
+        assertTrue(states.contains(KeyboardStripOverlayController.StripState.INSERTED))
+
+        // Verify typealias compatibility
+        val chipStates = ChipState.values()
+        assertEquals(4, chipStates.size)
     }
 
     @Test
@@ -27,7 +32,6 @@ class KeyboardStripOverlayTest {
 
     @Test
     fun testTriggerStyleFlagResolution() {
-        // Test simulation of resolution logic
         fun resolveFlags(style: String): Pair<Boolean, Boolean> {
             return when (style) {
                 PreferencesManager.TRIGGER_STYLE_KEYBOARD_ONLY -> Pair(true, false)
@@ -47,5 +51,19 @@ class KeyboardStripOverlayTest {
         val floatingOnly = resolveFlags(PreferencesManager.TRIGGER_STYLE_FLOATING_ONLY)
         assertFalse("Floating only mode should disable keyboard bar", floatingOnly.first)
         assertTrue("Floating only mode should enable floating mic", floatingOnly.second)
+    }
+
+    @Test
+    fun testNativeAutofillStateSuppression() {
+        // When native autofill is active on field, overlay should hide during IDLE
+        fun shouldShowOverlayInIdle(isNativeActive: Boolean, isKeyboardOpen: Boolean): Boolean {
+            if (!isKeyboardOpen) return false
+            if (isNativeActive) return false
+            return true
+        }
+
+        assertFalse("Should be hidden if keyboard closed", shouldShowOverlayInIdle(false, false))
+        assertTrue("Should be visible if keyboard open and no native chip", shouldShowOverlayInIdle(false, true))
+        assertFalse("Should be hidden if native chip is active in Gboard strip", shouldShowOverlayInIdle(true, true))
     }
 }

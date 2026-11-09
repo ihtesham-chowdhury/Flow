@@ -270,7 +270,7 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 3.7.0 (17)",
+        "version" to "Version 3.8.0 (18)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first"
@@ -337,7 +337,7 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৩.৭.০ (১৭)",
+        "version" to "ভার্সন ৩.৮.০ (১৮)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
         "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন"

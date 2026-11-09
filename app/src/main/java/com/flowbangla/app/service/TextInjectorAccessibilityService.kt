@@ -921,9 +921,21 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun updateKeyboardChipState(state: KeyboardStripOverlayController.ChipState) {
+    fun updateKeyboardChipState(state: KeyboardStripOverlayController.StripState) {
         mainHandler.post {
             keyboardStripController?.setState(state)
+        }
+    }
+
+    fun onNativeAutofillChipShown() {
+        mainHandler.post {
+            keyboardStripController?.syncStripBoundsAndVisibility()
+        }
+    }
+
+    fun onInlineAutofillChipTapped() {
+        mainHandler.post {
+            keyboardStripController?.setState(KeyboardStripOverlayController.StripState.RECORDING)
         }
     }
 

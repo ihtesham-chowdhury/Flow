@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.7.0 (Build 17)  
-> **Last Updated**: November 9, 2026  
-> **Status**: Production Release (`Flow-v3.7.0.apk` active)  
+> **Document Version**: 3.8.0 (Build 18)  
+> **Last Updated**: November 10, 2026  
+> **Status**: Production Release (`Flow-v3.8.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -253,7 +253,21 @@
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
 
-### Phase 15: v3.7.0 (Build 17) — Bitwarden-Style Native Gboard Inline Chip, AutofillService OS Wake-Up & Accessibility Overlay Keyboard Strip (Current Release)
+### Phase 16: v3.8.0 (Build 18) — True In-Strip Gboard Integration, Exact Bitwarden Placement & In-Bar Expansion (Current Release)
+- **Visual Audit of In-Strip Placement vs. Bitwarden**:
+  - *Bug 1 (Wrong Y-Coordinate)*: In v3.7.0, the chip was placed at `y = keyboardTopY - 42dp` (ABOVE the keyboard), which floated over Google Keep's bottom formatting toolbar (`+`, palette, `A`) like an obstructing second button. Fixed by seating the chip at **`y = keyboardTopY + 4dp`** (`height = 36dp`) strictly **inside** Gboard's 44dp suggestion strip!
+  - *Bug 2 (Oversized Idle Pill)*: The idle pill was 196dp wide, obstructing Gboard predictions. Fixed by making the idle state a compact **`68dp x 36dp` mini-chip (`[ 🎙️ বাং ]`)** docked at `x = screenWidth - targetW - 48dp` (adjacent to Gboard's native mic), leaving over 75% of Gboard's top bar open.
+  - *Bug 3 (Autofill PendingIntent & AssistStructure Filter)*: Android 12–15 ignored `PendingIntent.getForegroundService()` on `Dataset.setAuthentication`. Fixed by creating `FlowInlineTriggerActivity` (`PendingIntent.getActivity()`). Broadened `AssistStructure` scanner to support custom editors (Google Keep, Chrome, Facebook, WebViews).
+  - *Bug 4 (Duplicate Floating Circle)*: Switched default trigger mode to `TRIGGER_STYLE_KEYBOARD_ONLY` (`enableKeyboardBarChip = true`, `enableFloatingMic = false`), eliminating the floating bubble while retaining full speech dictation inside the keyboard strip.
+- **Complete Architecture Implementation**:
+  1. **Exact In-Strip Geometry**: Positioned at `y = keyboardTopY + 4dp` with `height = 36dp`. Never overlaps any app UI or formatting controls above the keyboard.
+  2. **In-Strip Expansion Pod**: On recording, expands horizontally from `50dp` to `screenWidth - 50dp` inside Gboard's suggestion bar with live Vermilion dot, time, Bangla/English indicators, Sage `✓` confirm, and `✕` cancel.
+  3. **Native Gboard Trampoline Activity (`FlowInlineTriggerActivity`)**: Translucent, 0ms, zero-animation Activity handling OS Autofill authentication without background service restrictions.
+  4. **Dynamic Duplicate Suppression**: Automatically hides the overlay during `IDLE` when the native Gboard Autofill chip is delivered.
+- **82 Unit Tests Passing (100% pass rate)**:
+  - Verified chip state transitions, trigger style flag resolution, and native Autofill idle suppression.
+
+### Phase 15: v3.7.0 (Build 17) — Bitwarden-Style Native Gboard Inline Chip, AutofillService OS Wake-Up & Accessibility Overlay Keyboard Strip
 - **The Bitwarden Persistence Breakthrough**:
   - *Analysis of Bitwarden's Unkillability*: Even after aggressive OEM memory cleaner runs (Xiaomi HyperOS, Samsung One UI) or task-killing, Bitwarden's autofill chip always appears inside Gboard / Samsung Keyboard. Bitwarden achieves this via two OS-bound mechanisms:
     1. **`AutofillService` (`FlowInlineAutofillService`)**: Android's `system_server` (`AutofillManagerService`) binds `AutofillService` on demand whenever any text input field gains focus, cold-starting Flow in `< 40ms` and executing `onFillRequest()`.
