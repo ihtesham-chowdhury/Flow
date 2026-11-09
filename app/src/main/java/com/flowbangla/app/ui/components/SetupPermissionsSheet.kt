@@ -37,7 +37,8 @@ fun SetupPermissionsSheet(
     onRequestXiaomiAutostart: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onRequestSamsungDeviceCare: () -> Unit = {},
-    onRequestXiaomiLockApps: () -> Unit = {}
+    onRequestXiaomiLockApps: () -> Unit = {},
+    onRequestAutofillSettings: () -> Unit = {}
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -251,6 +252,24 @@ fun SetupPermissionsSheet(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = onRequestAutofillSettings,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DarkSurfaceRaised,
+                        contentColor = DarkInk
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isBn) "Gboard অটোফিল চালু (Bitwarden Mode)" else "Enable Gboard Autofill (Bitwarden Mode)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 

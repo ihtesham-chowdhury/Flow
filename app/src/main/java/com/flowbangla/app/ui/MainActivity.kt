@@ -48,6 +48,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.flowbangla.app.FlowBanglaApp
+import com.flowbangla.app.data.PreferencesManager
 import com.flowbangla.app.diagnostics.ConnectivityLabReport
 import com.flowbangla.app.diagnostics.ConnectivityLabRunner
 import com.flowbangla.app.format.AutoCleanupLevel
@@ -59,6 +60,7 @@ import com.flowbangla.app.model.SttLanguage
 import com.flowbangla.app.offline.ModelDownloadManager
 import com.flowbangla.app.offline.ModelDownloadState
 import com.flowbangla.app.service.FloatingBubbleService
+import com.flowbangla.app.service.TextInjectorAccessibilityService
 import com.flowbangla.app.ui.components.*
 import com.flowbangla.app.ui.mic.drawDandaMic
 import com.flowbangla.app.ui.theme.*
@@ -122,7 +124,8 @@ class MainActivity : ComponentActivity() {
                     onRequestXiaomiAutostart = { requestXiaomiAutostart() },
                     onRequestBatteryExemption = { requestBatteryOptimizationExemption() },
                     onRequestSamsungDeviceCare = { requestSamsungDeviceCare() },
-                    onRequestXiaomiLockApps = { requestXiaomiLockApps() }
+                    onRequestXiaomiLockApps = { requestXiaomiLockApps() },
+                    onRequestAutofillSettings = { requestAutofillSettings() }
                 )
             }
         }
@@ -168,6 +171,21 @@ class MainActivity : ComponentActivity() {
 
     private fun requestXiaomiLockApps() {
         com.flowbangla.app.util.OemAutostartHelper.openXiaomiLockAppsInRecents(this)
+    }
+
+    private fun requestAutofillSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            try {
+                startActivity(intent)
+            } catch (_: Exception) {
+                try {
+                    startActivity(Intent(Settings.ACTION_SETTINGS))
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     override fun onStop() {
@@ -236,6 +254,13 @@ object L10n {
         "haptic_desc" to "A short tick when recording starts and stops.",
         "show_only_typing" to "Show only when typing",
         "show_only_typing_desc" to "The mic appears when a text box is active and hides when you stop typing.",
+        "trigger_style" to "Trigger style",
+        "trigger_both" to "Keyboard bar + Floating mic",
+        "trigger_keyboard_only" to "Keyboard bar only (Bitwarden)",
+        "trigger_floating_only" to "Floating mic only",
+        "autofill_chip" to "Gboard autofill chip (Bitwarden Mode)",
+        "autofill_chip_desc" to "Shows voice chip inside Gboard suggestion strip and wakes Flow up automatically.",
+        "enable_autofill" to "Enable Gboard Autofill",
         "vocabulary" to "Vocabulary",
         "personal_dict" to "Personal dictionary",
         "personal_dict_desc" to "Words you correct are learned for 15 seconds after you paste.",
@@ -245,7 +270,7 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 3.3.2 (12)",
+        "version" to "Version 3.7.0 (17)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first"
@@ -296,6 +321,13 @@ object L10n {
         "haptic_desc" to "রেকর্ডিং শুরু ও শেষ হলে মৃদু ভাইব্রেশন দেবে।",
         "show_only_typing" to "শুধু টাইপ করার সময় দেখান",
         "show_only_typing_desc" to "কিবোর্ড চালু হলে মাইক ভেসে উঠবে এবং অন্য সময় লুকিয়ে থাকবে।",
+        "trigger_style" to "ট্রিগার স্টাইল",
+        "trigger_both" to "কিবোর্ড বার + ফ্লোটিং মাইক",
+        "trigger_keyboard_only" to "শুধু কিবোর্ড বার (বিটওয়ার্ডেন)",
+        "trigger_floating_only" to "শুধু ফ্লোটিং মাইক",
+        "autofill_chip" to "Gboard অটোফিল চিপ (বিটওয়ার্ডেন মোড)",
+        "autofill_chip_desc" to "Gboard-এর সাজেশন বারের ভেতর ভয়েস চিপ দেখায় এবং স্বয়ংক্রিয়ভাবে Flow চালু করে।",
+        "enable_autofill" to "Gboard অটোফিল চালু করুন",
         "vocabulary" to "শব্দভাণ্ডার",
         "personal_dict" to "ব্যক্তিগত ডিকশনারি",
         "personal_dict_desc" to "ভুল সংশোধন করলে ১৫ সেকেন্ডের মধ্যে তা শিখে নেয়।",
@@ -305,7 +337,7 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৩.৩.২ (১২)",
+        "version" to "ভার্সন ৩.৭.০ (১৭)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
         "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন"
@@ -326,7 +358,8 @@ fun MainScreen(
     onRequestXiaomiAutostart: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onRequestSamsungDeviceCare: () -> Unit,
-    onRequestXiaomiLockApps: () -> Unit = {}
+    onRequestXiaomiLockApps: () -> Unit = {},
+    onRequestAutofillSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { FlowBanglaApp.instance.preferencesManager }
@@ -335,6 +368,8 @@ fun MainScreen(
     val snippetManager = remember { FlowBanglaApp.instance.snippetManager }
     val modelDownloadManager = remember { ModelDownloadManager(context, prefs) }
     val scope = rememberCoroutineScope()
+
+    var triggerStyle by remember { mutableStateOf(prefs.triggerStyle) }
 
     val isBn = currentLanguage == "bn"
     fun str(key: String): String = L10n.t(key, isBn)
@@ -1428,6 +1463,84 @@ fun MainScreen(
 
                         FlowHairline()
 
+                        // Trigger Style Section (§3 Gate Prompt 3)
+                        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                            Text(str("trigger_style"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val triggerStyles: List<Pair<String, String>> = listOf(
+                                PreferencesManager.TRIGGER_STYLE_BOTH to str("trigger_both"),
+                                PreferencesManager.TRIGGER_STYLE_KEYBOARD_ONLY to str("trigger_keyboard_only"),
+                                PreferencesManager.TRIGGER_STYLE_FLOATING_ONLY to str("trigger_floating_only")
+                            )
+
+                            triggerStyles.forEach { item ->
+                                val style = item.first
+                                val label = item.second
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            triggerStyle = style
+                                            prefs.triggerStyle = style
+                                            FloatingBubbleService.instance?.applyVisibilityRule()
+                                            TextInjectorAccessibilityService.instance?.syncKeyboardVisibilityWithBubble()
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = triggerStyle == style,
+                                        onClick = {
+                                            triggerStyle = style
+                                            prefs.triggerStyle = style
+                                            FloatingBubbleService.instance?.applyVisibilityRule()
+                                            TextInjectorAccessibilityService.instance?.syncKeyboardVisibilityWithBubble()
+                                        },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = DarkInk,
+                                            unselectedColor = DarkInkMuted
+                                        ),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = label,
+                                        fontSize = 14.sp,
+                                        color = DarkInk
+                                    )
+                                }
+                            }
+                        }
+
+                        FlowHairline()
+
+                        // Gboard Autofill Chip Row (Bitwarden Mode)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("autofill_chip"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("autofill_chip_desc"), fontSize = 12.sp, color = DarkInkMuted)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = onRequestAutofillSettings,
+                                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceSunken, contentColor = DarkInk),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(str("enable_autofill"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        FlowHairline()
+
                         // Row 6: Hide or Show now button
                         Box(
                             modifier = Modifier
@@ -1687,7 +1800,8 @@ fun MainScreen(
             onRequestXiaomiAutostart = onRequestXiaomiAutostart,
             onRequestBatteryExemption = onRequestBatteryExemption,
             onRequestSamsungDeviceCare = onRequestSamsungDeviceCare,
-            onRequestXiaomiLockApps = onRequestXiaomiLockApps
+            onRequestXiaomiLockApps = onRequestXiaomiLockApps,
+            onRequestAutofillSettings = onRequestAutofillSettings
         )
     }
 

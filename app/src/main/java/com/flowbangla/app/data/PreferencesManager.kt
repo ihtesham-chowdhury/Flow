@@ -163,6 +163,34 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_CASUAL_MESSAGING_DROP_PERIOD, true)
         set(value) = prefs.edit().putBoolean(KEY_CASUAL_MESSAGING_DROP_PERIOD, value).apply()
 
+    var enableKeyboardBarChip: Boolean
+        get() = prefs.getBoolean(KEY_ENABLE_KEYBOARD_BAR_CHIP, true)
+        set(value) = prefs.edit().putBoolean(KEY_ENABLE_KEYBOARD_BAR_CHIP, value).apply()
+
+    var enableFloatingMic: Boolean
+        get() = prefs.getBoolean(KEY_ENABLE_FLOATING_MIC, true)
+        set(value) = prefs.edit().putBoolean(KEY_ENABLE_FLOATING_MIC, value).apply()
+
+    var triggerStyle: String
+        get() = prefs.getString(KEY_TRIGGER_STYLE, TRIGGER_STYLE_BOTH) ?: TRIGGER_STYLE_BOTH
+        set(value) {
+            prefs.edit().putString(KEY_TRIGGER_STYLE, value).apply()
+            when (value) {
+                TRIGGER_STYLE_KEYBOARD_ONLY -> {
+                    enableKeyboardBarChip = true
+                    enableFloatingMic = false
+                }
+                TRIGGER_STYLE_FLOATING_ONLY -> {
+                    enableKeyboardBarChip = false
+                    enableFloatingMic = true
+                }
+                else -> { // TRIGGER_STYLE_BOTH
+                    enableKeyboardBarChip = true
+                    enableFloatingMic = true
+                }
+            }
+        }
+
     val isConfigured: Boolean
         get() = when (engineMode) {
             EngineMode.CLOUD_AUDIO -> geminiApiKey.isNotBlank()
@@ -204,5 +232,12 @@ class PreferencesManager(context: Context) {
         private const val KEY_CASUAL_MESSAGING_DROP_PERIOD = "casual_messaging_drop_period"
         private const val KEY_APPEARANCE_THEME = "appearance_theme"
         private const val KEY_ACCENT_COLOR = "accent_color"
+        private const val KEY_ENABLE_KEYBOARD_BAR_CHIP = "enable_keyboard_bar_chip"
+        private const val KEY_ENABLE_FLOATING_MIC = "enable_floating_mic"
+        private const val KEY_TRIGGER_STYLE = "trigger_style"
+
+        const val TRIGGER_STYLE_BOTH = "both"
+        const val TRIGGER_STYLE_KEYBOARD_ONLY = "keyboard_bar_only"
+        const val TRIGGER_STYLE_FLOATING_ONLY = "floating_mic_only"
     }
 }

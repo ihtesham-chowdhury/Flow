@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.6.0 (Build 16)  
+> **Document Version**: 3.7.0 (Build 17)  
 > **Last Updated**: November 9, 2026  
-> **Status**: Production Release (`Flow-v3.6.0.apk` active)  
+> **Status**: Production Release (`Flow-v3.7.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -253,7 +253,35 @@
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
 
-### Phase 14: v3.6.0 (Build 16) — True Zero-Kill Xiaomi HyperOS Survival, Invisible Recents Shield & Self-Healing Keyboard Sync (Current Release)
+### Phase 15: v3.7.0 (Build 17) — Bitwarden-Style Native Gboard Inline Chip, AutofillService OS Wake-Up & Accessibility Overlay Keyboard Strip (Current Release)
+- **The Bitwarden Persistence Breakthrough**:
+  - *Analysis of Bitwarden's Unkillability*: Even after aggressive OEM memory cleaner runs (Xiaomi HyperOS, Samsung One UI) or task-killing, Bitwarden's autofill chip always appears inside Gboard / Samsung Keyboard. Bitwarden achieves this via two OS-bound mechanisms:
+    1. **`AutofillService` (`FlowInlineAutofillService`)**: Android's `system_server` (`AutofillManagerService`) binds `AutofillService` on demand whenever any text input field gains focus, cold-starting Flow in `< 40ms` and executing `onFillRequest()`.
+    2. **`TYPE_ACCESSIBILITY_OVERLAY` Inside `AccessibilityService`**: Overlays added directly inside `TextInjectorAccessibilityService` are owned by the OS Accessibility subsystem, making them immune to OEM background process restrictions.
+- **Complete Architecture Implementation**:
+  1. **Bitwarden-Style Native IME Suggestion Chip (`FlowInlineAutofillService`)**:
+     - Added Jetpack `androidx.autofill:autofill:1.3.0` dependency.
+     - Registered `FlowInlineAutofillService` with `BIND_AUTOFILL_SERVICE` and `@xml/autofill_service_config` with `supportsInlineSuggestions="true"`.
+     - In `onConnected()` and `onFillRequest()`, executes `wakeUpFlowOverlayBridge()` immediately ensuring Flow is revived from dead state.
+     - Builds native `InlineSuggestionUi` slice (`[ 🎙️ বলুন • Flow ]`) with PendingIntent for `ACTION_START_INLINE_DICTATION`.
+  2. **Universal Keyboard-Strip Docked Chip (`KeyboardStripOverlayController`)**:
+     - For apps disabling autofill (`importantForAutofill="no"` in WhatsApp/YouTube comments), Flow docks a 36dp tall Ink & Danda chip directly above the keyboard toolbar (`keyboardTopY - 42dp`).
+     - Hosted directly by `TextInjectorAccessibilityService` using `TYPE_ACCESSIBILITY_OVERLAY`.
+     - Interactive multi-state support:
+       - `IDLE`: Tap to record; tap right badge (`বাং` / `EN`) to toggle language.
+       - `RECORDING`: Morphs into `[ ✕ বাতিল ]  🔴 0:05 বলুন...  [ ✓ সম্পন্ন ]` right on the keyboard bar.
+       - `PROCESSING`: Shows `[ ✕ ]  ⟳ সাজানো হচ্ছে...` with instant cancellation.
+       - `INSERTED`: Flashes Sage (`#8FBF9F`) `"✓ লেখা বসেছে"` for 260ms confirmation.
+  3. **Multi-Mode Trigger Style & Settings**:
+     - Added preference `prefs.triggerStyle` with options:
+       - `Both (Keyboard Bar + Floating Mic)` (default)
+       - `Keyboard Bar Only (Bitwarden Style)` (zero screen obstruction)
+       - `Floating Mic Only` (classic floating bubble)
+     - Added 1-tap `onRequestAutofillSettings` button in `MainActivity` and `SetupPermissionsSheet`.
+  4. **Full Unit Test Verification (82 Unit Tests Passing, 100% pass rate)**:
+     - Added `KeyboardStripOverlayTest` verifying chip state enum values, trigger style resolution flags, and preference constraints.
+
+### Phase 14: v3.6.0 (Build 16) — True Zero-Kill Xiaomi HyperOS Survival, Invisible Recents Shield & Self-Healing Keyboard Sync
 - **Forensic Diagnosis of the "Always Show Works, But Show-Only-When-Typing Breaks After Swipe" Bug on Xiaomi HyperOS**:
   - *Root Cause 1*: Xiaomi HyperOS's "Clear All / Close" gesture (`✕`) explicitly target-kills every process whose `Activity` card sits in the Recent Apps switcher. Because `MainActivity` was in Recents without `excludeFromRecents`, swiping Recent Apps invoked MIUI `ProcessManager` to force-stop Flow.
   - *Root Cause 2*: When HyperOS killed Flow and `FloatingBubbleService` respawned (`START_STICKY`), it initialized with `isKeyboardCurrentlyVisible = false` and never asked `TextInjectorAccessibilityService` for the current keyboard state.

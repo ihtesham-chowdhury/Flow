@@ -157,6 +157,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         }
     }
 
+    private var keyboardStripController: KeyboardStripOverlayController? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -164,6 +166,25 @@ class TextInjectorAccessibilityService : AccessibilityService() {
 
         ensureInteractiveWindowsFlagRegistered()
         Log.i(TAG, "TextInjectorAccessibilityService connected with multi-window flags.")
+
+        // Host the unkillable Bitwarden-style inline keyboard chip directly inside this AccessibilityService
+        val prefs = PreferencesManager(this)
+        keyboardStripController = KeyboardStripOverlayController(
+            a11yService = this,
+            prefs = prefs,
+            onStartRecording = {
+                FloatingBubbleService.instance?.startRecordingFromExternal()
+            },
+            onConfirmRecording = {
+                FloatingBubbleService.instance?.onUserConfirmDictation()
+            },
+            onCancelRecording = {
+                FloatingBubbleService.instance?.onUserCancelDictation()
+            },
+            onToggleLanguage = {
+                FloatingBubbleService.instance?.toggleLanguage()
+            }
+        )
 
         // Bind FloatingBubbleService with BIND_IMPORTANT so it shares AccessibilityService's unkillable priority
         ensureBubbleServiceAliveAndBound()
@@ -891,8 +912,18 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             keyboardTopY = snapshot.keyboardTopY,
             isRestrictedAppOrField = snapshot.isRestrictedFieldOrApp
         )
+        keyboardStripController?.updateKeyboardVisibilityAndPosition(
+            isKeyboardOpen = snapshot.isKeyboardVisible && !snapshot.isRestrictedFieldOrApp,
+            keyboardTopY = snapshot.keyboardTopY
+        )
         mainHandler.post {
             onKeyboardVisibilityChanged?.invoke(snapshot.isKeyboardVisible)
+        }
+    }
+
+    fun updateKeyboardChipState(state: KeyboardStripOverlayController.ChipState) {
+        mainHandler.post {
+            keyboardStripController?.setState(state)
         }
     }
 
@@ -914,6 +945,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         instance = null
         _isConnected.value = false
         lastFocusedEditableNode = null
+        keyboardStripController?.detach()
+        keyboardStripController = null
         if (isBubbleServiceBound) {
             try {
                 unbindService(bubbleServiceConnection)

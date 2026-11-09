@@ -12,8 +12,8 @@ android {
         applicationId = "com.flowbangla.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "3.6.0"
+        versionCode = 17
+        versionName = "3.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -63,6 +63,9 @@ dependencies {
 
     // Google AI Edge LiteRT-LM Kotlin SDK for optional on-device LLM inference
     implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
+
+    // Jetpack Autofill for Gboard / Samsung Keyboard Inline Suggestions (Bitwarden Architecture)
+    implementation("androidx.autofill:autofill:1.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

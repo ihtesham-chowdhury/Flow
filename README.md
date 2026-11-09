@@ -1,4 +1,4 @@
-# Flow v3.6.0 (Zero-Kill Xiaomi HyperOS Survival, Invisible Recents Shield & Self-Healing Keyboard Sync)
+# Flow v3.7.0 (Bitwarden-Style Native Gboard Autofill Chip, Accessibility-Hosted Keyboard Strip & Unkillable OS Wake-Up)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly above **Gboard** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,33 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.6.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.6.0/Flow-v3.6.0.apk)**  
-  *(Zero-Kill Xiaomi HyperOS Survival: Invisible Recents Shield, 5-Signal Self-Healing Keyboard Detector, Bidirectional Service Sync & HyperOS Boost Speed Lock Deep Link)*
+* **[Flow-v3.7.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.7.0/Flow-v3.7.0.apk)**  
+  *(Bitwarden-Style Native Gboard Suggestion Strip Autofill Chip, Unkillable Accessibility Overlay Keyboard Strip, OS Kernel Wake-Up & Multi-Mode Trigger Style)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v3.7.0 (Bitwarden-Style Gboard Inline Chip & Accessibility-Hosted Keyboard Bar)
+
+1. **Native Gboard / Samsung Keyboard Suggestion Strip Chip (`FlowInlineAutofillService`)**:
+   - Integrates with Android's `AutofillService` and Jetpack `androidx.autofill:autofill:1.3.0` `InlineSuggestionUi`.
+   - Embeds a sleek **`[ 🎙️ বলুন • Flow ]`** suggestion chip directly inside Gboard and Samsung Keyboard's top toolbar strip.
+   - **Kernel Wake-Up Guarantee**: Even if Flow's process is killed by Xiaomi HyperOS or OEM memory cleaners, Android `system_server` (`AutofillManagerService`) cold-starts Flow on demand the instant any editable input field is tapped!
+2. **Universal Keyboard-Strip Docked Pill (`KeyboardStripOverlayController`)**:
+   - For applications that disable standard Android Autofill (`importantForAutofill="no"` in WhatsApp or YouTube comments), Flow docks an "Ink & Danda" inline chip right along the top toolbar of the keyboard (`keyboardTopY - 42dp`).
+   - Hosted **directly inside `TextInjectorAccessibilityService` using `TYPE_ACCESSIBILITY_OVERLAY`**, making it completely immune to OEM background process termination and overlay blockers.
+3. **Multi-State Inline Interaction**:
+   - `IDLE`: Tap to record; tap right badge (`বাং` / `EN`) to toggle language.
+   - `RECORDING`: Morphs into `[ ✕ বাতিল ]   🔴 শুনছি...   [ ✓ সম্পন্ন ]` directly on the keyboard strip for instant, distraction-free control.
+   - `PROCESSING`: Shows `[ ✕ ]   ⟳ সাজানো হচ্ছে...` with instant cancellation support.
+   - `INSERTED`: Flashes Sage (`#8FBF9F`) `"✓ লেখা বসেছে"` for 260ms confirmation.
+4. **Customizable Trigger Style**:
+   - Configure in Settings $\to$ Microphone:
+     - **`Both (Keyboard Bar + Floating Mic)`** (Default — Maximum Reliability)
+     - **`Keyboard Bar Only (Bitwarden Style)`** (Zero screen obstruction)
+     - **`Floating Mic Only`** (Classic floating bubble)
+5. **1-Tap Gboard Autofill Activation**:
+   - One-tap button in `MainActivity` and `SetupPermissionsSheet` taking the user directly to Android's Default Autofill Service settings.
 
 ---
 

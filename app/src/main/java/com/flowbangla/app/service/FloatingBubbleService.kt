@@ -197,6 +197,9 @@ class FloatingBubbleService : Service() {
             ACTION_SHOW_MIC -> {
                 forceRestoreBubbleNow()
             }
+            ACTION_START_INLINE_DICTATION -> {
+                startRecordingFromExternal()
+            }
             ACTION_RETRY_PASTE -> {
                 val pending = TextInjectorAccessibilityService.pendingDeferredText
                 if (!pending.isNullOrBlank()) {
@@ -743,14 +746,19 @@ class FloatingBubbleService : Service() {
 
     fun refreshBubbleVisibility() {
         val prefs = FlowBanglaApp.instance.preferencesManager
-        val shouldShow = KeyboardVisibilityDetector.shouldBubbleBeVisible(
+        val isRecordingOrProcessing = currentState !is TranscriptionState.Idle
+        val shouldShow = (prefs.enableFloatingMic || isRecordingOrProcessing) && KeyboardVisibilityDetector.shouldBubbleBeVisible(
             isMasterSwitchEnabled = prefs.isMasterSwitchEnabled,
-            isRecordingOrProcessing = currentState !is TranscriptionState.Idle,
+            isRecordingOrProcessing = isRecordingOrProcessing,
             isDismissedForCurrentSession = isDismissedForCurrentKeyboardSession,
             showOnlyWhenTyping = prefs.showOnlyWhenTyping,
             isKeyboardVisible = isKeyboardCurrentlyVisible
         )
         setOverlayViewVisibility(shouldShow)
+    }
+
+    fun toggleLanguage() {
+        handleDoubleTapLanguageToggle()
     }
 
     private fun setOverlayViewVisibility(visible: Boolean) {
@@ -1361,6 +1369,14 @@ class FloatingBubbleService : Service() {
     private fun updateUiState(state: TranscriptionState) {
         updateBubbleDimensionsForState(state)
         canvasView?.setState(state)
+        val chipState = when (state) {
+            is TranscriptionState.Idle -> KeyboardStripOverlayController.ChipState.IDLE
+            is TranscriptionState.Recording -> KeyboardStripOverlayController.ChipState.RECORDING
+            is TranscriptionState.Processing -> KeyboardStripOverlayController.ChipState.PROCESSING
+            is TranscriptionState.Success -> KeyboardStripOverlayController.ChipState.INSERTED
+            is TranscriptionState.Error -> KeyboardStripOverlayController.ChipState.IDLE
+        }
+        TextInjectorAccessibilityService.instance?.updateKeyboardChipState(chipState)
         applyVisibilityRule()
     }
 
@@ -1464,6 +1480,14 @@ class FloatingBubbleService : Service() {
         }
     }
 
+    fun startRecordingFromExternal() {
+        serviceScope.launch(Dispatchers.Main) {
+            if (currentState is TranscriptionState.Idle) {
+                startRecordingAction()
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "FloatingBubbleService"
         private const val NOTIFICATION_ID = 1001
@@ -1475,6 +1499,7 @@ class FloatingBubbleService : Service() {
         const val ACTION_SHOW_MIC = "com.flowbangla.action.SHOW_MIC"
         const val ACTION_RETRY_PASTE = "com.flowbangla.action.RETRY_PASTE"
         const val ACTION_UNDO_AI_EDIT = "com.flowbangla.action.UNDO_AI_EDIT"
+        const val ACTION_START_INLINE_DICTATION = "com.flowbangla.app.action.START_INLINE_DICTATION"
 
         var instance: FloatingBubbleService? = null
             private set

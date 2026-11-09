@@ -73,6 +73,20 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Native Gboard & Samsung Keyboard Inline Autofill Service (Bitwarden Architecture) -->
+        <service
+            android:name=".autofill.FlowInlineAutofillService"
+            android:label="Flow Voice Autofill Bar"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service_config" />
+        </service>
+
         <!-- Boot, Update & Unlock Auto-Revive Receiver -->
         <receiver
             android:name=".receiver.FlowSystemReviveReceiver"
