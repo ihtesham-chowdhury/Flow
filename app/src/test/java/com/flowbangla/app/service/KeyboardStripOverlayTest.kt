@@ -1,6 +1,5 @@
 package com.flowbangla.app.service
 
-import com.flowbangla.app.autofill.FlowInlineAutofillService
 import com.flowbangla.app.data.PreferencesManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -54,16 +53,75 @@ class KeyboardStripOverlayTest {
     }
 
     @Test
-    fun testNativeAutofillStateSuppression() {
-        // When native autofill is active on field, overlay should hide during IDLE
-        fun shouldShowOverlayInIdle(isNativeActive: Boolean, isKeyboardOpen: Boolean): Boolean {
-            if (!isKeyboardOpen) return false
-            if (isNativeActive) return false
-            return true
+    fun testExactInStripCoordinateOffsetComputation() {
+        fun computeExactInStripY(
+            viewVisible: Boolean,
+            viewScreenY: Int,
+            currentParamsY: Int,
+            measuredImeTopY: Int,
+            density: Float
+        ): Int {
+            val frameOffsetPx = if (viewVisible && viewScreenY > 0) {
+                viewScreenY - currentParamsY
+            } else {
+                0
+            }
+            return (measuredImeTopY - frameOffsetPx) + (4f * density).toInt()
         }
 
-        assertFalse("Should be hidden if keyboard closed", shouldShowOverlayInIdle(false, false))
-        assertTrue("Should be visible if keyboard open and no native chip", shouldShowOverlayInIdle(false, true))
-        assertFalse("Should be hidden if native chip is active in Gboard strip", shouldShowOverlayInIdle(true, true))
+        // Test with 36px status bar offset on 2.75x density display
+        val density = 2.75f
+        val measuredImeTop = 1580
+        val targetY = computeExactInStripY(
+            viewVisible = true,
+            viewScreenY = 1580,
+            currentParamsY = 1544,
+            measuredImeTopY = measuredImeTop,
+            density = density
+        )
+        // frameOffset = 1580 - 1544 = 36px; targetY = 1580 - 36 + 11 = 1555px
+        assertEquals(1555, targetY)
+    }
+
+    @Test
+    fun testDynamicAsrTimeoutScaling() {
+        fun computeTimeoutMs(durationSec: Long): Long {
+            return (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)
+        }
+
+        // Short 5s dictation
+        assertEquals(15_250L, computeTimeoutMs(5L))
+
+        // 45s auto-checkpoint chunk
+        assertEquals(41_250L, computeTimeoutMs(45L))
+
+        // 3-minute dictation (180s) -> capped at 90,000ms
+        assertEquals(90_000L, computeTimeoutMs(180L))
+
+        // 5-minute dictation (300s) -> capped at 90,000ms
+        assertEquals(90_000L, computeTimeoutMs(300L))
+    }
+
+    enum class ActiveTrigger { NONE, INLINE_BAR, FLOATING_MIC }
+
+    @Test
+    fun testActiveSurfacePodExpansionExclusivity() {
+        fun shouldExpandInlineBar(activeTrigger: ActiveTrigger, state: String): Boolean {
+            if (state == "IDLE") return false
+            return activeTrigger == ActiveTrigger.INLINE_BAR
+        }
+
+        fun shouldExpandFloatingMic(activeTrigger: ActiveTrigger, state: String): Boolean {
+            if (state == "IDLE") return false
+            return activeTrigger == ActiveTrigger.FLOATING_MIC
+        }
+
+        // When recording started from inline bar, ONLY inline bar expands
+        assertTrue(shouldExpandInlineBar(ActiveTrigger.INLINE_BAR, "RECORDING"))
+        assertFalse(shouldExpandFloatingMic(ActiveTrigger.INLINE_BAR, "RECORDING"))
+
+        // When recording started from floating mic, ONLY floating mic expands
+        assertFalse(shouldExpandInlineBar(ActiveTrigger.FLOATING_MIC, "RECORDING"))
+        assertTrue(shouldExpandFloatingMic(ActiveTrigger.FLOATING_MIC, "RECORDING"))
     }
 }

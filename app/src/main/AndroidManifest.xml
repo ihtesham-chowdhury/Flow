@@ -53,15 +53,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Invisible, zero-UI trampoline Activity for native Gboard inline Autofill chip trigger -->
-        <activity
-            android:name=".autofill.FlowInlineTriggerActivity"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:taskAffinity=""
-            android:exported="false" />
-
         <!-- Floating Bubble Foreground Service -->
         <service
             android:name=".service.FloatingBubbleService"
@@ -80,20 +71,6 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <!-- Native Gboard & Samsung Keyboard Inline Autofill Service (Bitwarden Architecture) -->
-        <service
-            android:name=".autofill.FlowInlineAutofillService"
-            android:label="Flow Voice Autofill Bar"
-            android:permission="android.permission.BIND_AUTOFILL_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.autofill.AutofillService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.autofill"
-                android:resource="@xml/autofill_service_config" />
         </service>
 
         <!-- Boot, Update & Unlock Auto-Revive Receiver -->

@@ -143,8 +143,47 @@ class KeyboardVisibilityDetectorTest {
     }
 
     @Test
-    fun testSignal5RecentEditableFocusFallback() {
-        // User tapped input box 2.5 seconds ago (2500ms <= 10000ms)
+    fun testMeasuredImeWindowFlags() {
+        val sig1 = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = true,
+            typeInputMethodHeightPx = 600,
+            typeInputMethodBottomPx = 2400,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = false,
+            hasActiveEditableFocus = false,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = true,
+            msSinceLastTouch = -1L
+        )
+        assertTrue(sig1.isMeasuredImeWindow)
+
+        val sig3 = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = false,
+            typeInputMethodHeightPx = 0,
+            typeInputMethodBottomPx = 0,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = true,
+            hasActiveEditableFocus = true,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = false,
+            msSinceLastTouch = -1L
+        )
+        assertFalse(sig3.isMeasuredImeWindow)
+    }
+
+    @Test
+    fun testNoStaleTouchTimerKeepsKeyboardOpen() {
+        // User tapped input box 2.5 seconds ago but keyboard window is closed
         val snapshot = KeyboardVisibilityDetector.evaluateSignals(
             isBankingOrSensitive = false,
             isPasswordField = false,
@@ -162,8 +201,7 @@ class KeyboardVisibilityDetectorTest {
             msSinceLastTouch = 2500L
         )
 
-        assertTrue(snapshot.isKeyboardVisible)
-        assertEquals("SIGNAL_5_RECENT_EDITABLE_FOCUS", snapshot.matchedSignal)
+        assertFalse("Closed keyboard must NOT be kept open by a touch timer!", snapshot.isKeyboardVisible)
     }
 
     @Test

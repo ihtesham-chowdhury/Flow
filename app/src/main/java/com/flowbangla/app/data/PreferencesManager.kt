@@ -167,6 +167,12 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_ENABLE_KEYBOARD_BAR_CHIP, true)
         set(value) = prefs.edit().putBoolean(KEY_ENABLE_KEYBOARD_BAR_CHIP, value).apply()
 
+    var verifiedImeTopYPortrait: Int
+        get() = prefs.getInt("verified_ime_top_y_portrait", 0)
+        set(value) {
+            if (value > 0) prefs.edit().putInt("verified_ime_top_y_portrait", value).apply()
+        }
+
     var enableFloatingMic: Boolean
         get() = prefs.getBoolean(KEY_ENABLE_FLOATING_MIC, false)
         set(value) = prefs.edit().putBoolean(KEY_ENABLE_FLOATING_MIC, value).apply()

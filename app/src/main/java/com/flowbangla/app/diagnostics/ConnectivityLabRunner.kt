@@ -46,6 +46,10 @@ object ConnectivityLabRunner {
             s1 = "FAIL [${e.category}] HTTP ${e.httpCode}: ${e.detail}"
             logBuilder.appendLine("S1: $s1")
             return@withContext ConnectivityLabReport(s1, s2, s3, logBuilder.toString())
+        } catch (t: Throwable) {
+            s1 = "FAIL [NETWORK_ERROR]: ${t.localizedMessage ?: t.javaClass.simpleName}"
+            logBuilder.appendLine("S1: $s1")
+            return@withContext ConnectivityLabReport(s1, s2, s3, logBuilder.toString())
         }
 
         // STAGE 2: Resumable Files API Upload Test (uses latest recording or generates a valid 1-sec WAV header clip)
@@ -68,6 +72,10 @@ object ConnectivityLabRunner {
             s2 = "FAIL [${e.category}] HTTP ${e.httpCode}: ${e.detail}"
             logBuilder.appendLine("S2: $s2")
             return@withContext ConnectivityLabReport(s1, s2, s3, logBuilder.toString())
+        } catch (t: Throwable) {
+            s2 = "FAIL [UPLOAD_ERROR]: ${t.localizedMessage ?: t.javaClass.simpleName}"
+            logBuilder.appendLine("S2: $s2")
+            return@withContext ConnectivityLabReport(s1, s2, s3, logBuilder.toString())
         }
 
         // STAGE 3: Live Interactions API Call + Immediate File Cleanup
@@ -88,8 +96,13 @@ object ConnectivityLabRunner {
         } catch (e: FlowApiException) {
             s3 = "FAIL [${e.category}] HTTP ${e.httpCode}: ${e.detail}"
             logBuilder.appendLine("S3: $s3")
+        } catch (t: Throwable) {
+            s3 = "FAIL [CALL_ERROR]: ${t.localizedMessage ?: t.javaClass.simpleName}"
+            logBuilder.appendLine("S3: $s3")
         } finally {
-            adapter.deleteUploadedFileQuietly(uploaded.name, rawApiKey)
+            if (uploaded != null) {
+                adapter.deleteUploadedFileQuietly(uploaded.name, rawApiKey)
+            }
         }
 
         ConnectivityLabReport(s1, s2, s3, logBuilder.toString().trim())

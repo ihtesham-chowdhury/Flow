@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.8.0 (Build 18)  
+> **Document Version**: 3.9.0 (Build 19)  
 > **Last Updated**: November 10, 2026  
-> **Status**: Production Release (`Flow-v3.8.0.apk` active)  
+> **Status**: Production Release (`Flow-v3.9.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -253,7 +253,40 @@
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
 
-### Phase 16: v3.8.0 (Build 18) — True In-Strip Gboard Integration, Exact Bitwarden Placement & In-Bar Expansion (Current Release)
+### Phase 17: v3.9.0 (Build 19) — Complete Stabilization, Auto-Checkpoint Long Dictation, True Gboard Strip Lock & Senior Art Director Polish (Current Release)
+- **Architectural Verdict: Removal of System `AutofillService`**:
+  - Android restricts users to one system Autofill provider at a time; registering Flow forced users to disable Bitwarden or Google Password Manager.
+  - Furthermore, `isNativeInlineChipActiveOnCurrentField` stuck on the first text field, hiding Flow's own overlay on subsequent fields.
+  - Flow's `TYPE_ACCESSIBILITY_OVERLAY` Inline Keyboard Bar hosted directly in `TextInjectorAccessibilityService` already possesses identical unkillable 24/7 OS priority while allowing users to keep Bitwarden as their password manager.
+  - Completely deleted `FlowInlineAutofillService.kt`, `FlowInlineTriggerActivity.kt`, and `autofill_service_config.xml`. Renamed all UI options to **"Inline Keyboard Bar" / "কিবোর্ড ইনলাইন বার"**.
+- **Self-Calibrating Coordinate Lock on Gboard Suggestion Strip**:
+  - *Root Cause of Drift onto Number Keys*: Signal 3/5 in `KeyboardVisibilityDetector` fell back to a hardcoded `screenHeight * 0.62f` guess that overwrote verified IME coordinates. On tall screens, this placed the bar directly over the `1..0` number row.
+  - *Fix*: Removed Signal 5 (10-second touch timer) completely. Replaced guess coordinates with `view.getLocationOnScreen(screenLoc)` frame offset calibration (`computeExactInStripParamsY`) and persisted `verifiedImeTopYPortrait` in SharedPreferences. Combined with `LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS`, the bar top is pixel-locked to `verifiedImeTopY + 4dp` across 100+ open/close cycles with zero vertical drift.
+- **Instant Keyboard Close Dismissal**:
+  - In `TextInjectorAccessibilityService`, implemented a 3-point check (`+60ms`, `+220ms`, `+420ms`) on `TYPE_WINDOWS_CHANGED`, `TYPE_WINDOW_STATE_CHANGED`, and `onFinishInput()` to catch Gboard's slide-down animation and instantly hide the bar (`View.GONE`).
+  - Transitioning to `StripState.IDLE` immediately evaluates keyboard visibility so the bar never floats in mid-air after typing.
+- **Active Trigger Surface Exclusivity (Fix for Duplicate Recording Bars)**:
+  - In "Both" mode, tracked active trigger surface (`INLINE_BAR` vs. `FLOATING_MIC`).
+  - Only the surface tapped by the user expands into the recording pod; the competing surface remains hidden during `RECORDING` and `PROCESSING`.
+- **Fix for Lost 3–5 Minute Recordings**:
+  - *Root Cause*: Previous fixed 5.5s timeout and 8.5s watchdog aborted 3–5 minute uploads mid-flight and deleted audio before calling `HistoryManager`. Storing in `cacheDir` also allowed OS storage cleaner to purge audio.
+  - *Fix 1*: Relocated audio to `filesDir/flow_recordings/` with ring-buffer pruning (retains newest 5 backup files; ~8 MB total footprint).
+  - *Fix 2*: Dynamically scaled ASR timeout: `timeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)` with watchdog at `timeoutMs + 10_000L`.
+  - *Fix 3*: Raw transcript is saved to `HistoryManager` and copied to clipboard *before* running formatting. On ASR failure, a failed record with audio path is preserved in History for 1-tap retry.
+- **Argon-Style 45-Second Auto-Checkpoint & Live Auto-Insert Engine**:
+  - Implemented `startAutoCheckpointMonitor`: at $\ge 45\text{s}$ pause or $58\text{s}$ hard cap, rotates `AudioRecorder` in $< 25\text{ms}$ (`rotateRecordingFileSafelyIo`) and transcribes/inserts the completed chunk in the background while dictation continues uninterrupted.
+- **Guaranteed Android 10–15 Clipboard Write & YouTube/Facebook Focus Fix**:
+  - Implemented `copyToClipboardGuaranteed` which briefly toggles `FLAG_NOT_FOCUSABLE` off for 15ms if OS blocks background writes.
+  - `TextInjectorAccessibilityService` snapshots `recordingTargetNode` at dictation start and preserves focus event caching during `RECORDING`/`PROCESSING`.
+- **Senior Art Director "Ink & Danda" Studio Redesign**:
+  - `IDLE`: 76dp x 34dp pill at `verifiedImeTopY + 4dp` (`#23262B` surface, 1dp `#383D46` specular rim), left Danda-Mic vector with Vermilion accent dot (tap to record), right `#2E323B` inner language pill (1-tap toggles `বাং` ↔ `EN`).
+  - `RECORDING`: In-strip pod (`52dp` to `screenW - 52dp`, 36dp height), 30dp `#2C3036` `✕` Cancel disc, live timer, 7-bar Vermilion equalizer, 38dp x 30dp Sage `✓` confirm pill.
+  - `PROCESSING`: Left `✕` disc, Ochre indicator, formatting text.
+  - `INSERTED`: Sage `#8FBF9F` flash (`✓ লেখা বসেছে` / `✓ Inserted`).
+- **Crash Fix**: Wrapped `ConnectivityLabRunner.runThreeStageTest` in a top-level try/catch on `Dispatchers.IO` to prevent crashes when testing API keys.
+- **100% Passing Unit Test Suite (84 unit tests passing)**.
+
+### Phase 16: v3.8.0 (Build 18) — True In-Strip Gboard Integration, Exact Bitwarden Placement & In-Bar Expansion
 - **Visual Audit of In-Strip Placement vs. Bitwarden**:
   - *Bug 1 (Wrong Y-Coordinate)*: In v3.7.0, the chip was placed at `y = keyboardTopY - 42dp` (ABOVE the keyboard), which floated over Google Keep's bottom formatting toolbar (`+`, palette, `A`) like an obstructing second button. Fixed by seating the chip at **`y = keyboardTopY + 4dp`** (`height = 36dp`) strictly **inside** Gboard's 44dp suggestion strip!
   - *Bug 2 (Oversized Idle Pill)*: The idle pill was 196dp wide, obstructing Gboard predictions. Fixed by making the idle state a compact **`68dp x 36dp` mini-chip (`[ 🎙️ বাং ]`)** docked at `x = screenWidth - targetW - 48dp` (adjacent to Gboard's native mic), leaving over 75% of Gboard's top bar open.

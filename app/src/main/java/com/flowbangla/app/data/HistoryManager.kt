@@ -20,6 +20,17 @@ class HistoryManager(context: Context) {
     }
 
     @Synchronized
+    fun updateRecord(id: String, text: String, rawTranscript: String, provenance: String) {
+        val list = getRecentRecords().toMutableList()
+        val index = list.indexOfFirst { it.id == id }
+        if (index != -1) {
+            val old = list[index]
+            list[index] = old.copy(text = text, rawTranscript = rawTranscript, provenance = provenance, isSuccess = true)
+            saveList(list)
+        }
+    }
+
+    @Synchronized
     fun getRecentRecords(): List<DictationRecord> {
         val jsonString = prefs.getString(KEY_RECORDS, null) ?: return emptyList()
         return try {
@@ -27,6 +38,7 @@ class HistoryManager(context: Context) {
             val list = mutableListOf<DictationRecord>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val audioPath = if (obj.has("audio_file_path")) obj.optString("audio_file_path").takeIf { it.isNotBlank() } else null
                 list.add(
                     DictationRecord(
                         id = obj.getString("id"),
@@ -35,7 +47,8 @@ class HistoryManager(context: Context) {
                         durationSeconds = obj.optInt("duration", 0),
                         isSuccess = obj.optBoolean("success", true),
                         rawTranscript = obj.optString("raw_transcript", ""),
-                        provenance = obj.optString("provenance", "")
+                        provenance = obj.optString("provenance", ""),
+                        audioFilePath = if (audioPath.isNullOrBlank()) null else audioPath
                     )
                 )
             }
@@ -67,6 +80,9 @@ class HistoryManager(context: Context) {
                 put("success", item.isSuccess)
                 put("raw_transcript", item.rawTranscript)
                 put("provenance", item.provenance)
+                if (item.audioFilePath != null) {
+                    put("audio_file_path", item.audioFilePath)
+                }
             }
             jsonArray.put(obj)
         }

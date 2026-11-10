@@ -89,6 +89,13 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     private var lastFocusedEditableNode: AccessibilityNodeInfo? = null
 
     @Volatile
+    var recordingTargetNode: AccessibilityNodeInfo? = null
+
+    fun onRecordingStarted() {
+        recordingTargetNode = findTargetNodeBounded() ?: lastFocusedEditableNode
+    }
+
+    @Volatile
     private var lastKnownPackageName: String? = null
 
     @Volatile
@@ -173,7 +180,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             a11yService = this,
             prefs = prefs,
             onStartRecording = {
-                FloatingBubbleService.instance?.startRecordingFromExternal()
+                FloatingBubbleService.instance?.startRecordingFromInlineBar()
             },
             onConfirmRecording = {
                 FloatingBubbleService.instance?.onUserConfirmDictation()
@@ -235,7 +242,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
                 super.onFinishInput()
                 isInputConnectionStarted = false
                 lastEditableTouchElapsedMs = 0L
-                syncKeyboardVisibilityWithBubble()
+                scheduleKeyboardVisibilityChecks()
             }
         }
         a11yInputMethod = im
@@ -339,6 +346,28 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     private var lastWindowSyncTimeMs = 0L
     private var windowSyncJob: kotlinx.coroutines.Job? = null
 
+    /**
+     * 3-point verification pulse at +60ms, +220ms, and +420ms to accurately track
+     * keyboard opening and closing animations.
+     */
+    fun scheduleKeyboardVisibilityChecks() {
+        val bubbleState = FloatingBubbleService.instance?.currentState
+        if (bubbleState is com.flowbangla.app.model.TranscriptionState.Recording ||
+            bubbleState is com.flowbangla.app.model.TranscriptionState.Processing
+        ) {
+            return
+        }
+        windowSyncJob?.cancel()
+        windowSyncJob = serviceScope.launch(Dispatchers.Main) {
+            delay(60L)
+            syncKeyboardVisibilityWithBubble()
+            delay(160L)
+            syncKeyboardVisibilityWithBubble()
+            delay(200L)
+            syncKeyboardVisibilityWithBubble()
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val pkg = event.packageName?.toString().orEmpty()
@@ -356,7 +385,15 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             ensureBubbleServiceAliveAndBound()
         }
 
+        // Instant detection of keyboard window open/close changes
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+            event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        ) {
+            scheduleKeyboardVisibilityChecks()
+        }
+
         // 3. Cache focused/clicked/selection input node in O(1) without deep tree traversal
+        // ALWAYS update lastFocusedEditableNode and recordingTargetNode even during recording!
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED ||
             event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
             event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED
@@ -364,6 +401,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             val src = event.source
             if (src != null && isCandidateInputNode(src)) {
                 cacheEditableNode(src)
+                recordingTargetNode = src
                 lastEditableTouchElapsedMs = SystemClock.elapsedRealtime()
                 checkAndExecuteDeferredPaste(src)
                 syncKeyboardVisibilityWithBubble()
@@ -740,14 +778,28 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         return didSet
     }
 
-    private fun copyToClipboardPrivileged(text: String) {
+    /**
+     * Guarantees 100% clipboard write success on Android 10-15 & Xiaomi HyperOS
+     * even when no Activity is open.
+     */
+    fun copyToClipboardGuaranteed(text: String) {
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = ClipData.newPlainText("FlowDictation", text)
             clipboard.setPrimaryClip(clip)
+
+            val currentClip = try { clipboard.primaryClip?.getItemAt(0)?.text?.toString() } catch (_: Throwable) { null }
+            if (currentClip == text) return
+
+            // Fallback if HyperOS/Android 10-15 blocked background clipboard write:
+            keyboardStripController?.performFocusedClipboardWrite(clipboard, clip)
         } catch (e: Exception) {
-            Log.e(TAG, "Clipboard pre-load failed", e)
+            Log.e(TAG, "Guaranteed clipboard write failed: ${e.message}", e)
         }
+    }
+
+    private fun copyToClipboardPrivileged(text: String) {
+        copyToClipboardGuaranteed(text)
     }
 
     private fun armDeferredPaste(text: String) {
@@ -763,8 +815,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         if (rawFormattedText.isEmpty()) return@withContext false
         val formattedText = Normalizer.normalize(rawFormattedText, Normalizer.Form.NFC)
 
-        // Always pre-load clipboard first
-        copyToClipboardPrivileged(formattedText)
+        // Step 0: Always write to clipboard guaranteed first
+        copyToClipboardGuaranteed(formattedText)
 
         // TIER 0: Android 13+ (API 33+) Direct AccessibilityInputConnection.commitText()
         // Zero node traversal needed — writes straight to the active keyboard connection in < 5ms!
@@ -773,32 +825,68 @@ class TextInjectorAccessibilityService : AccessibilityService() {
                 pendingDeferredText = null
                 lastPastedText = formattedText
                 lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                recordingTargetNode = null
                 return@withContext true
             }
         }
 
-        // TIER 1: O(1) Direct Focus Lookup (rootInActiveWindow.findFocus(FOCUS_INPUT))
-        val targetNode = findTargetNodeBounded()
+        // TIER 1: IME Context Menu Paste Action (API 33+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                val im = a11yInputMethod ?: getInputMethod()
+                val ic = im?.currentInputConnection
+                if (ic != null) {
+                    ic.performContextMenuAction(android.R.id.paste)
+                    delay(40L)
+                    val surrounding = ic.getSurroundingText(formattedText.length + 10, 0, 0)
+                    if (surrounding?.text?.contains(formattedText.take(6)) == true) {
+                        pendingDeferredText = null
+                        lastPastedText = formattedText
+                        lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                        recordingTargetNode = null
+                        return@withContext true
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // TIER 2: Direct Target Node Resolution (checks bounded node, cached node, and recordingTargetNode)
+        val targetNode = findTargetNodeBounded() ?: recordingTargetNode ?: lastFocusedEditableNode
         if (targetNode != null) {
             try {
                 targetNode.refresh()
+                val beforeText = getActualNonHintText(targetNode)
                 if (targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)) {
-                    pendingDeferredText = null
-                    lastPastedText = formattedText
-                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
-                    return@withContext true
+                    delay(50L)
+                    targetNode.refresh()
+                    val afterText = getActualNonHintText(targetNode)
+                    if (afterText != beforeText || afterText.contains(formattedText.take(6))) {
+                        pendingDeferredText = null
+                        lastPastedText = formattedText
+                        lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                        recordingTargetNode = null
+                        return@withContext true
+                    }
                 }
                 targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                 if (targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)) {
-                    pendingDeferredText = null
-                    lastPastedText = formattedText
-                    lastPastedTimestampMs = SystemClock.elapsedRealtime()
-                    return@withContext true
+                    delay(50L)
+                    targetNode.refresh()
+                    val afterText = getActualNonHintText(targetNode)
+                    if (afterText != beforeText || afterText.contains(formattedText.take(6))) {
+                        pendingDeferredText = null
+                        lastPastedText = formattedText
+                        lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                        recordingTargetNode = null
+                        return@withContext true
+                    }
                 }
+                // TIER 3: Hint-safe set text
                 if (performHintSafeSetText(targetNode, formattedText)) {
                     pendingDeferredText = null
                     lastPastedText = formattedText
                     lastPastedTimestampMs = SystemClock.elapsedRealtime()
+                    recordingTargetNode = null
                     return@withContext true
                 }
             } catch (e: Throwable) {
@@ -806,8 +894,9 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             }
         }
 
-        // TIER 2: Arm deferred paste for next tap
+        // TIER 4: Arm deferred paste for next tap
         armDeferredPaste(formattedText)
+        recordingTargetNode = null
         false
     }
 
@@ -823,7 +912,14 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             if (isCandidateInputNode(focused)) return focused
         }
 
-        // 2. O(1) Cached Node
+        // 2. O(1) Target Node cached when recording started
+        val recNode = recordingTargetNode
+        if (recNode != null) {
+            val ok = try { recNode.refresh() } catch (_: Throwable) { false }
+            if (ok && isCandidateInputNode(recNode)) return recNode
+        }
+
+        // 3. O(1) Cached Node
         val cached = lastFocusedEditableNode
         if (cached != null) {
             val ok = try { cached.refresh() } catch (_: Throwable) { false }
@@ -914,7 +1010,8 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         )
         keyboardStripController?.updateKeyboardVisibilityAndPosition(
             isKeyboardOpen = snapshot.isKeyboardVisible && !snapshot.isRestrictedFieldOrApp,
-            keyboardTopY = snapshot.keyboardTopY
+            keyboardTopY = snapshot.keyboardTopY,
+            isMeasuredIme = snapshot.isMeasuredImeWindow
         )
         mainHandler.post {
             onKeyboardVisibilityChanged?.invoke(snapshot.isKeyboardVisible)

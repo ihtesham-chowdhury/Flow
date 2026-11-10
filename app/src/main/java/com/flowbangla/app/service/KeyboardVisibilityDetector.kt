@@ -11,7 +11,8 @@ data class KeyboardStateSnapshot(
     val keyboardTopY: Int,
     val keyboardHeightPx: Int,
     val isRestrictedFieldOrApp: Boolean,
-    val matchedSignal: String = "NONE"
+    val matchedSignal: String = "NONE",
+    val isMeasuredImeWindow: Boolean = false
 )
 
 object KeyboardVisibilityDetector {
@@ -58,14 +59,13 @@ object KeyboardVisibilityDetector {
         msSinceLastTouch: Long
     ): KeyboardStateSnapshot {
         val minKeyboardHeightPx = (100f * density).toInt()
-        val defaultKeyboardTopY = (screenHeightPx * 0.62f).toInt()
 
         // 0. Security Exclusion: Banking apps & password fields
         if (isBankingOrSensitive) {
-            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "RESTRICTED_PKG")
+            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "RESTRICTED_PKG", false)
         }
         if (isPasswordField) {
-            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "PASSWORD_FIELD")
+            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "PASSWORD_FIELD", false)
         }
 
         // SIGNAL 1: Explicit TYPE_INPUT_METHOD window with height >= 100dp
@@ -75,7 +75,8 @@ object KeyboardVisibilityDetector {
                 keyboardTopY = screenHeightPx - typeInputMethodHeightPx,
                 keyboardHeightPx = typeInputMethodHeightPx,
                 isRestrictedFieldOrApp = false,
-                matchedSignal = "SIGNAL_1_TYPE_INPUT_METHOD"
+                matchedSignal = "SIGNAL_1_TYPE_INPUT_METHOD",
+                isMeasuredImeWindow = true
             )
         }
 
@@ -86,7 +87,8 @@ object KeyboardVisibilityDetector {
                 keyboardTopY = screenHeightPx - knownKeyboardHeightPx,
                 keyboardHeightPx = knownKeyboardHeightPx,
                 isRestrictedFieldOrApp = false,
-                matchedSignal = "SIGNAL_2_KEYBOARD_PKG"
+                matchedSignal = "SIGNAL_2_KEYBOARD_PKG",
+                isMeasuredImeWindow = true
             )
         }
 
@@ -96,10 +98,11 @@ object KeyboardVisibilityDetector {
         if (isImeInputStarted && hasActiveEditableFocus) {
             return KeyboardStateSnapshot(
                 isKeyboardVisible = true,
-                keyboardTopY = defaultKeyboardTopY,
-                keyboardHeightPx = screenHeightPx - defaultKeyboardTopY,
+                keyboardTopY = 0, // Unmeasured: overlay must NOT overwrite its verified topY!
+                keyboardHeightPx = 0,
                 isRestrictedFieldOrApp = false,
-                matchedSignal = "SIGNAL_3_IME_INPUT_STARTED"
+                matchedSignal = "SIGNAL_3_IME_INPUT_STARTED",
+                isMeasuredImeWindow = false
             )
         }
 
@@ -110,19 +113,8 @@ object KeyboardVisibilityDetector {
                 keyboardTopY = screenHeightPx - appWindowBottomGapPx,
                 keyboardHeightPx = appWindowBottomGapPx,
                 isRestrictedFieldOrApp = false,
-                matchedSignal = "SIGNAL_4_WINDOW_BOTTOM_COMPRESSED"
-            )
-        }
-
-        // SIGNAL 5: User just tapped or focused an editable text box within the last 10 seconds
-        // AND the editable node still holds input focus (fallback when HyperOS hides window bounds)
-        if (hasActiveEditableFocus && msSinceLastTouch in 0L..10_000L) {
-            return KeyboardStateSnapshot(
-                isKeyboardVisible = true,
-                keyboardTopY = defaultKeyboardTopY,
-                keyboardHeightPx = screenHeightPx - defaultKeyboardTopY,
-                isRestrictedFieldOrApp = false,
-                matchedSignal = "SIGNAL_5_RECENT_EDITABLE_FOCUS"
+                matchedSignal = "SIGNAL_4_WINDOW_BOTTOM_COMPRESSED",
+                isMeasuredImeWindow = false
             )
         }
 
@@ -131,7 +123,8 @@ object KeyboardVisibilityDetector {
             keyboardTopY = screenHeightPx,
             keyboardHeightPx = 0,
             isRestrictedFieldOrApp = false,
-            matchedSignal = "NONE"
+            matchedSignal = "NONE",
+            isMeasuredImeWindow = false
         )
     }
 

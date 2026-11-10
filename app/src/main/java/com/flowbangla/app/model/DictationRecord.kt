@@ -7,5 +7,6 @@ data class DictationRecord(
     val durationSeconds: Int = 0,
     val isSuccess: Boolean = true,
     val rawTranscript: String = "",
-    val provenance: String = ""
+    val provenance: String = "",
+    val audioFilePath: String? = null
 )

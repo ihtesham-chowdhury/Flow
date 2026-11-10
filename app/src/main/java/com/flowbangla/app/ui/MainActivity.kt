@@ -124,8 +124,7 @@ class MainActivity : ComponentActivity() {
                     onRequestXiaomiAutostart = { requestXiaomiAutostart() },
                     onRequestBatteryExemption = { requestBatteryOptimizationExemption() },
                     onRequestSamsungDeviceCare = { requestSamsungDeviceCare() },
-                    onRequestXiaomiLockApps = { requestXiaomiLockApps() },
-                    onRequestAutofillSettings = { requestAutofillSettings() }
+                    onRequestXiaomiLockApps = { requestXiaomiLockApps() }
                 )
             }
         }
@@ -171,21 +170,6 @@ class MainActivity : ComponentActivity() {
 
     private fun requestXiaomiLockApps() {
         com.flowbangla.app.util.OemAutostartHelper.openXiaomiLockAppsInRecents(this)
-    }
-
-    private fun requestAutofillSettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
-                data = Uri.parse("package:$packageName")
-            }
-            try {
-                startActivity(intent)
-            } catch (_: Exception) {
-                try {
-                    startActivity(Intent(Settings.ACTION_SETTINGS))
-                } catch (_: Exception) {}
-            }
-        }
     }
 
     override fun onStop() {
@@ -255,12 +239,9 @@ object L10n {
         "show_only_typing" to "Show only when typing",
         "show_only_typing_desc" to "The mic appears when a text box is active and hides when you stop typing.",
         "trigger_style" to "Trigger style",
-        "trigger_both" to "Keyboard bar + Floating mic",
-        "trigger_keyboard_only" to "Keyboard bar only (Bitwarden)",
-        "trigger_floating_only" to "Floating mic only",
-        "autofill_chip" to "Gboard autofill chip (Bitwarden Mode)",
-        "autofill_chip_desc" to "Shows voice chip inside Gboard suggestion strip and wakes Flow up automatically.",
-        "enable_autofill" to "Enable Gboard Autofill",
+        "trigger_both" to "Inline Bar + Floating Mic",
+        "trigger_keyboard_only" to "Inline Keyboard Bar",
+        "trigger_floating_only" to "Floating Mic Only",
         "vocabulary" to "Vocabulary",
         "personal_dict" to "Personal dictionary",
         "personal_dict_desc" to "Words you correct are learned for 15 seconds after you paste.",
@@ -270,7 +251,7 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 3.8.0 (18)",
+        "version" to "Version 3.9.0 (19)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first"
@@ -322,12 +303,9 @@ object L10n {
         "show_only_typing" to "শুধু টাইপ করার সময় দেখান",
         "show_only_typing_desc" to "কিবোর্ড চালু হলে মাইক ভেসে উঠবে এবং অন্য সময় লুকিয়ে থাকবে।",
         "trigger_style" to "ট্রিগার স্টাইল",
-        "trigger_both" to "কিবোর্ড বার + ফ্লোটিং মাইক",
-        "trigger_keyboard_only" to "শুধু কিবোর্ড বার (বিটওয়ার্ডেন)",
+        "trigger_both" to "ইনলাইন বার + ফ্লোটিং মাইক",
+        "trigger_keyboard_only" to "কিবোর্ড ইনলাইন বার",
         "trigger_floating_only" to "শুধু ফ্লোটিং মাইক",
-        "autofill_chip" to "Gboard অটোফিল চিপ (বিটওয়ার্ডেন মোড)",
-        "autofill_chip_desc" to "Gboard-এর সাজেশন বারের ভেতর ভয়েস চিপ দেখায় এবং স্বয়ংক্রিয়ভাবে Flow চালু করে।",
-        "enable_autofill" to "Gboard অটোফিল চালু করুন",
         "vocabulary" to "শব্দভাণ্ডার",
         "personal_dict" to "ব্যক্তিগত ডিকশনারি",
         "personal_dict_desc" to "ভুল সংশোধন করলে ১৫ সেকেন্ডের মধ্যে তা শিখে নেয়।",
@@ -337,7 +315,7 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৩.৮.০ (১৮)",
+        "version" to "ভার্সন ৩.৯.০ (১৯)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
         "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন"
@@ -358,8 +336,7 @@ fun MainScreen(
     onRequestXiaomiAutostart: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onRequestSamsungDeviceCare: () -> Unit,
-    onRequestXiaomiLockApps: () -> Unit = {},
-    onRequestAutofillSettings: () -> Unit = {}
+    onRequestXiaomiLockApps: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { FlowBanglaApp.instance.preferencesManager }
@@ -1151,15 +1128,22 @@ fun MainScreen(
                             }
                             isTestingConnection = true
                             scope.launch {
-                                val report = ConnectivityLabRunner.runThreeStageTest(
-                                    context = context,
-                                    http = okhttp3.OkHttpClient(),
-                                    rawApiKey = prefs.geminiApiKey,
-                                    latestRecordedFile = null
-                                )
-                                connectivityReport = report
-                                isTestingConnection = false
-                                showDiagnosticsDialog = true
+                                try {
+                                    val report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        ConnectivityLabRunner.runThreeStageTest(
+                                            context = context,
+                                            http = okhttp3.OkHttpClient(),
+                                            rawApiKey = prefs.geminiApiKey,
+                                            latestRecordedFile = null
+                                        )
+                                    }
+                                    connectivityReport = report
+                                    isTestingConnection = false
+                                    showDiagnosticsDialog = true
+                                } catch (t: Throwable) {
+                                    isTestingConnection = false
+                                    Toast.makeText(context, "Test failed: ${t.localizedMessage ?: t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -1515,32 +1499,6 @@ fun MainScreen(
 
                         FlowHairline()
 
-                        // Gboard Autofill Chip Row (Bitwarden Mode)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(str("autofill_chip"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(str("autofill_chip_desc"), fontSize = 12.sp, color = DarkInkMuted)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = onRequestAutofillSettings,
-                                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceSunken, contentColor = DarkInk),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Text(str("enable_autofill"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-
-                        FlowHairline()
-
                         // Row 6: Hide or Show now button
                         Box(
                             modifier = Modifier
@@ -1800,8 +1758,7 @@ fun MainScreen(
             onRequestXiaomiAutostart = onRequestXiaomiAutostart,
             onRequestBatteryExemption = onRequestBatteryExemption,
             onRequestSamsungDeviceCare = onRequestSamsungDeviceCare,
-            onRequestXiaomiLockApps = onRequestXiaomiLockApps,
-            onRequestAutofillSettings = onRequestAutofillSettings
+            onRequestXiaomiLockApps = onRequestXiaomiLockApps
         )
     }
 

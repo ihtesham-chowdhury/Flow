@@ -44,6 +44,7 @@ import com.flowbangla.app.ui.FloatingMicCanvasView
 import com.flowbangla.app.ui.MainActivity
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.*
+import java.io.File
 import kotlin.math.abs
 
 class FloatingBubbleService : Service() {
@@ -97,6 +98,15 @@ class FloatingBubbleService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     var currentState: TranscriptionState = TranscriptionState.Idle
         private set
+
+    enum class TriggerSurface { NONE, INLINE_BAR, FLOATING_MIC }
+    @Volatile
+    private var activeTriggerSurface: TriggerSurface = TriggerSurface.NONE
+    private var recordingStartTimeMs: Long = 0L
+
+    private var autoCheckpointJob: Job? = null
+    private val AUTO_CHECKPOINT_SOFT_MS = 45_000L
+    private val AUTO_CHECKPOINT_HARD_MS = 58_000L
     private var vibrator: Vibrator? = null
 
     // Touch and drag tracking
@@ -747,6 +757,13 @@ class FloatingBubbleService : Service() {
     fun refreshBubbleVisibility() {
         val prefs = FlowBanglaApp.instance.preferencesManager
         val isRecordingOrProcessing = currentState !is TranscriptionState.Idle
+
+        // If recording was initiated from the Inline Bar, hide the floating mic
+        if (isRecordingOrProcessing && activeTriggerSurface == TriggerSurface.INLINE_BAR) {
+            setOverlayViewVisibility(false)
+            return
+        }
+
         val shouldShow = prefs.enableFloatingMic && KeyboardVisibilityDetector.shouldBubbleBeVisible(
             isMasterSwitchEnabled = prefs.isMasterSwitchEnabled,
             isRecordingOrProcessing = isRecordingOrProcessing,
@@ -801,7 +818,10 @@ class FloatingBubbleService : Service() {
 
     private fun handleSingleTap() {
         when (currentState) {
-            is TranscriptionState.Idle -> startRecordingAction()
+            is TranscriptionState.Idle -> {
+                activeTriggerSurface = TriggerSurface.FLOATING_MIC
+                startRecordingAction()
+            }
             is TranscriptionState.Recording -> onUserConfirmDictation()
             else -> { /* Busy processing */ }
         }
@@ -810,13 +830,18 @@ class FloatingBubbleService : Service() {
     fun onUserConfirmDictation() {
         if (currentState !is TranscriptionState.Recording) return
         vibrateShort()
+        autoCheckpointJob?.cancel()
+        autoCheckpointJob = null
+
+        val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
+        val processingTimeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)
 
         // Immediately switch UI to PROCESSING so user sees the Ochre spinner
         currentState = TranscriptionState.Processing
         updateUiState(currentState)
 
-        // Start 8.5-second hard watchdog so UI can NEVER get stuck in PROCESSING forever!
-        startProcessingWatchdog()
+        // Start dynamic watchdog scaled to recording duration (+10s buffer)
+        startProcessingWatchdog(processingTimeoutMs + 10_000L)
 
         val prefs = FlowBanglaApp.instance.preferencesManager
         if (prefs.engineMode == EngineMode.CLOUD_AUDIO) {
@@ -861,12 +886,12 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    private fun startProcessingWatchdog() {
+    private fun startProcessingWatchdog(timeoutMs: Long = 8_500L) {
         processingWatchdogJob?.cancel()
         processingWatchdogJob = serviceScope.launch(Dispatchers.Main) {
-            delay(8_500L)
+            delay(timeoutMs)
             if (currentState is TranscriptionState.Processing) {
-                Log.w(TAG, "Watchdog triggered! Processing took > 8.5s; force-recovering to IDLE.")
+                Log.w(TAG, "Watchdog triggered! Processing took > ${timeoutMs}ms; force-recovering to IDLE.")
                 activeDictationJob?.cancel(CancellationException("Watchdog timeout"))
                 currentState = TranscriptionState.Idle
                 updateUiState(currentState)
@@ -876,10 +901,13 @@ class FloatingBubbleService : Service() {
 
     fun onUserCancelDictation() {
         vibrateShort()
+        autoCheckpointJob?.cancel()
+        autoCheckpointJob = null
         processingWatchdogJob?.cancel()
         processingWatchdogJob = null
         activeDictationJob?.cancel(CancellationException("User tapped Cancel (✕)"))
         activeDictationJob = null
+        activeTriggerSurface = TriggerSurface.NONE
 
         try {
             audioRecorder.cancelAndDeleteRecording()
@@ -946,6 +974,7 @@ class FloatingBubbleService : Service() {
 
                 if (prefs.interactionMode == InteractionMode.PUSH_TO_TALK) {
                     if (currentState is TranscriptionState.Idle) {
+                        activeTriggerSurface = TriggerSurface.FLOATING_MIC
                         startRecordingAction()
                     }
                     return true
@@ -1043,6 +1072,15 @@ class FloatingBubbleService : Service() {
         }
     }
 
+    fun startRecordingFromInlineBar() {
+        activeTriggerSurface = TriggerSurface.INLINE_BAR
+        serviceScope.launch(Dispatchers.Main) {
+            if (currentState is TranscriptionState.Idle) {
+                startRecordingAction()
+            }
+        }
+    }
+
     private fun startRecordingAction() {
         val prefs = FlowBanglaApp.instance.preferencesManager
         if (!prefs.isConfigured) {
@@ -1089,9 +1127,93 @@ class FloatingBubbleService : Service() {
             }
         }
 
+        recordingStartTimeMs = SystemClock.elapsedRealtime()
+        TextInjectorAccessibilityService.instance?.onRecordingStarted()
+        startAutoCheckpointMonitor()
+
         vibrateShort()
         currentState = TranscriptionState.Recording()
         updateUiState(currentState)
+    }
+
+    private fun startAutoCheckpointMonitor() {
+        autoCheckpointJob?.cancel()
+        val prefs = FlowBanglaApp.instance.preferencesManager
+        if (prefs.engineMode != EngineMode.CLOUD_AUDIO) return
+
+        autoCheckpointJob = serviceScope.launch(Dispatchers.IO) {
+            var segmentStartMs = SystemClock.elapsedRealtime()
+            var silentConsecutiveMs = 0L
+
+            while (isActive && currentState is TranscriptionState.Recording) {
+                delay(100L)
+                val elapsed = SystemClock.elapsedRealtime() - segmentStartMs
+                val amp = audioRecorder.getCurrentAmplitude()
+
+                if (amp < 1200) {
+                    silentConsecutiveMs += 100L
+                } else {
+                    silentConsecutiveMs = 0L
+                }
+
+                val shouldCheckpoint = (elapsed >= AUTO_CHECKPOINT_SOFT_MS && silentConsecutiveMs >= 400L) ||
+                    (elapsed >= AUTO_CHECKPOINT_HARD_MS)
+
+                if (shouldCheckpoint) {
+                    val completedChunkFile = audioRecorder.rotateRecordingFileSafelyIo()
+                    segmentStartMs = SystemClock.elapsedRealtime()
+                    silentConsecutiveMs = 0L
+
+                    if (completedChunkFile != null && completedChunkFile.exists() && completedChunkFile.length() > 512L) {
+                        serviceScope.launch(Dispatchers.IO) {
+                            processAndInsertChunkIo(completedChunkFile)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun processAndInsertChunkIo(chunkFile: File) {
+        val prefs = FlowBanglaApp.instance.preferencesManager
+        val geminiKey = prefs.geminiApiKey.trim()
+        val groqKey = prefs.groqApiKey.trim()
+        val customVocab = try {
+            val fc = TextInjectorAccessibilityService.instance?.extractActiveFieldContextFast() ?: ActiveFieldContext()
+            FlowBanglaApp.instance.personalDictionaryManager.buildCustomVocabularyList(fc.screenProperNouns)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+
+        val rawTranscript = try {
+            if (geminiKey.isNotEmpty()) {
+                geminiInteractionsAdapter.transcribeAudioFile(chunkFile, geminiKey, customVocab, useVerbatimMode = false).text
+            } else if (groqKey.isNotEmpty()) {
+                groqWhisperClient.transcribeAudio(chunkFile, groqKey, customVocab).text
+            } else {
+                ""
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Chunk transcribe error: ${t.message}")
+            ""
+        }.trim()
+
+        try { chunkFile.delete() } catch (_: Throwable) {}
+
+        if (rawTranscript.isNotBlank()) {
+            val formatted = formattingChain.formatSmartTranscript(
+                rawTranscript = rawTranscript,
+                fieldContext = ActiveFieldContext(),
+                alreadySmartTranscribed = geminiKey.isNotEmpty()
+            ).ifBlank { rawTranscript }
+
+            deliverFormattedTextToTargetApp(
+                rawTranscript = rawTranscript,
+                formattedText = formatted,
+                durationSec = 45,
+                provenance = "Auto-Checkpoint (45s)"
+            )
+        }
     }
 
     private suspend fun executeDictationPipelineIo() {
@@ -1110,6 +1232,9 @@ class FloatingBubbleService : Service() {
             return
         }
 
+        val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
+        val asrTimeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)
+
         // STEP 2: Extract lightweight screen context with strict 150ms timeout (never block!)
         val fieldContext = withTimeoutOrNull(150L) {
             TextInjectorAccessibilityService.instance?.extractActiveFieldContextFast()
@@ -1121,14 +1246,14 @@ class FloatingBubbleService : Service() {
             emptyList()
         }
 
-        // STEP 3: Cloud ASR on Dispatchers.IO with strict 5.5-second timeout
+        // STEP 3: Cloud ASR on Dispatchers.IO with duration-scaled timeout
         var rawTranscript = ""
         var recognitionSource = RecognitionSource.GEMINI_TRANSCRIBE
 
         val geminiKey = prefs.geminiApiKey.trim()
         val groqKey = prefs.groqApiKey.trim()
 
-        val asrResult = withTimeoutOrNull(5_500L) {
+        val asrResult = withTimeoutOrNull(asrTimeoutMs) {
             try {
                 if (geminiKey.isNotEmpty()) {
                     geminiInteractionsAdapter.transcribeAudioFile(
@@ -1158,19 +1283,52 @@ class FloatingBubbleService : Service() {
             }
         }.orEmpty().trim()
 
-        // Clean up audio file on IO
-        try {
-            recordedFile.delete()
-        } catch (_: Throwable) {}
-
         rawTranscript = asrResult
         if (rawTranscript.isEmpty()) {
+            // Save failed audio backup into History so user never loses their voice
+            val backupFile = File(recordedFile.parentFile, "failed_${System.currentTimeMillis()}.m4a")
+            try {
+                recordedFile.copyTo(backupFile, overwrite = true)
+                FlowBanglaApp.instance.historyManager.addRecord(
+                    DictationRecord(
+                        text = "রেকর্ডিং ব্যর্থ হয়েছে (ইতিহাসে ট্যাপ করে আবার দেখুন) / Dictation Failed",
+                        durationSeconds = durationSec.toInt(),
+                        isSuccess = false,
+                        rawTranscript = "",
+                        provenance = "Failed ASR",
+                        audioFilePath = backupFile.absolutePath
+                    )
+                )
+            } catch (_: Throwable) {}
+            try { recordedFile.delete() } catch (_: Throwable) {}
+
             withContext(Dispatchers.Main) {
                 currentState = TranscriptionState.Idle
                 updateUiState(currentState)
             }
             return
         }
+
+        // Clean up audio file on IO
+        try {
+            recordedFile.delete()
+        } catch (_: Throwable) {}
+
+        // IMMEDIATELY save raw transcript to History and Clipboard BEFORE formatting!
+        val historyId = java.util.UUID.randomUUID().toString()
+        try {
+            FlowBanglaApp.instance.historyManager.addRecord(
+                DictationRecord(
+                    id = historyId,
+                    text = rawTranscript,
+                    durationSeconds = durationSec.toInt(),
+                    isSuccess = true,
+                    rawTranscript = rawTranscript,
+                    provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR (Raw)" else "Groq Whisper (Raw)"
+                )
+            )
+            TextInjectorAccessibilityService.instance?.copyToClipboardGuaranteed(rawTranscript)
+        } catch (_: Throwable) {}
 
         // Check for Voice Command Mode on highlighted text
         if (fieldContext.hasSelectedText && fieldContext.selectedText.isNotBlank() && geminiKey.isNotBlank()) {
@@ -1181,11 +1339,20 @@ class FloatingBubbleService : Service() {
                     rawApiKey = geminiKey
                 )
                 if (transformResult.text.isNotBlank()) {
+                    try {
+                        FlowBanglaApp.instance.historyManager.updateRecord(
+                            id = historyId,
+                            text = transformResult.text,
+                            rawTranscript = rawTranscript,
+                            provenance = "Command Mode (${transformResult.modelId})"
+                        )
+                    } catch (_: Throwable) {}
                     deliverFormattedTextToTargetApp(
                         rawTranscript = rawTranscript,
                         formattedText = transformResult.text,
-                        durationSec = 0,
-                        provenance = "Command Mode (${transformResult.modelId})"
+                        durationSec = durationSec.toInt(),
+                        provenance = "Command Mode (${transformResult.modelId})",
+                        alreadySavedToHistory = true
                     )
                     return
                 }
@@ -1194,8 +1361,8 @@ class FloatingBubbleService : Service() {
             }
         }
 
-        // STEP 4: Fast Formatting & Post-Processing on Dispatchers.IO (max 2.2s timeout)
-        val formattedText = withTimeoutOrNull(2_200L) {
+        // STEP 4: Fast Formatting & Post-Processing on Dispatchers.IO (max 3s timeout)
+        val formattedText = withTimeoutOrNull(3_000L) {
             formattingChain.formatSmartTranscript(
                 rawTranscript = rawTranscript,
                 fieldContext = fieldContext,
@@ -1205,11 +1372,21 @@ class FloatingBubbleService : Service() {
 
         val finalCleanText = formattedText.ifBlank { rawTranscript }
 
+        try {
+            FlowBanglaApp.instance.historyManager.updateRecord(
+                id = historyId,
+                text = finalCleanText,
+                rawTranscript = rawTranscript,
+                provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR" else "Groq Whisper"
+            )
+        } catch (_: Throwable) {}
+
         deliverFormattedTextToTargetApp(
             rawTranscript = rawTranscript,
             formattedText = finalCleanText,
-            durationSec = 0,
-            provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR" else "Groq Whisper"
+            durationSec = durationSec.toInt(),
+            provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR" else "Groq Whisper",
+            alreadySavedToHistory = true
         )
     }
 
@@ -1271,20 +1448,23 @@ class FloatingBubbleService : Service() {
         rawTranscript: String,
         formattedText: String,
         durationSec: Int = 0,
-        provenance: String = ""
+        provenance: String = "",
+        alreadySavedToHistory: Boolean = false
     ) {
         // Always save to History first so zero words are ever lost for user's father!
-        try {
-            FlowBanglaApp.instance.historyManager.addRecord(
-                DictationRecord(
-                    text = formattedText,
-                    durationSeconds = durationSec,
-                    isSuccess = true,
-                    rawTranscript = rawTranscript,
-                    provenance = provenance
+        if (!alreadySavedToHistory) {
+            try {
+                FlowBanglaApp.instance.historyManager.addRecord(
+                    DictationRecord(
+                        text = formattedText,
+                        durationSeconds = durationSec,
+                        isSuccess = true,
+                        rawTranscript = rawTranscript,
+                        provenance = provenance
+                    )
                 )
-            )
-        } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+        }
 
         // Track last dictation pair for 1-tap Undo AI Edit
         if (rawTranscript.isNotBlank() && rawTranscript.trim() != formattedText.trim()) {
@@ -1367,16 +1547,41 @@ class FloatingBubbleService : Service() {
     }
 
     private fun updateUiState(state: TranscriptionState) {
-        updateBubbleDimensionsForState(state)
-        canvasView?.setState(state)
-        val stripState = when (state) {
-            is TranscriptionState.Idle -> KeyboardStripOverlayController.StripState.IDLE
-            is TranscriptionState.Recording -> KeyboardStripOverlayController.StripState.RECORDING
-            is TranscriptionState.Processing -> KeyboardStripOverlayController.StripState.PROCESSING
-            is TranscriptionState.Success -> KeyboardStripOverlayController.StripState.INSERTED
-            is TranscriptionState.Error -> KeyboardStripOverlayController.StripState.IDLE
+        if (state is TranscriptionState.Idle) {
+            activeTriggerSurface = TriggerSurface.NONE
         }
-        TextInjectorAccessibilityService.instance?.updateKeyboardChipState(stripState)
+
+        val isInlineActive = activeTriggerSurface == TriggerSurface.INLINE_BAR
+        val isFloatingActive = activeTriggerSurface == TriggerSurface.FLOATING_MIC
+
+        if (isInlineActive) {
+            // Started from Inline Bar: expand inline bar, hide floating mic during recording/processing
+            setOverlayViewVisibility(false)
+            val stripState = when (state) {
+                is TranscriptionState.Idle -> KeyboardStripOverlayController.StripState.IDLE
+                is TranscriptionState.Recording -> KeyboardStripOverlayController.StripState.RECORDING
+                is TranscriptionState.Processing -> KeyboardStripOverlayController.StripState.PROCESSING
+                is TranscriptionState.Success -> KeyboardStripOverlayController.StripState.INSERTED
+                is TranscriptionState.Error -> KeyboardStripOverlayController.StripState.IDLE
+            }
+            TextInjectorAccessibilityService.instance?.updateKeyboardChipState(stripState)
+        } else if (isFloatingActive) {
+            // Started from Floating Mic: expand floating pod, keep inline bar IDLE
+            updateBubbleDimensionsForState(state)
+            canvasView?.setState(state)
+            TextInjectorAccessibilityService.instance?.updateKeyboardChipState(KeyboardStripOverlayController.StripState.IDLE)
+        } else {
+            updateBubbleDimensionsForState(state)
+            canvasView?.setState(state)
+            val stripState = when (state) {
+                is TranscriptionState.Idle -> KeyboardStripOverlayController.StripState.IDLE
+                is TranscriptionState.Recording -> KeyboardStripOverlayController.StripState.RECORDING
+                is TranscriptionState.Processing -> KeyboardStripOverlayController.StripState.PROCESSING
+                is TranscriptionState.Success -> KeyboardStripOverlayController.StripState.INSERTED
+                is TranscriptionState.Error -> KeyboardStripOverlayController.StripState.IDLE
+            }
+            TextInjectorAccessibilityService.instance?.updateKeyboardChipState(stripState)
+        }
         applyVisibilityRule()
     }
 

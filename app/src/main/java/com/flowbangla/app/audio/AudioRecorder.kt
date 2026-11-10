@@ -31,14 +31,56 @@ class AudioRecorder(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val isRecording = AtomicBoolean(false)
 
+    @Volatile
+    private var latestRawAmplitude: Int = 0
+
     var onAmplitudeChanged: ((amplitude: Float, durationMs: Long) -> Unit)? = null
     var onPcmChunkAvailable: ((bytes: ByteArray, length: Int) -> Unit)? = null
     var onRollingPauseDetected: ((segmentFile: File) -> Unit)? = null
+
+    private fun getRecordingsDir(): File {
+        val dir = File(context.filesDir, "flow_recordings")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    private fun pruneOldRecordings() {
+        try {
+            val dir = File(context.filesDir, "flow_recordings")
+            if (dir.exists()) {
+                val files = dir.listFiles { f -> f.extension in listOf("m4a", "wav") } ?: emptyArray()
+                if (files.size > 5) {
+                    files.sortByDescending { it.lastModified() }
+                    for (i in 5 until files.size) {
+                        try { files[i].delete() } catch (_: Throwable) {}
+                    }
+                }
+            }
+            // Clean up any old orphaned cache files
+            val cacheFiles = context.cacheDir.listFiles { f ->
+                (f.name.startsWith("dictation_") || f.name.startsWith("chunk_")) && f.extension in listOf("m4a", "wav")
+            } ?: emptyArray()
+            for (f in cacheFiles) {
+                try { f.delete() } catch (_: Throwable) {}
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Prune recordings warning: ${t.message}")
+        }
+    }
+
+    fun getCurrentAmplitude(): Int {
+        return try {
+            fallbackMediaRecorder?.maxAmplitude?.takeIf { it > 0 } ?: latestRawAmplitude
+        } catch (_: Throwable) {
+            latestRawAmplitude
+        }
+    }
 
     @SuppressLint("MissingPermission")
     @Synchronized
     fun startRecording(): Result<File> {
         stopRecordingInternal()
+        pruneOldRecordings()
 
         // 1. Primary: MediaRecorder (24kHz 64kbps AAC .m4a) for lightweight, exclusive, fast-upload audio capture
         val m4aResult = startMediaRecorderFallback()
@@ -47,7 +89,7 @@ class AudioRecorder(private val context: Context) {
         }
 
         // 2. Secondary: Fallback to AudioRecord (WAV) if MediaRecorder is blocked
-        val outputFile = File(context.cacheDir, "dictation_${System.currentTimeMillis()}.wav")
+        val outputFile = File(getRecordingsDir(), "dictation_${System.currentTimeMillis()}.wav")
         currentOutputFile = outputFile
         startTimeMillis = System.currentTimeMillis()
 
@@ -113,6 +155,7 @@ class AudioRecorder(private val context: Context) {
                             val absVal = Math.abs(sample.toInt())
                             if (absVal > maxSample) maxSample = absVal
                         }
+                        latestRawAmplitude = maxSample
                         val normalizedAmp = (maxSample / 32767f).coerceIn(0f, 1f)
                         val elapsed = System.currentTimeMillis() - startTimeMillis
 
@@ -123,14 +166,13 @@ class AudioRecorder(private val context: Context) {
                         // Stream live PCM chunk to WebSocket
                         onPcmChunkAvailable?.invoke(buffer, bytesRead)
 
-                        // Rolling VAD chunk detection:
-                        // If speech >= 8000ms and silence pause >= 350ms, slice completed chunk
+                        // Rolling VAD chunk detection
                         val isVoiced = normalizedAmp > 0.08f
                         if (isVoiced) {
                             speechDurationMs += 120L
                             silenceDurationMs = 0L
                             if (segmentChunkFos == null) {
-                                segmentChunkFile = File(context.cacheDir, "chunk_${System.currentTimeMillis()}.wav")
+                                segmentChunkFile = File(getRecordingsDir(), "chunk_${System.currentTimeMillis()}.wav")
                                 segmentChunkFos = FileOutputStream(segmentChunkFile)
                                 segmentChunkFos?.write(ByteArray(44))
                                 segmentPcmBytes = 0L
@@ -141,7 +183,6 @@ class AudioRecorder(private val context: Context) {
                             if (speechDurationMs >= 8000L) {
                                 silenceDurationMs += 120L
                                 if (silenceDurationMs >= 350L) {
-                                    // Natural breath pause detected after >= 8s speech!
                                     segmentChunkFos?.flush()
                                     segmentChunkFos?.close()
                                     segmentChunkFos = null
@@ -217,7 +258,7 @@ class AudioRecorder(private val context: Context) {
     }
 
     private fun startMediaRecorderFallback(): Result<File> {
-        val outputFile = File(context.cacheDir, "dictation_${System.currentTimeMillis()}.m4a")
+        val outputFile = File(getRecordingsDir(), "dictation_${System.currentTimeMillis()}.m4a")
         currentOutputFile = outputFile
 
         val mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -260,6 +301,7 @@ class AudioRecorder(private val context: Context) {
             while (isActive && isRecording.get() && fallbackMediaRecorder != null) {
                 try {
                     val maxAmp = fallbackMediaRecorder?.maxAmplitude ?: 0
+                    latestRawAmplitude = maxAmp
                     val normalized = (maxAmp / 32767f).coerceIn(0f, 1f)
                     val elapsed = System.currentTimeMillis() - startTimeMillis
                     withContext(Dispatchers.Main) {
@@ -316,6 +358,23 @@ class AudioRecorder(private val context: Context) {
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Error stopping recorder on IO", t)
+            null
+        }
+    }
+
+    /**
+     * Seamlessly rotates recording to a new chunk file in < 25ms so user continues speaking uninterrupted.
+     */
+    suspend fun rotateRecordingFileSafelyIo(): File? = withContext(Dispatchers.IO) {
+        try {
+            val finishedFile = stopRecordingSafelyIo()
+            val startResult = startRecording()
+            if (startResult.isFailure) {
+                Log.w(TAG, "rotateRecordingFileSafelyIo: new chunk start failed: ${startResult.exceptionOrNull()?.message}")
+            }
+            finishedFile
+        } catch (t: Throwable) {
+            Log.e(TAG, "rotateRecordingFileSafelyIo failed", t)
             null
         }
     }
