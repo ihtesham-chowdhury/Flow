@@ -124,4 +124,38 @@ class KeyboardStripOverlayTest {
         assertFalse(shouldExpandInlineBar(ActiveTrigger.FLOATING_MIC, "RECORDING"))
         assertTrue(shouldExpandFloatingMic(ActiveTrigger.FLOATING_MIC, "RECORDING"))
     }
+
+    @Test
+    fun test3ZoneInStripBarCenteringMath() {
+        val density = 2.5f
+        val w = 360f * density // 900px
+        val h = 36f * density // 90px
+        val pad = 1.5f * density
+        val sideBtnW = 38f * density
+        val sideInset = 3f * density
+        val cancelRight = pad + sideInset + sideBtnW
+        val confirmLeft = w - pad - sideInset - sideBtnW
+
+        val availableCenterStart = cancelRight + 6f * density
+        val availableCenterEnd = confirmLeft - 6f * density
+        val availableWidth = availableCenterEnd - availableCenterStart
+
+        val dotSize = 6f * density
+        val gap = 8f * density
+        val timerW = 25f * density
+        val statusW = 45f * density
+        val barCount = 13
+        val barSpacing = 3.2f * density
+        val waveformTotalW = barCount * barSpacing
+
+        val totalClusterW = dotSize + (6f * density) + timerW + gap + waveformTotalW + gap + statusW
+        val centeredCursorX = availableCenterStart + ((availableWidth - totalClusterW) / 2f)
+
+        // Verify cluster is strictly inside available bounds and centered
+        assertTrue(centeredCursorX >= availableCenterStart)
+        assertTrue(centeredCursorX + totalClusterW <= availableCenterEnd)
+        val leftMargin = centeredCursorX - availableCenterStart
+        val rightMargin = availableCenterEnd - (centeredCursorX + totalClusterW)
+        assertEquals(leftMargin, rightMargin, 0.01f)
+    }
 }

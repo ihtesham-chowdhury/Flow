@@ -136,6 +136,10 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_ENABLE_LIVE_PREVIEW, false)
         set(value) = prefs.edit().putBoolean(KEY_ENABLE_LIVE_PREVIEW, value).apply()
 
+    var enableLiveTranscriptionPreview: Boolean
+        get() = prefs.getBoolean(KEY_ENABLE_LIVE_TRANSCRIPTION_PREVIEW, true)
+        set(value) = prefs.edit().putBoolean(KEY_ENABLE_LIVE_TRANSCRIPTION_PREVIEW, value).apply()
+
     var downloadedLocalModelPath: String?
         get() = prefs.getString(KEY_DOWNLOADED_LOCAL_MODEL_PATH, null)
         set(value) = prefs.edit().putString(KEY_DOWNLOADED_LOCAL_MODEL_PATH, value).apply()
@@ -232,6 +236,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_STT_LANGUAGE = "stt_language"
         private const val KEY_DOUBLE_TAP_LANG_TOGGLE = "double_tap_lang_toggle"
         private const val KEY_ENABLE_LIVE_PREVIEW = "enable_live_preview"
+        private const val KEY_ENABLE_LIVE_TRANSCRIPTION_PREVIEW = "enable_live_transcription_preview"
         private const val KEY_DOWNLOADED_LOCAL_MODEL_PATH = "downloaded_local_model_path"
         private const val KEY_PERSONAL_VOCABULARY = "personal_vocabulary"
         private const val KEY_AUTO_CLEANUP_LEVEL = "auto_cleanup_level"

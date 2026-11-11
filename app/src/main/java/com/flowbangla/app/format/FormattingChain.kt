@@ -120,14 +120,16 @@ class FormattingChain(
 
         // Single-Pass Smart Mode: gemini-3.5-transcribe and gemini-3.5-transcribe-live
         // natively punctuate, strip disfluencies, and correct inline speech.
-        // If no complex multi-item backtrack cues exist, format locally in <2ms!
+        // For short simple phrases (<= 4 words) without complex cues or when smart polish is off,
+        // format locally in <2ms. For dictations > 4 words with smart polish enabled, run the full LLM pass!
+        val wordCount = workingTranscript.trim().split(Regex("\\s+")).count { it.isNotBlank() }
         val isSmartCandidate = isSmartMode &&
             (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE || recognitionSource == RecognitionSource.GEMINI_LIVE_STREAM) &&
             prefs.engineMode == EngineMode.CLOUD_AUDIO
 
         val hasComplexBacktrack = BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(workingTranscript)
 
-        if (isSmartCandidate && !hasComplexBacktrack) {
+        if (isSmartCandidate && !hasComplexBacktrack && (!prefs.smartPolishEnabled || prefs.autoCleanupLevel == AutoCleanupLevel.NONE || wordCount <= 4)) {
             val resolvedBacktracks = LocalBacktrackResolver.resolveOfflineBacktracks(workingTranscript)
             val postProcessed = TranscriptPostProcessor.process(resolvedBacktracks, numeralPreference = plan.numeralPreference)
             val dictionaryCleaned = applyDictionaryReplacementsSafely(postProcessed)

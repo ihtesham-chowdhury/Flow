@@ -92,6 +92,7 @@ class FloatingBubbleService : Service() {
 
     private var liveTranscribeStreamer: com.flowbangla.app.api.GeminiLiveTranscribeStreamer? = null
     private var rollingChunkTranscriber: com.flowbangla.app.audio.RollingChunkTranscriber? = null
+    private var livePreviewController: LiveTranscriptionPreviewController? = null
     private var activeDictationJob: Job? = null
     private var processingWatchdogJob: Job? = null
 
@@ -138,6 +139,7 @@ class FloatingBubbleService : Service() {
         setupFloatingBubble()
         setupDismissTargetView()
         setupLivePreviewPill()
+        livePreviewController = LiveTranscriptionPreviewController(this, FlowBanglaApp.instance.preferencesManager)
         setupPendingPasteBanner()
         setupKeyboardListener()
         TextInjectorAccessibilityService.instance?.requestImmediateKeyboardSync()
@@ -159,6 +161,8 @@ class FloatingBubbleService : Service() {
         audioRecorder.onAmplitudeChanged = { amp, _ ->
             if (currentState is TranscriptionState.Recording) {
                 canvasView?.setVoiceAmplitude(amp)
+                val elapsedSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).toInt().coerceAtLeast(0)
+                TextInjectorAccessibilityService.instance?.pushAmplitudeSampleToStrip(amp, elapsedSec)
             }
         }
 
@@ -167,9 +171,17 @@ class FloatingBubbleService : Service() {
             onAmplitudeChanged = { normalizedAmp ->
                 if (currentState is TranscriptionState.Recording) {
                     canvasView?.updateAmplitude(normalizedAmp)
+                    val elapsedSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).toInt().coerceAtLeast(0)
+                    TextInjectorAccessibilityService.instance?.pushAmplitudeSampleToStrip(normalizedAmp, elapsedSec)
                 }
             },
             onPartialTranscript = { partialText ->
+                val anchorY = if (activeTriggerSurface == TriggerSurface.INLINE_BAR) {
+                    prefs.verifiedImeTopYPortrait
+                } else {
+                    windowParams.y
+                }
+                livePreviewController?.updateLiveText(partialText, anchorY)
                 if (prefs.isLivePreviewEnabled) {
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastPreviewUpdateMs >= 250L) {
@@ -179,10 +191,12 @@ class FloatingBubbleService : Service() {
                 }
             },
             onFinalTranscript = { rawTranscript ->
+                livePreviewController?.hide()
                 hideThrottledPreviewText()
                 processOnDeviceTranscript(rawTranscript)
             },
             onErrorOccurred = { errorMsg ->
+                livePreviewController?.hide()
                 hideThrottledPreviewText()
                 handleError(errorMsg)
             }
@@ -271,6 +285,8 @@ class FloatingBubbleService : Service() {
         liveTranscribeStreamer?.cancelAndClose()
         rollingChunkTranscriber?.cancelAll()
         TextInjectorAccessibilityService.instance?.onKeyboardVisibilityChanged = null
+        livePreviewController?.detach()
+        livePreviewController = null
         removeFloatingBubble()
         onDeviceRecognizer.release()
         formattingChain.release()
@@ -830,6 +846,7 @@ class FloatingBubbleService : Service() {
     fun onUserConfirmDictation() {
         if (currentState !is TranscriptionState.Recording) return
         vibrateShort()
+        livePreviewController?.hide()
         autoCheckpointJob?.cancel()
         autoCheckpointJob = null
 
@@ -901,6 +918,7 @@ class FloatingBubbleService : Service() {
 
     fun onUserCancelDictation() {
         vibrateShort()
+        livePreviewController?.hide()
         autoCheckpointJob?.cancel()
         autoCheckpointJob = null
         processingWatchdogJob?.cancel()
@@ -1134,6 +1152,12 @@ class FloatingBubbleService : Service() {
         vibrateShort()
         currentState = TranscriptionState.Recording()
         updateUiState(currentState)
+        val anchorY = if (activeTriggerSurface == TriggerSurface.INLINE_BAR) {
+            prefs.verifiedImeTopYPortrait
+        } else {
+            windowParams.y
+        }
+        livePreviewController?.updateLiveText("", anchorY)
     }
 
     private fun startAutoCheckpointMonitor() {
@@ -1217,20 +1241,21 @@ class FloatingBubbleService : Service() {
     }
 
     private suspend fun executeDictationPipelineIo() {
-        val prefs = FlowBanglaApp.instance.preferencesManager
+        try {
+            val prefs = FlowBanglaApp.instance.preferencesManager
 
-        // STEP 1: Stop AudioRecorder strictly on Dispatchers.IO (max 1.5s timeout)
-        val recordedFile = withTimeoutOrNull(1_500L) {
-            audioRecorder.stopRecordingSafelyIo()
-        }
-
-        if (recordedFile == null || !recordedFile.exists() || recordedFile.length() < 256L) {
-            withContext(Dispatchers.Main) {
-                currentState = TranscriptionState.Idle
-                updateUiState(currentState)
+            // STEP 1: Stop AudioRecorder strictly on Dispatchers.IO (max 1.5s timeout)
+            val recordedFile = withTimeoutOrNull(1_500L) {
+                audioRecorder.stopRecordingSafelyIo()
             }
-            return
-        }
+
+            if (recordedFile == null || !recordedFile.exists() || recordedFile.length() < 256L) {
+                withContext(Dispatchers.Main) {
+                    currentState = TranscriptionState.Idle
+                    updateUiState(currentState)
+                }
+                return
+            }
 
         val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
         val asrTimeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)
@@ -1388,6 +1413,15 @@ class FloatingBubbleService : Service() {
             provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR" else "Groq Whisper",
             alreadySavedToHistory = true
         )
+        } finally {
+            withContext(NonCancellable + Dispatchers.Main) {
+                if (currentState !is TranscriptionState.Idle) {
+                    currentState = TranscriptionState.Idle
+                    updateUiState(currentState)
+                }
+                livePreviewController?.hide()
+            }
+        }
     }
 
     private fun processOnDeviceTranscript(rawTranscript: String) {
@@ -1547,6 +1581,10 @@ class FloatingBubbleService : Service() {
     }
 
     private fun updateUiState(state: TranscriptionState) {
+        if (state !is TranscriptionState.Recording) {
+            livePreviewController?.hide()
+        }
+
         if (state is TranscriptionState.Idle) {
             activeTriggerSurface = TriggerSurface.NONE
         }

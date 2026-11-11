@@ -1,4 +1,4 @@
-# Flow v3.9.0 (Complete Stabilization, Auto-Checkpoint Long Dictation, True Gboard Strip Lock & Senior Art Director Polish)
+# Flow v4.0.0 (Studio Inline Bar Symmetry, Claude-Style Live Transcription Preview, Instant Keyboard-Close Hide & Precision Formatting)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly inside **Gboard's suggestion bar** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,45 +7,38 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v3.9.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v3.9.0/Flow-v3.9.0.apk)**  
-  *(Complete Stabilization: Autofill Removed / Password Manager Conflict Solved, Self-Calibrating Coordinate Lock on Gboard Strip, Argon-Style 45s Auto-Checkpoint Long Dictation, 7-Bar Equalizer & Ink & Danda Studio Polish)*
+* **[Flow-v4.0.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v4.0.0/Flow-v4.0.0.apk)**  
+  *(Studio Inline Bar Symmetry, Claude-Style Live Transcription Preview, Instant Keyboard-Close Hide & Precision Formatting)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
 
 ---
 
-## 🚀 What's New in v3.9.0 (Complete Stabilization & Auto-Checkpoint Engine)
+## 🚀 What's New in v4.0.0 (Live Streaming Preview & Studio Inline Bar)
 
-1. **Password Manager Safety: AutofillService Removed — Accessibility Inline Bar Kept**:
-   - Removed Android `AutofillService` registration and all "Bitwarden" branding, eliminating conflicts that previously disabled users' password managers (Bitwarden / Google Password Manager).
-   - Flow's sleek inline keyboard bar is hosted strictly inside `TextInjectorAccessibilityService` (`TYPE_ACCESSIBILITY_OVERLAY`), delivering the exact same unkillable 24/7 OS priority across all apps (YouTube, WhatsApp, Facebook, Notes) without hijacking system autofill.
-2. **Self-Calibrating Coordinate Lock (Zero Vertical Drift onto Number Keys)**:
-   - Fixed the issue where opening and closing the keyboard 2–3 times caused the inline bar to drop 42dp lower onto the number keys (`1 2 3 4 5 6 7 8 9 0`).
-   - Removed the stale `0.62f * screenHeight` fallback and 10-second touch timer.
-   - Implemented `computeExactInStripParamsY` using `view.getLocationOnScreen` frame-offset calibration and persisted `verifiedImeTopYPortrait` in SharedPreferences. Combined with `LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS`, the bar is pixel-locked to `verifiedImeTopY + 4dp` across 100+ open/close cycles.
-3. **Instant Keyboard Close Dismissal**:
-   - Solved the inline bar floating in mid-air when Gboard was closed.
-   - Implemented a 3-point check (`+60ms`, `+220ms`, `+420ms`) on `TYPE_WINDOWS_CHANGED`, `TYPE_WINDOW_STATE_CHANGED`, and `onFinishInput()`.
-   - Transitioning to `StripState.IDLE` immediately evaluates keyboard visibility so the bar disappears the moment the keyboard closes.
-4. **Fix for Lost 3–5 Minute Recordings**:
-   - Relocated audio storage from `cacheDir` to `filesDir/flow_recordings/` with automatic ring-buffer pruning (keeping newest 5 files; ~8 MB total footprint).
-   - Dynamically scaled ASR network timeout: `timeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)` with watchdog at `timeoutMs + 10_000L`.
-   - Raw transcript is saved to History and clipboard *before* formatting runs. On ASR failure, a failed record with audio path is preserved in History for 1-tap retry.
-5. **Argon-Style 45-Second Auto-Checkpoint & Live Auto-Insert Engine**:
-   - While dictating long thoughts, Flow monitors amplitude and elapsed duration.
-   - At $\ge 45\text{s}$ pause (or $58\text{s}$ hard cap), `AudioRecorder` seamlessly rotates chunk files in $< 25\text{ms}$ while recording continues without interruption.
-   - Slices, transcribes, and inserts the 45-second chunk directly into the active text box (and saves to History + clipboard) in the background while the user keeps speaking!
-6. **Active Trigger Surface Exclusivity (Fix for Duplicate Recording Bars)**:
-   - In "Both" mode, tracks which trigger started recording (`INLINE_BAR` vs. `FLOATING_MIC`).
-   - Only the tapped surface expands into the recording pod; the competing surface remains hidden during `RECORDING` and `PROCESSING`.
-7. **Guaranteed Android 10–15 Clipboard Write & YouTube/Facebook Comment Focus Fix**:
-   - Implemented `copyToClipboardGuaranteed` which briefly toggles `FLAG_NOT_FOCUSABLE` off for 15ms if Android's background clipboard restriction triggers.
-   - Preserved candidate node caching in `onAccessibilityEvent` during `RECORDING` and `PROCESSING` and snapshot `recordingTargetNode` at dictation start.
-8. **Senior Art Director "Ink & Danda" Studio Polish on Inline Bar**:
-   - **IDLE**: 76dp x 34dp pill at `verifiedImeTopY + 4dp` (`#23262B` surface, 1dp `#383D46` specular rim), left Danda-Mic vector with Vermilion accent dot (tap to record), right `#2E323B` inner language pill (single-tap toggles `বাং` ↔ `EN`).
-   - **RECORDING**: In-strip pod (`52dp` to `screenW - 52dp`, 36dp height), 30dp `#2C3036` `✕` Cancel disc, live timer, 7-bar animated Vermilion equalizer, 38dp x 30dp Sage `✓` confirm pill.
-   - **PROCESSING**: Left `✕` disc, Ochre indicator, formatting text.
-   - **INSERTED**: Sage `#8FBF9F` flash (`✓ লেখা বসেছে` / `✓ Inserted`).
-9. **Crash Prevention**: Wrapped `ConnectivityLabRunner.runThreeStageTest` in a top-level try/catch on `Dispatchers.IO` so testing keys never closes the app.
+1. **Strict Physical Window Rule for Instant Inline Bar Hide**:
+   - Solved the bug where the Inline Keyboard Bar stayed floating over the screen when Gboard closed.
+   - `KeyboardVisibilityDetector` now enforces `isPhysicalKeyboardOnScreen`: strictly true ONLY when a physical `TYPE_INPUT_METHOD` or known keyboard window is on screen with `height >= 115dp`.
+   - The inline bar hides (`View.GONE`) instantly (< 40ms) when Gboard slides down.
+2. **Studio-Balanced 3-Zone In-Strip Bar Layout & Guaranteed Synchronous Expansion**:
+   - Solved cramped left-aligned layout and failure to expand on tap.
+   - **Left Zone**: `38dp` Cancel disc (`✕`).
+   - **Center Zone**: Mathematically centered `[ 🔴 0:12 • 13-Bar Symmetric Waveform • Listening/শুনছি ]` anchored at `availableCenterStart + (availableWidth - totalClusterW) / 2f`.
+   - **Right Zone**: `38dp` Sage Confirm pill (`✓`).
+   - Floating mic pod kept compact (`136dp`, no timer) while showing the full timer on the wider Inline Keyboard Bar.
+   - Tapping IDLE chip immediately transitions to `RECORDING` and synchronously expands view layout before recording starts.
+3. **Independent Active Trigger Surface Expansion**:
+   - Tapping Inline Chip expands ONLY the Inline Bar and hides Floating Mic until IDLE.
+   - Tapping Floating Mic expands ONLY the Floating Pod and keeps Inline Bar IDLE.
+4. **Claude-Inspired Live Real-Time Speech-to-Text Preview**:
+   - Sleek translucent Obsidian card (`#F0111316`, `16dp` corner radius, `1dp` `#2A2E33` border) floating above active recording bar.
+   - Editorial Italic Serif typography (`15.5sp`, `#D5D8DF`, `maxLines = 3`, `TruncateAt.START`) streaming partial speech in real time.
+   - Toggleable in Settings under "Voice and polish" (`enableLiveTranscriptionPreview`, default: `true`).
+5. **Verified IME Commit & Unstuck Spinner Fix**:
+   - Implemented `commitViaAccessibilityImeVerified(nfcText)` which checks `ic.getSurroundingText(30, 30, 0)` before and 45ms after `commitText()`. If text didn't change, immediately falls through to Tier 1 (`ACTION_PASTE`) and Tier 2 (`ACTION_SET_TEXT`).
+   - Wrapped `executeDictationPipelineIo()` in a mandatory `finally { withContext(NonCancellable + Dispatchers.Main) { currentState = Idle; updateUiState(...); livePreviewController?.hide() } }` so the spinner can NEVER stay stuck.
+6. **Full AI Formatting Pass & Dictionary Pre-Seeding**:
+   - Restored full LLM formatting pass (`gemini-3.5-flash-lite` / Groq `llama-3.3-70b-versatile`) with `WISPR_FLOW_CORE_SYSTEM_PROMPT` for dictations $> 4$ words when smart polish is enabled.
+   - Pre-seeded `"Flow app" -> "floor app"`, `"Wispr Flow" -> "whisper flow"`, `"Flow" -> "floor"` in `PersonalDictionaryManager`.
 
 ---
 

@@ -69,12 +69,24 @@ object PersonalDictionaryReplacer {
 
 class PersonalDictionaryManager(context: Context) {
 
+    companion object {
+        val DEFAULT_ENTRIES = listOf(
+            DictionaryEntry(word = "Flow app", misspelling = "floor app"),
+            DictionaryEntry(word = "Wispr Flow", misspelling = "whisper flow"),
+            DictionaryEntry(word = "Flow", misspelling = "floor")
+        )
+    }
+
     private val prefs = context.getSharedPreferences("flow_personal_dictionary", Context.MODE_PRIVATE)
 
     fun getAllEntries(): List<DictionaryEntry> {
-        val raw = prefs.getString("entries_json", "[]") ?: "[]"
+        val raw = prefs.getString("entries_json", null)
+        if (raw == null) {
+            saveEntries(DEFAULT_ENTRIES)
+            return DEFAULT_ENTRIES
+        }
         val arr = try { JSONArray(raw) } catch (_: Exception) { JSONArray() }
-        return (0 until arr.length()).mapNotNull { idx ->
+        val loaded = (0 until arr.length()).mapNotNull { idx ->
             val obj = arr.optJSONObject(idx) ?: return@mapNotNull null
             val w = obj.optString("word", "").trim().take(60)
             if (w.isEmpty()) return@mapNotNull null
@@ -85,7 +97,14 @@ class PersonalDictionaryManager(context: Context) {
                 autoLearned = obj.optBoolean("autoLearned", false),
                 updatedAtMs = obj.optLong("updatedAtMs", 0L)
             )
+        }.toMutableList()
+
+        for (defaultEntry in DEFAULT_ENTRIES) {
+            if (loaded.none { it.word.equals(defaultEntry.word, ignoreCase = true) && (it.misspelling ?: "").equals(defaultEntry.misspelling ?: "", ignoreCase = true) }) {
+                loaded.add(defaultEntry)
+            }
         }
+        return loaded
     }
 
     fun addOrUpdateEntry(word: String, misspelling: String? = null, autoLearned: Boolean = false) {

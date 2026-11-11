@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 3.9.0 (Build 19)  
-> **Last Updated**: November 10, 2026  
-> **Status**: Production Release (`Flow-v3.9.0.apk` active)  
+> **Document Version**: 4.0.0 (Build 20)  
+> **Last Updated**: November 11, 2026  
+> **Status**: Production Release (`Flow-v4.0.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -253,7 +253,35 @@
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
 
-### Phase 17: v3.9.0 (Build 19) — Complete Stabilization, Auto-Checkpoint Long Dictation, True Gboard Strip Lock & Senior Art Director Polish (Current Release)
+### Phase 18: v4.0.0 (Build 20) — Studio Inline Bar Symmetry, Claude-Style Live Transcription Preview, Instant Keyboard-Close Hide & Precision Formatting (Current Release)
+- **Strict Physical Window Rule for Instant Inline Bar Dismissal (`00:26` Bug in `1000376722.mp4`)**:
+  - *Root Cause*: In `KeyboardVisibilityDetector`, Signal 3 (`isImeInputStarted && hasActiveEditableFocus`) continued returning `isKeyboardVisible = true` when Gboard was closed via bottom-left `∨` hide button because Android preserves `EditText` focus and open `InputConnection`.
+  - *Architectural Fix*: Introduced `isPhysicalKeyboardOnScreen` boolean in `KeyboardStateSnapshot`, strictly true ONLY when physical `TYPE_INPUT_METHOD` or known keyboard package window is present with `height >= 115dp` (or HyperOS empty-windows bottom gap $\ge 160\text{dp}$).
+  - Wired `KeyboardStripOverlayController` to use `snapshot.isPhysicalKeyboardOnScreen` exclusively, hiding the bar (`View.GONE`) instantly (< 40ms) when Gboard closes.
+- **Studio-Balanced 3-Zone In-Strip Recording Bar**:
+  - *Root Cause of Cramped Layout*: Hardcoded left offsets caused timer, waveform, and status text to bunch up on the left side. Also, tapping IDLE pill did not synchronously call `syncStripBoundsAndVisibility()` before `onStartRecording()`.
+  - *Fix*: Implemented mathematically centered 3-zone layout in `InStripChipView`: Left `38dp` Cancel disc (`✕`), mathematically centered cluster `[ 🔴 0:12 • 13-Bar Symmetric Waveform • Listening/শুনছি ]` anchored at `availableCenterStart + (availableWidth - totalClusterW) / 2f`, and Right `38dp` Sage Confirm pill (`✓`).
+  - Added `pushAmplitudeSample(normAmp, elapsedSec)` with symmetric 13-bar organic ripple updated every 80ms.
+  - In `onTouchEvent`, immediately calls `setState(StripState.RECORDING)` on tap when IDLE before starting recording, guaranteeing synchronous expansion.
+  - Kept Floating Mic pod compact (`136dp`, no timer) while showing the full timer (`0:12`) on the wider Inline Keyboard Bar.
+- **Independent Trigger Surface Expansion**:
+  - Tapping Inline Keyboard Chip expands ONLY the Inline Bar and temporarily hides the Floating Mic until IDLE.
+  - Tapping Floating Mic expands ONLY the Floating Pod and keeps Inline Bar IDLE.
+- **Claude-Style Real-Time Live Transcription Preview (`1000376730.mp4`)**:
+  - Created `LiveTranscriptionPreviewController` rendering an Obsidian translucent card (`#F0111316`, `16dp` corner radius, `1dp` `#2A2E33` border) floating above active recording bar (`anchorTopY - measuredHeight - 10dp`).
+  - Editorial Italic Serif typography (`15.5sp`, `#D5D8DF`, `maxLines = 3`, `TruncateAt.START` so latest spoken words remain in view).
+  - Wired partial text from `OnDeviceSpeechRecognizer.onPartialResults` and `GeminiLiveTranscribeStreamer.onPartialTranscript`.
+  - Added user toggle in `MainActivity.kt` under "Voice and polish": `"Live transcription preview"` / `"লাইভ লেখা প্রিভিউ"` (default: `true`).
+- **Verified IME Commit & Unstuck Spinner Fix**:
+  - *Root Cause of Stuck Spinner & Failed Paste*: Android 13+ `AccessibilityInputConnection.commitText()` returns `Unit` (void), not boolean. When user tapped floating overlay, input connection was temporarily detached, causing `commitText()` to silently no-op while returning success and skipping `ACTION_PASTE`.
+  - *Fix 1*: Implemented `commitViaAccessibilityImeVerified(nfcText)` verifying `ic.getSurroundingText(30, 30, 0)` before and 45ms after `commitText()`. If surrounding text did not change, immediately falls through to Tier 1 (`ACTION_PASTE`) and Tier 2 (`ACTION_SET_TEXT`).
+  - *Fix 2*: Wrapped `executeDictationPipelineIo()` and `processOnDeviceTranscript()` in mandatory `finally { withContext(NonCancellable + Dispatchers.Main) { if (currentState !is TranscriptionState.Idle) { currentState = Idle; updateUiState(...) }; livePreviewController?.hide() } }`, guaranteeing spinner never stays stuck.
+- **Precision AI Formatting Pass & Dictionary Pre-Seeding**:
+  - Removed single-pass local rules bypass for dictations $> 4$ words when `smartPolishEnabled == true` and `autoCleanupLevel != NONE`. Restores full LLM formatting pass (`gemini-3.5-flash-lite` / Groq `llama-3.3-70b-versatile` with `WISPR_FLOW_CORE_SYSTEM_PROMPT` and 2800ms timeout) so self-corrections and lists are polished cleanly.
+  - Pre-seeded `"Flow app" -> "floor app"`, `"Wispr Flow" -> "whisper flow"`, `"Flow" -> "floor"` in `PersonalDictionaryManager`.
+- **100% Passing Unit Tests & Release Build (87 unit tests passing)**.
+
+### Phase 17: v3.9.0 (Build 19) — Complete Stabilization, Auto-Checkpoint Long Dictation, True Gboard Strip Lock & Senior Art Director Polish
 - **Architectural Verdict: Removal of System `AutofillService`**:
   - Android restricts users to one system Autofill provider at a time; registering Flow forced users to disable Bitwarden or Google Password Manager.
   - Furthermore, `isNativeInlineChipActiveOnCurrentField` stuck on the first text field, hiding Flow's own overlay on subsequent fields.

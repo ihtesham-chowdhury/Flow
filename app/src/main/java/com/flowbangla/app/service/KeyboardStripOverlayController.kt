@@ -27,7 +27,7 @@ import kotlin.math.sin
 typealias ChipState = KeyboardStripOverlayController.StripState
 
 /**
- * Flow v3.9.0 — Senior Art Director "Ink & Danda" Studio Polish.
+ * Flow v4.0.0 — Studio Inline Bar Symmetry & Balanced 3-Zone Layout.
  * Renders Flow's voice trigger and recording controls DIRECTLY INSIDE Gboard / Samsung Keyboard's
  * suggestion strip (at `y = verifiedImeTopY + 4dp`), locked against coordinate drift.
  *
@@ -146,6 +146,10 @@ class KeyboardStripOverlayController(
         }
     }
 
+    fun pushAmplitudeSample(normAmp: Float, elapsedSec: Int) {
+        stripView?.pushAmplitudeSample(normAmp, elapsedSec)
+    }
+
     /**
      * Positions the chip STRICTLY INSIDE Gboard's top suggestion strip:
      * `y = verifiedImeTopY + 4dp` (NEVER guessing screenHeight * 0.62f!).
@@ -259,6 +263,18 @@ class KeyboardStripOverlayController(
                 }
             }
 
+        var recordingElapsedSeconds: Int = 0
+        var currentNormalizedAmplitude: Float = 0.15f
+        private val waveformHistory = FloatArray(15) { 0.18f }
+
+        fun pushAmplitudeSample(normAmp: Float, elapsedSec: Int) {
+            recordingElapsedSeconds = elapsedSec
+            currentNormalizedAmplitude = normAmp.coerceIn(0.08f, 1.0f)
+            System.arraycopy(waveformHistory, 1, waveformHistory, 0, waveformHistory.size - 1)
+            waveformHistory[waveformHistory.size - 1] = currentNormalizedAmplitude
+            invalidate()
+        }
+
         private var recordingStartMs = 0L
         private val tickerRunnable = object : Runnable {
             override fun run() {
@@ -312,15 +328,14 @@ class KeyboardStripOverlayController(
             super.onDraw(canvas)
             val w = width.toFloat()
             val h = height.toFloat()
-            val pad = 1f * density
+            val pad = 1.5f * density
             pillRect.set(pad, pad, w - pad, h - pad)
             val r = h / 2f
 
-            // Surface background per State
+            // 1. Studio Obsidian Capsule Background (#23262B in IDLE, #141619 in RECORDING/PROCESSING, #8FBF9F in INSERTED)
             bgPaint.color = when (currentState) {
                 StripState.INSERTED -> Color.parseColor("#8FBF9F")
-                StripState.RECORDING -> Color.parseColor("#1B1D21")
-                StripState.PROCESSING -> Color.parseColor("#22252A")
+                StripState.RECORDING, StripState.PROCESSING -> Color.parseColor("#141619")
                 else -> Color.parseColor("#23262B")
             }
             canvas.drawRoundRect(pillRect, r, r, bgPaint)
@@ -360,91 +375,129 @@ class KeyboardStripOverlayController(
                 }
 
                 StripState.RECORDING -> {
-                    // RECORDING: Pod with Cancel disc (✕), live timer, 7-bar equalizer, and Confirm pill (✓)
-                    // Left: 30dp Cancel disc (✕)
-                    val discSize = 28f * density
-                    val discPad = (h - discSize) / 2f
-                    cancelBounds.set(discPad, discPad, discPad + discSize, discPad + discSize)
-                    bgPaint.color = Color.parseColor("#2C3036")
-                    canvas.drawRoundRect(cancelBounds, discSize / 2f, discSize / 2f, bgPaint)
+                    val sideBtnW = 38f * density
+                    val sideInset = 3f * density
+                    cancelBounds.set(pad + sideInset, pad + sideInset, pad + sideInset + sideBtnW, h - pad - sideInset)
+                    confirmBounds.set(w - pad - sideInset - sideBtnW, pad + sideInset, w - pad - sideInset, h - pad - sideInset)
+                    val btnRadius = cancelBounds.height() / 2f
 
+                    // LEFT ZONE: Cancel (✕) Button
+                    bgPaint.color = Color.parseColor("#282C33")
+                    canvas.drawRoundRect(cancelBounds, btnRadius, btnRadius, bgPaint)
                     textPaint.color = Color.parseColor("#EEEBE3")
-                    textPaint.textSize = 12f * density
+                    textPaint.textSize = 13f * density
                     val xW = textPaint.measureText("✕")
                     canvas.drawText("✕", cancelBounds.centerX() - xW / 2f, textY, textPaint)
 
-                    // Center: Live Timer + 7-Bar Equalizer + Status
-                    val elapsedSec = ((SystemClock.elapsedRealtime() - recordingStartMs) / 1000L).coerceAtLeast(0L)
-                    val timerStr = String.format("%d:%02d", elapsedSec / 60, elapsedSec % 60)
-                    textPaint.color = Color.parseColor("#D5D8DF")
-                    textPaint.textSize = 11.5f * density
-                    val timerStartX = cancelBounds.right + 8f * density
-                    canvas.drawText(timerStr, timerStartX, textY, textPaint)
-
-                    // 7-bar Vermilion equalizer
-                    val timerW = textPaint.measureText(timerStr)
-                    val eqStartX = timerStartX + timerW + 8f * density
-                    val nowMs = SystemClock.elapsedRealtime()
-                    for (i in 0 until 7) {
-                        val phase = (nowMs / 120.0) + (i * 0.7)
-                        val barNorm = (sin(phase) * 0.45 + 0.55).toFloat().coerceIn(0.2f, 1.0f)
-                        val barH = (4f + barNorm * 12f) * density
-                        val barX = eqStartX + (i * 5.2f * density)
-                        val barTop = (h - barH) / 2f
-                        val barBottom = barTop + barH
-                        canvas.drawLine(barX, barTop, barX, barBottom, eqPaint)
-                    }
-
-                    // Optional short text if room permits
-                    val statusStr = if (isBangla) "শুনছি…" else "Listening…"
-                    val eqEndX = eqStartX + (7 * 5.2f * density) + 6f * density
-                    textPaint.color = Color.parseColor("#9EA3AB")
-                    textPaint.textSize = 11f * density
-                    val confirmW = 38f * density
-                    val rightConfirmLeft = w - discPad - confirmW
-                    if (rightConfirmLeft - eqEndX > textPaint.measureText(statusStr) + 8f * density) {
-                        canvas.drawText(statusStr, eqEndX, textY, textPaint)
-                    }
-
-                    // Right: 38dp x 30dp Confirm Pill (✓) in Sage (#8FBF9F)
-                    confirmBounds.set(rightConfirmLeft, discPad, rightConfirmLeft + confirmW, discPad + discSize)
+                    // RIGHT ZONE: Confirm (✓) Button in Sage (#8FBF9F)
                     bgPaint.color = Color.parseColor("#8FBF9F")
-                    val cr = discSize / 2f
-                    canvas.drawRoundRect(confirmBounds, cr, cr, bgPaint)
-
+                    canvas.drawRoundRect(confirmBounds, btnRadius, btnRadius, bgPaint)
                     textPaint.color = Color.parseColor("#0D0E10")
-                    textPaint.textSize = 14f * density
                     val tickW = textPaint.measureText("✓")
                     canvas.drawText("✓", confirmBounds.centerX() - tickW / 2f, textY, textPaint)
+
+                    // CENTER ZONE: Mathematically Centered [ 🔴 0:12  |  13-Bar Waveform  |  Listening ]
+                    val mins = recordingElapsedSeconds / 60
+                    val secs = recordingElapsedSeconds % 60
+                    val timerStr = String.format("%d:%02d", mins, secs)
+                    val statusStr = if (isBangla) "শুনছি" else "Listening"
+
+                    textPaint.textSize = 12f * density
+                    val timerW = textPaint.measureText(timerStr)
+                    val statusW = textPaint.measureText(statusStr)
+
+                    val dotSize = 6f * density
+                    val gap = 8f * density
+                    val barCount = 13
+                    val barSpacing = 3.2f * density
+                    val waveformTotalW = barCount * barSpacing
+
+                    val totalClusterW = dotSize + (6f * density) + timerW + gap + waveformTotalW + gap + statusW
+                    val availableCenterStart = cancelBounds.right + 6f * density
+                    val availableCenterEnd = confirmBounds.left - 6f * density
+                    val availableWidth = availableCenterEnd - availableCenterStart
+
+                    // Perfect horizontal center anchor inside the middle zone!
+                    var cursorX = availableCenterStart + ((availableWidth - totalClusterW) / 2f).coerceAtLeast(2f * density)
+
+                    // 1. Pulsing Vermilion Recording Dot
+                    bgPaint.color = Color.parseColor("#E8473A")
+                    canvas.drawCircle(cursorX + dotSize / 2f, h / 2f, dotSize / 2f, bgPaint)
+                    cursorX += dotSize + 6f * density
+
+                    // 2. Crisp Tabular Timer ('0:12')
+                    textPaint.color = Color.parseColor("#EEEBE3")
+                    canvas.drawText(timerStr, cursorX, textY, textPaint)
+                    cursorX += timerW + gap
+
+                    // 3. Claude-Style 13-Bar Symmetric Micro-Waveform
+                    val maxBarH = h * 0.56f
+                    val minBarH = 3.5f * density
+                    val centerIdx = barCount / 2
+                    for (i in 0 until barCount) {
+                        val distFromCenter = kotlin.math.abs(i - centerIdx).toFloat() / centerIdx.toFloat()
+                        val envelope = 1.0f - (distFromCenter * 0.45f)
+                        val sample = waveformHistory[(i + waveformHistory.size - barCount).coerceIn(0, waveformHistory.size - 1)]
+                        val barH = (minBarH + (maxBarH - minBarH) * sample * envelope).coerceIn(minBarH, maxBarH)
+                        val bx = cursorX + i * barSpacing
+                        val top = (h - barH) / 2f
+                        val bottom = (h + barH) / 2f
+                        iconPaint.color = Color.parseColor("#E8473A")
+                        iconPaint.strokeWidth = 1.8f * density
+                        canvas.drawLine(bx, top, bx, bottom, iconPaint)
+                    }
+                    cursorX += waveformTotalW + gap
+
+                    // 4. Status Label ('Listening' / 'শুনছি') in Muted Ivory
+                    textPaint.color = Color.parseColor("#B8BDC6")
+                    canvas.drawText(statusStr, cursorX, textY, textPaint)
                 }
 
                 StripState.PROCESSING -> {
-                    // Left Cancel disc
-                    val discSize = 28f * density
-                    val discPad = (h - discSize) / 2f
-                    cancelBounds.set(discPad, discPad, discPad + discSize, discPad + discSize)
-                    bgPaint.color = Color.parseColor("#2C3036")
-                    canvas.drawRoundRect(cancelBounds, discSize / 2f, discSize / 2f, bgPaint)
+                    val sideBtnW = 38f * density
+                    val sideInset = 3f * density
+                    cancelBounds.set(pad + sideInset, pad + sideInset, pad + sideInset + sideBtnW, h - pad - sideInset)
+                    val btnRadius = cancelBounds.height() / 2f
 
+                    // Left Cancel (✕) Button
+                    bgPaint.color = Color.parseColor("#282C33")
+                    canvas.drawRoundRect(cancelBounds, btnRadius, btnRadius, bgPaint)
                     textPaint.color = Color.parseColor("#EEEBE3")
-                    textPaint.textSize = 12f * density
+                    textPaint.textSize = 13f * density
                     val xW = textPaint.measureText("✕")
                     canvas.drawText("✕", cancelBounds.centerX() - xW / 2f, textY, textPaint)
 
-                    // Ochre processing dot
-                    bgPaint.color = Color.parseColor("#E3B257")
-                    val procCx = cancelBounds.right + 14f * density
-                    canvas.drawCircle(procCx, h / 2f, 4f * density, bgPaint)
+                    // Mathematically Centered [ ⟳  Formatting... ] in the full bar
+                    val procStr = if (isBangla) "সাজানো হচ্ছে..." else "Formatting..."
+                    textPaint.textSize = 12.5f * density
+                    val procW = textPaint.measureText(procStr)
+                    val spinnerRadius = 6.5f * density
+                    val totalW = (spinnerRadius * 2f) + (8f * density) + procW
+                    val startX = (w - totalW) / 2f
+
+                    // Rotating Ochre Arc Spinner
+                    val sweepAngle = 240f
+                    val rotAngle = ((System.currentTimeMillis() % 900L) / 900f) * 360f
+                    iconPaint.color = Color.parseColor("#E3B257")
+                    iconPaint.strokeWidth = 2f * density
+                    val arcRect = RectF(
+                        startX,
+                        h / 2f - spinnerRadius,
+                        startX + spinnerRadius * 2f,
+                        h / 2f + spinnerRadius
+                    )
+                    canvas.drawArc(arcRect, rotAngle, sweepAngle, false, iconPaint)
 
                     textPaint.color = Color.parseColor("#EEEBE3")
-                    textPaint.textSize = 12f * density
-                    val procStr = if (isBangla) "সাজানো হচ্ছে…" else "Formatting…"
-                    canvas.drawText(procStr, procCx + 10f * density, textY, textPaint)
+                    canvas.drawText(procStr, startX + spinnerRadius * 2f + 8f * density, textY, textPaint)
+
+                    // Trigger next frame for smooth 60fps spinner rotation during PROCESSING!
+                    postInvalidateOnAnimation()
                 }
 
                 StripState.INSERTED -> {
                     textPaint.color = Color.parseColor("#0D0E10")
-                    textPaint.textSize = 13f * density
+                    textPaint.textSize = 12.5f * density
                     val okStr = if (isBangla) "✓ লেখা বসেছে" else "✓ Inserted"
                     val okW = textPaint.measureText(okStr)
                     canvas.drawText(okStr, (w - okW) / 2f, textY, textPaint)
@@ -478,7 +531,8 @@ class KeyboardStripOverlayController(
                             onToggleLanguage()
                             invalidate()
                         } else {
-                            // Tapped left side: start recording immediately!
+                            // Tapped left side: immediately transition to RECORDING and expand, then start!
+                            setState(StripState.RECORDING)
                             onStartRecording()
                         }
                     }

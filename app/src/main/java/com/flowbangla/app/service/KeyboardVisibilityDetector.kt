@@ -12,7 +12,8 @@ data class KeyboardStateSnapshot(
     val keyboardHeightPx: Int,
     val isRestrictedFieldOrApp: Boolean,
     val matchedSignal: String = "NONE",
-    val isMeasuredImeWindow: Boolean = false
+    val isMeasuredImeWindow: Boolean = false,
+    val isPhysicalKeyboardOnScreen: Boolean = false
 )
 
 object KeyboardVisibilityDetector {
@@ -58,17 +59,17 @@ object KeyboardVisibilityDetector {
         hasAppWindow: Boolean,
         msSinceLastTouch: Long
     ): KeyboardStateSnapshot {
-        val minKeyboardHeightPx = (100f * density).toInt()
+        val minKeyboardHeightPx = (115f * density).toInt()
 
         // 0. Security Exclusion: Banking apps & password fields
         if (isBankingOrSensitive) {
-            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "RESTRICTED_PKG", false)
+            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "RESTRICTED_PKG", false, false)
         }
         if (isPasswordField) {
-            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "PASSWORD_FIELD", false)
+            return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "PASSWORD_FIELD", false, false)
         }
 
-        // SIGNAL 1: Explicit TYPE_INPUT_METHOD window with height >= 100dp
+        // SIGNAL 1: Explicit TYPE_INPUT_METHOD window with height >= 115dp
         if (hasTypeInputMethod && typeInputMethodHeightPx >= minKeyboardHeightPx && typeInputMethodBottomPx >= (screenHeightPx * 0.60f).toInt()) {
             return KeyboardStateSnapshot(
                 isKeyboardVisible = true,
@@ -76,7 +77,8 @@ object KeyboardVisibilityDetector {
                 keyboardHeightPx = typeInputMethodHeightPx,
                 isRestrictedFieldOrApp = false,
                 matchedSignal = "SIGNAL_1_TYPE_INPUT_METHOD",
-                isMeasuredImeWindow = true
+                isMeasuredImeWindow = true,
+                isPhysicalKeyboardOnScreen = true
             )
         }
 
@@ -88,33 +90,39 @@ object KeyboardVisibilityDetector {
                 keyboardHeightPx = knownKeyboardHeightPx,
                 isRestrictedFieldOrApp = false,
                 matchedSignal = "SIGNAL_2_KEYBOARD_PKG",
-                isMeasuredImeWindow = true
+                isMeasuredImeWindow = true,
+                isPhysicalKeyboardOnScreen = true
             )
         }
 
         // SIGNAL 3: Android 13+ AccessibilityInputConnection is actively bound to a real input editor!
         // On Xiaomi HyperOS after a Recents swipe, getWindows() can return empty even though
         // onStartInput() fired with a real EditorInfo!
+        // Physical keyboard is ONLY considered on screen if window bottom is compressed by >= 160dp!
         if (isImeInputStarted && hasActiveEditableFocus) {
+            val isCompressed = appWindowBottomGapPx >= (160f * density).toInt()
             return KeyboardStateSnapshot(
                 isKeyboardVisible = true,
-                keyboardTopY = 0, // Unmeasured: overlay must NOT overwrite its verified topY!
-                keyboardHeightPx = 0,
+                keyboardTopY = if (isCompressed) screenHeightPx - appWindowBottomGapPx else 0,
+                keyboardHeightPx = if (isCompressed) appWindowBottomGapPx else 0,
                 isRestrictedFieldOrApp = false,
                 matchedSignal = "SIGNAL_3_IME_INPUT_STARTED",
-                isMeasuredImeWindow = false
+                isMeasuredImeWindow = false,
+                isPhysicalKeyboardOnScreen = isCompressed
             )
         }
 
         // SIGNAL 4: Application Window Bottom Compression (Active window is pushed up by >= 140dp at bottom)
         if (hasAppWindow && hasActiveEditableFocus && appWindowBottomGapPx >= (140f * density).toInt()) {
+            val isPhysicalOnScreen = appWindowBottomGapPx >= (160f * density).toInt()
             return KeyboardStateSnapshot(
                 isKeyboardVisible = true,
                 keyboardTopY = screenHeightPx - appWindowBottomGapPx,
                 keyboardHeightPx = appWindowBottomGapPx,
                 isRestrictedFieldOrApp = false,
                 matchedSignal = "SIGNAL_4_WINDOW_BOTTOM_COMPRESSED",
-                isMeasuredImeWindow = false
+                isMeasuredImeWindow = false,
+                isPhysicalKeyboardOnScreen = isPhysicalOnScreen
             )
         }
 
@@ -124,7 +132,8 @@ object KeyboardVisibilityDetector {
             keyboardHeightPx = 0,
             isRestrictedFieldOrApp = false,
             matchedSignal = "NONE",
-            isMeasuredImeWindow = false
+            isMeasuredImeWindow = false,
+            isPhysicalKeyboardOnScreen = false
         )
     }
 
@@ -138,7 +147,7 @@ object KeyboardVisibilityDetector {
     ): KeyboardStateSnapshot {
         val density = context.resources.displayMetrics.density
         val screenHeight = context.resources.displayMetrics.heightPixels
-        val minKeyboardHeightPx = (100f * density).toInt()
+        val minKeyboardHeightPx = (115f * density).toInt()
 
         // 0. Security Exclusion: Banking apps & password fields
         val activePkg = try { activeRoot?.packageName?.toString().orEmpty() } catch (_: Throwable) { "" }

@@ -231,7 +231,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
                         pendingDeferredText = null
                         serviceScope.launch {
                             delay(50L)
-                            commitViaAccessibilityIme(deferred)
+                            commitViaAccessibilityImeVerified(deferred)
                             FloatingBubbleService.instance?.hidePendingPasteBanner()
                         }
                     }
@@ -250,28 +250,34 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * TIER 0 & TIER 1: Direct OS InputConnection commitText() & paste (API 33+).
+     * TIER 0 & TIER 1: Direct OS InputConnection commitText() & verified check (API 33+).
      * Works 100% of the time in YouTube Shorts, Facebook Litho views, WebViews, Flutter, and games
      * whenever the soft keyboard is active, because it writes directly to the IME InputConnection!
+     * Crucially verifies that surrounding text actually changed; if not, falls through to ACTION_PASTE.
      */
-    private fun commitViaAccessibilityIme(nfcText: String): Boolean {
+    private suspend fun commitViaAccessibilityImeVerified(nfcText: String): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
         return try {
             val im = a11yInputMethod ?: getInputMethod() ?: return false
             val ic = im.currentInputConnection ?: return false
 
-            // Check surrounding text via IME to see if we need a leading space
-            val surrounding = ic.getSurroundingText(2, 0, 0)
-            val beforeChar = surrounding?.text?.lastOrNull()
+            val beforeSurrounding = ic.getSurroundingText(30, 30, 0)
+            val beforeText = beforeSurrounding?.text?.toString().orEmpty()
+            val beforeChar = beforeText.lastOrNull()
+
             val finalToCommit = if (beforeChar != null && !beforeChar.isWhitespace() && !nfcText.first().isWhitespace()) {
                 " $nfcText"
             } else {
                 nfcText
             }
 
-            // 1. Primary: Direct commitText (1 = place cursor at end of inserted text)
             ic.commitText(finalToCommit, 1, null)
-            true
+            delay(45L) // Give the target app 45ms to commit the InputConnection edit
+
+            val afterSurrounding = ic.getSurroundingText(30, 30, 0)?.text?.toString().orEmpty()
+            // Only return true if the surrounding text actually changed!
+            // If it didn't change, return false so Tier 1 (ACTION_PASTE) & Tier 2 (ACTION_SET_TEXT) run immediately!
+            afterSurrounding != beforeText || afterSurrounding.endsWith(nfcText.takeLast(6))
         } catch (e: Exception) {
             Log.w(TAG, "AccessibilityInputConnection commitText failed: ${e.message}")
             false
@@ -629,7 +635,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         // TIER 0: Direct Android 13+ (API 33+) AccessibilityInputConnection.commitText()
         // This is the #1 reason Wispr Flow never fails on Android 13+: it writes straight into the IME pipe!
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (commitViaAccessibilityIme(formattedText)) {
+            if (commitViaAccessibilityImeVerified(formattedText)) {
                 pendingDeferredText = null
                 lastPastedText = formattedText
                 lastPastedTimestampMs = SystemClock.elapsedRealtime()
@@ -670,7 +676,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             delay(90L)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && commitViaAccessibilityIme(formattedText)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && commitViaAccessibilityImeVerified(formattedText)) {
                 pendingDeferredText = null
                 lastPastedText = formattedText
                 lastPastedTimestampMs = SystemClock.elapsedRealtime()
@@ -708,7 +714,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             // Dispatches a real 18ms touch tap inside the comment box bounds, waits 180ms for keyboard IME to bind, then commits!
             if (!isDeferredRetry && dispatchPhysicalTapToWakeInput(targetNode)) {
                 delay(180L)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && commitViaAccessibilityIme(formattedText)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && commitViaAccessibilityImeVerified(formattedText)) {
                     pendingDeferredText = null
                     lastPastedText = formattedText
                     lastPastedTimestampMs = SystemClock.elapsedRealtime()
@@ -821,7 +827,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         // TIER 0: Android 13+ (API 33+) Direct AccessibilityInputConnection.commitText()
         // Zero node traversal needed — writes straight to the active keyboard connection in < 5ms!
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (commitViaAccessibilityIme(formattedText)) {
+            if (commitViaAccessibilityImeVerified(formattedText)) {
                 pendingDeferredText = null
                 lastPastedText = formattedText
                 lastPastedTimestampMs = SystemClock.elapsedRealtime()
@@ -1009,7 +1015,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             isRestrictedAppOrField = snapshot.isRestrictedFieldOrApp
         )
         keyboardStripController?.updateKeyboardVisibilityAndPosition(
-            isKeyboardOpen = snapshot.isKeyboardVisible && !snapshot.isRestrictedFieldOrApp,
+            isKeyboardOpen = snapshot.isPhysicalKeyboardOnScreen && !snapshot.isRestrictedFieldOrApp,
             keyboardTopY = snapshot.keyboardTopY,
             isMeasuredIme = snapshot.isMeasuredImeWindow
         )
@@ -1021,6 +1027,12 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     fun updateKeyboardChipState(state: KeyboardStripOverlayController.StripState) {
         mainHandler.post {
             keyboardStripController?.setState(state)
+        }
+    }
+
+    fun pushAmplitudeSampleToStrip(normAmp: Float, elapsedSec: Int) {
+        mainHandler.post {
+            keyboardStripController?.pushAmplitudeSample(normAmp, elapsedSec)
         }
     }
 

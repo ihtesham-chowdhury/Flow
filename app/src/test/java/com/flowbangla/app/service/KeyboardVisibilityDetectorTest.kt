@@ -63,6 +63,7 @@ class KeyboardVisibilityDetectorTest {
         )
 
         assertTrue(snapshot.isKeyboardVisible)
+        assertTrue(snapshot.isPhysicalKeyboardOnScreen)
         assertEquals("SIGNAL_1_TYPE_INPUT_METHOD", snapshot.matchedSignal)
         assertEquals(600, snapshot.keyboardHeightPx)
         assertFalse(snapshot.isRestrictedFieldOrApp)
@@ -88,6 +89,7 @@ class KeyboardVisibilityDetectorTest {
         )
 
         assertTrue(snapshot.isKeyboardVisible)
+        assertTrue(snapshot.isPhysicalKeyboardOnScreen)
         assertEquals("SIGNAL_2_KEYBOARD_PKG", snapshot.matchedSignal)
         assertEquals(550, snapshot.keyboardHeightPx)
     }
@@ -114,7 +116,32 @@ class KeyboardVisibilityDetectorTest {
         )
 
         assertTrue("Keyboard MUST be detected on HyperOS via onStartInput even when windows is empty!", snapshot.isKeyboardVisible)
+        assertFalse("Physical keyboard is NOT on screen when bottom gap is 0!", snapshot.isPhysicalKeyboardOnScreen)
         assertEquals("SIGNAL_3_IME_INPUT_STARTED", snapshot.matchedSignal)
+    }
+
+    @Test
+    fun testPhysicalKeyboardImmediateDismissalWhenKeyboardHeightLessThan115dp() {
+        // User closes keyboard (height drops below 115dp, e.g. 100px = 50dp at density 2.0)
+        // even if isImeInputStarted == true and hasActiveEditableFocus == true
+        val snapshot = KeyboardVisibilityDetector.evaluateSignals(
+            isBankingOrSensitive = false,
+            isPasswordField = false,
+            hasTypeInputMethod = true,
+            typeInputMethodHeightPx = 100, // < 115dp (230px at density 2.0)
+            typeInputMethodBottomPx = 2400,
+            screenHeightPx = 2400,
+            density = 2.0f,
+            hasKnownKeyboardPackage = false,
+            knownKeyboardHeightPx = 0,
+            isImeInputStarted = true,
+            hasActiveEditableFocus = true,
+            appWindowBottomGapPx = 0,
+            hasAppWindow = true,
+            msSinceLastTouch = 100L
+        )
+
+        assertFalse("isPhysicalKeyboardOnScreen MUST be false when keyboard window height < 115dp!", snapshot.isPhysicalKeyboardOnScreen)
     }
 
     @Test

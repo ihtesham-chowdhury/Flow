@@ -33,6 +33,7 @@ class GeminiLiveTranscribeStreamer(
     private val isFailed = AtomicBoolean(false)
     private val transcriptBuffer = StringBuilder()
     private val turnCompleteDeferred = CompletableDeferred<String>()
+    var onPartialTranscript: ((String) -> Unit)? = null
 
     fun startStreamingSession(customVocabulary: List<String> = emptyList()) {
         val cleanKey = rawApiKey.trim()
@@ -71,9 +72,11 @@ class GeminiLiveTranscribeStreamer(
                             for (i in 0 until parts.length()) {
                                 val chunkText = parts.optJSONObject(i)?.optString("text", "").orEmpty()
                                 if (chunkText.isNotEmpty()) {
-                                    synchronized(transcriptBuffer) {
+                                    val currentText = synchronized(transcriptBuffer) {
                                         transcriptBuffer.append(chunkText)
+                                        transcriptBuffer.toString()
                                     }
+                                    onPartialTranscript?.invoke(currentText)
                                 }
                             }
                         }

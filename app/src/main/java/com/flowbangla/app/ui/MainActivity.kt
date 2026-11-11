@@ -228,6 +228,8 @@ object L10n {
         "cleanup_full_desc" to "Also fixes changes of mind and smooths the wording.",
         "drop_period" to "Drop the final full stop in chats",
         "drop_period_desc" to "Short messages in WhatsApp and Messenger finish without a full stop.",
+        "live_transcription_preview" to "Live transcription preview",
+        "live_transcription_preview_desc" to "Show words in real time above the keyboard as you speak.",
         "microphone" to "Microphone",
         "how_to_start" to "How to start",
         "tap_to_start" to "Tap to start",
@@ -251,7 +253,7 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 3.9.0 (19)",
+        "version" to "Version 4.0.0 (20)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first"
@@ -292,6 +294,8 @@ object L10n {
         "cleanup_full_desc" to "মত বদলের কথা ঠিক করে ও বাক্য মসৃণ করে।",
         "drop_period" to "মেসেজিংয়ে শেষ দাঁড়ি বাদ",
         "drop_period_desc" to "হোয়াটসঅ্যাপ ও মেসেঞ্জারের ছোট বার্তায় শেষের দাঁড়ি থাকে না।",
+        "live_transcription_preview" to "লাইভ লেখা প্রিভিউ",
+        "live_transcription_preview_desc" to "কথা বলার সাথে সাথে স্ক্রিনে লাইভ লেখা দেখুন।",
         "microphone" to "মাইক্রোফোন",
         "how_to_start" to "কথা শুরু করার ধরন",
         "tap_to_start" to "১ বার ট্যাপ",
@@ -315,7 +319,7 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৩.৯.০ (১৯)",
+        "version" to "ভার্সন ৪.০.০ (২০)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
         "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন"
@@ -376,6 +380,7 @@ fun MainScreen(
     var isSmartPolish by remember { mutableStateOf(prefs.smartPolishEnabled) }
     var autoCleanupLevel by remember { mutableStateOf(prefs.autoCleanupLevel) }
     var casualMessagingDropPeriod by remember { mutableStateOf(prefs.casualMessagingDropPeriod) }
+    var enableLiveTranscriptionPreview by remember { mutableStateOf(prefs.enableLiveTranscriptionPreview) }
 
     var interactionMode by remember { mutableStateOf(prefs.interactionMode) }
     var bubbleSize by remember { mutableFloatStateOf(prefs.bubbleSizeDp.toFloat()) }
@@ -1259,6 +1264,37 @@ fun MainScreen(
                                 onCheckedChange = {
                                     casualMessagingDropPeriod = it
                                     prefs.casualMessagingDropPeriod = it
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
+                                )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Row 4: Live Transcription Preview (§Gate 3)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(str("live_transcription_preview"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(str("live_transcription_preview_desc"), fontSize = 12.sp, color = DarkInkMuted, lineHeight = 16.sp)
+                            }
+                            Switch(
+                                checked = enableLiveTranscriptionPreview,
+                                onCheckedChange = {
+                                    enableLiveTranscriptionPreview = it
+                                    prefs.enableLiveTranscriptionPreview = it
                                 },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = DarkInkOnAccent,
