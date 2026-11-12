@@ -59,7 +59,7 @@ class KeyboardStripOverlayController(
         if (isAdded) return
         try {
             val density = a11yService.resources.displayMetrics.density
-            val compactW = (76f * density).toInt()
+            val compactW = (40f * density).toInt()
             val stripH = (34f * density).toInt()
 
             val params = WindowManager.LayoutParams(
@@ -150,6 +150,17 @@ class KeyboardStripOverlayController(
         stripView?.pushAmplitudeSample(normAmp, elapsedSec)
     }
 
+    fun hideImmediatelyOnKeyboardClose() {
+        isKeyboardCurrentlyOpen = false
+        stripView?.visibility = View.GONE
+        // If recording was active on the inline keyboard bar when the user closed the keyboard,
+        // immediately finish/stop the inline bar so it never floats over the screen without a keyboard!
+        if (stripView?.currentState == StripState.RECORDING) {
+            stripView?.currentState = StripState.IDLE
+            onConfirmRecording()
+        }
+    }
+
     /**
      * Positions the chip STRICTLY INSIDE Gboard's top suggestion strip:
      * `y = verifiedImeTopY + 4dp` (NEVER guessing screenHeight * 0.62f!).
@@ -186,14 +197,15 @@ class KeyboardStripOverlayController(
         val targetX: Int
 
         if (state == StripState.IDLE) {
-            // Sleek 76dp x 34dp pill tucked neatly to the left of Gboard's right-hand mic icon (48dp)
-            targetW = (76f * density).toInt()
+            // Pure 40dp x 34dp studio mic capsule — no 'EN' or 'বাং' text!
+            targetW = (40f * density).toInt()
             targetH = (34f * density).toInt()
-            targetX = screenW - targetW - (48f * density).toInt()
+            targetX = screenW - targetW - (54f * density).toInt()
         } else {
-            // Expanded in-strip recording pod between Gboard's left [⊞] icon (52dp) and right [🎤] icon (52dp)
+            // Expanded studio bar between Gboard's left [⊞] icon (52dp) and right [🎤] divider (58dp)
+            // Using 58dp right margin guarantees we NEVER touch Gboard's vertical divider line!
             targetX = (52f * density).toInt()
-            targetW = (screenW - (104f * density).toInt()).coerceAtLeast((180f * density).toInt())
+            targetW = (screenW - (110f * density).toInt()).coerceAtLeast((180f * density).toInt())
             targetH = (36f * density).toInt()
         }
 
@@ -328,9 +340,10 @@ class KeyboardStripOverlayController(
             super.onDraw(canvas)
             val w = width.toFloat()
             val h = height.toFloat()
-            val pad = 1.5f * density
-            pillRect.set(pad, pad, w - pad, h - pad)
-            val r = h / 2f
+            val hPad = 3f * density
+            val vPad = 2f * density
+            pillRect.set(hPad, vPad, w - hPad, h - vPad)
+            val r = pillRect.height() / 2f
 
             // 1. Studio Obsidian Capsule Background (#23262B in IDLE, #141619 in RECORDING/PROCESSING, #8FBF9F in INSERTED)
             bgPaint.color = when (currentState) {
@@ -348,37 +361,29 @@ class KeyboardStripOverlayController(
 
             when (currentState) {
                 StripState.IDLE -> {
-                    // IDLE: 76dp x 34dp pill
-                    // Left: Danda-Mic vector icon with Vermilion dot
-                    val micCx = 18f * density
-                    drawMiniDandaMicIcon(canvas, cx = micCx, cy = h / 2f, color = Color.parseColor("#EEEBE3"))
-
-                    // Right: Inner Language Pill (#2E323B)
-                    val langW = 32f * density
-                    val langH = 24f * density
-                    val langRight = w - 5f * density
-                    val langLeft = langRight - langW
-                    val langTop = (h - langH) / 2f
-                    val langBottom = langTop + langH
-                    langPillBounds.set(langLeft, langTop, langRight, langBottom)
-
-                    bgPaint.color = Color.parseColor("#2E323B")
-                    val lr = langH / 2f
-                    canvas.drawRoundRect(langPillBounds, lr, lr, bgPaint)
-
-                    // Language label
-                    textPaint.color = Color.parseColor("#EEEBE3")
-                    textPaint.textSize = 11f * density
-                    val langStr = if (isBangla) "বাং" else "EN"
-                    val lw = textPaint.measureText(langStr)
-                    canvas.drawText(langStr, langPillBounds.centerX() - lw / 2f, textY, textPaint)
+                    // Pure 40dp x 34dp studio mic capsule — no 'EN' or 'বাং' text!
+                    drawMiniDandaMicIcon(canvas, cx = w / 2f, cy = h / 2f, color = Color.parseColor("#EEEBE3"))
+                    val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.parseColor("#E8473A")
+                    }
+                    canvas.drawCircle(w / 2f + 6.5f * density, h / 2f - 6.5f * density, 2.3f * density, dotPaint)
                 }
 
                 StripState.RECORDING -> {
-                    val sideBtnW = 38f * density
-                    val sideInset = 3f * density
-                    cancelBounds.set(pad + sideInset, pad + sideInset, pad + sideInset + sideBtnW, h - pad - sideInset)
-                    confirmBounds.set(w - pad - sideInset - sideBtnW, pad + sideInset, w - pad - sideInset, h - pad - sideInset)
+                    val innerGap = 3.5f * density
+                    val sideBtnW = 36f * density
+                    cancelBounds.set(
+                        pillRect.left + innerGap,
+                        pillRect.top + innerGap,
+                        pillRect.left + innerGap + sideBtnW,
+                        pillRect.bottom - innerGap
+                    )
+                    confirmBounds.set(
+                        pillRect.right - innerGap - sideBtnW,
+                        pillRect.top + innerGap,
+                        pillRect.right - innerGap,
+                        pillRect.bottom - innerGap
+                    )
                     val btnRadius = cancelBounds.height() / 2f
 
                     // LEFT ZONE: Cancel (✕) Button
@@ -430,33 +435,42 @@ class KeyboardStripOverlayController(
                     canvas.drawText(timerStr, cursorX, textY, textPaint)
                     cursorX += timerW + gap
 
-                    // 3. Claude-Style 13-Bar Symmetric Micro-Waveform
+                    // 3. Claude-Style 13-Bar Symmetric Micro-Waveform with 60fps oscillation
                     val maxBarH = h * 0.56f
                     val minBarH = 3.5f * density
                     val centerIdx = barCount / 2
+                    val nowMs = System.currentTimeMillis()
                     for (i in 0 until barCount) {
                         val distFromCenter = kotlin.math.abs(i - centerIdx).toFloat() / centerIdx.toFloat()
-                        val envelope = 1.0f - (distFromCenter * 0.45f)
-                        val sample = waveformHistory[(i + waveformHistory.size - barCount).coerceIn(0, waveformHistory.size - 1)]
-                        val barH = (minBarH + (maxBarH - minBarH) * sample * envelope).coerceIn(minBarH, maxBarH)
+                        val envelope = 1.0f - (distFromCenter * 0.42f)
+                        val histSample = waveformHistory[(i + waveformHistory.size - barCount).coerceIn(0, waveformHistory.size - 1)]
+                        val wavePhase = kotlin.math.sin((nowMs / 85.0) + (i * 0.7)).toFloat() * 0.22f * currentNormalizedAmplitude
+                        val effectiveAmp = (histSample + wavePhase).coerceIn(0.12f, 1.0f)
+                        val barH = (minBarH + (maxBarH - minBarH) * effectiveAmp * envelope).coerceIn(minBarH, maxBarH)
                         val bx = cursorX + i * barSpacing
-                        val top = (h - barH) / 2f
-                        val bottom = (h + barH) / 2f
                         iconPaint.color = Color.parseColor("#E8473A")
-                        iconPaint.strokeWidth = 1.8f * density
-                        canvas.drawLine(bx, top, bx, bottom, iconPaint)
+                        iconPaint.strokeWidth = 2.0f * density
+                        canvas.drawLine(bx, (h - barH) / 2f, bx, (h + barH) / 2f, iconPaint)
                     }
                     cursorX += waveformTotalW + gap
 
                     // 4. Status Label ('Listening' / 'শুনছি') in Muted Ivory
                     textPaint.color = Color.parseColor("#B8BDC6")
                     canvas.drawText(statusStr, cursorX, textY, textPaint)
+
+                    // Keep animating at 60fps during RECORDING!
+                    postInvalidateOnAnimation()
                 }
 
                 StripState.PROCESSING -> {
-                    val sideBtnW = 38f * density
-                    val sideInset = 3f * density
-                    cancelBounds.set(pad + sideInset, pad + sideInset, pad + sideInset + sideBtnW, h - pad - sideInset)
+                    val innerGap = 3.5f * density
+                    val sideBtnW = 36f * density
+                    cancelBounds.set(
+                        pillRect.left + innerGap,
+                        pillRect.top + innerGap,
+                        pillRect.left + innerGap + sideBtnW,
+                        pillRect.bottom - innerGap
+                    )
                     val btnRadius = cancelBounds.height() / 2f
 
                     // Left Cancel (✕) Button
@@ -513,12 +527,6 @@ class KeyboardStripOverlayController(
             val arcRect = RectF(cx - 5.5f * density, cy - 4f * density, cx + 5.5f * density, cy + 4.5f * density)
             canvas.drawArc(arcRect, 0f, 180f, false, iconPaint)
             canvas.drawLine(cx, cy + 4.5f * density, cx, cy + 7.5f * density, iconPaint)
-
-            // Accent Vermilion dot at top right of mic
-            val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.color = Color.parseColor("#E8473A")
-            }
-            canvas.drawCircle(cx + 4.5f * density, cy - 5.5f * density, 1.8f * density, dotPaint)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -526,15 +534,9 @@ class KeyboardStripOverlayController(
                 val x = event.x
                 when (currentState) {
                     StripState.IDLE -> {
-                        // If tapped right side on the inner language pill: toggle language immediately!
-                        if (x >= langPillBounds.left - 6f * density) {
-                            onToggleLanguage()
-                            invalidate()
-                        } else {
-                            // Tapped left side: immediately transition to RECORDING and expand, then start!
-                            setState(StripState.RECORDING)
-                            onStartRecording()
-                        }
+                        // Tapping idle mic capsule immediately expands and starts recording!
+                        setState(StripState.RECORDING)
+                        onStartRecording()
                     }
                     StripState.RECORDING -> {
                         if (x <= cancelBounds.right + 12f * density) {

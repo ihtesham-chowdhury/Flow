@@ -242,6 +242,13 @@ class TextInjectorAccessibilityService : AccessibilityService() {
                 super.onFinishInput()
                 isInputConnectionStarted = false
                 lastEditableTouchElapsedMs = 0L
+                // 0ms INSTANT HIDE: Fires the exact frame Gboard starts closing!
+                keyboardStripController?.hideImmediatelyOnKeyboardClose()
+                FloatingBubbleService.instance?.onKeyboardVisibilityChanged(
+                    keyboardVisible = false,
+                    keyboardTopY = resources.displayMetrics.heightPixels,
+                    isRestrictedAppOrField = false
+                )
                 scheduleKeyboardVisibilityChecks()
             }
         }
@@ -395,6 +402,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         ) {
+            syncKeyboardVisibilityWithBubble()
             scheduleKeyboardVisibilityChecks()
         }
 
@@ -1009,16 +1017,24 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             lastEditableTouchElapsedMs = lastEditableTouchElapsedMs
         )
 
+        val isPhysicalOpen = snapshot.isPhysicalKeyboardOnScreen && !snapshot.isRestrictedFieldOrApp
+        val verifiedTopY = FlowBanglaApp.instance.preferencesManager.verifiedImeTopYPortrait
+        val isSlidingDown = verifiedTopY > 0 && snapshot.keyboardTopY > (verifiedTopY + (15f * resources.displayMetrics.density).toInt())
+
         FloatingBubbleService.instance?.onKeyboardVisibilityChanged(
-            keyboardVisible = snapshot.isKeyboardVisible,
+            keyboardVisible = snapshot.isKeyboardVisible && !isSlidingDown,
             keyboardTopY = snapshot.keyboardTopY,
             isRestrictedAppOrField = snapshot.isRestrictedFieldOrApp
         )
-        keyboardStripController?.updateKeyboardVisibilityAndPosition(
-            isKeyboardOpen = snapshot.isPhysicalKeyboardOnScreen && !snapshot.isRestrictedFieldOrApp,
-            keyboardTopY = snapshot.keyboardTopY,
-            isMeasuredIme = snapshot.isMeasuredImeWindow
-        )
+        if (!isPhysicalOpen || isSlidingDown) {
+            keyboardStripController?.hideImmediatelyOnKeyboardClose()
+        } else {
+            keyboardStripController?.updateKeyboardVisibilityAndPosition(
+                isKeyboardOpen = true,
+                keyboardTopY = snapshot.keyboardTopY,
+                isMeasuredIme = snapshot.isMeasuredImeWindow
+            )
+        }
         mainHandler.post {
             onKeyboardVisibilityChanged?.invoke(snapshot.isKeyboardVisible)
         }

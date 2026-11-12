@@ -118,18 +118,23 @@ class FormattingChain(
             )
         }
 
-        // Single-Pass Smart Mode: gemini-3.5-transcribe and gemini-3.5-transcribe-live
-        // natively punctuate, strip disfluencies, and correct inline speech.
-        // For short simple phrases (<= 4 words) without complex cues or when smart polish is off,
-        // format locally in <2ms. For dictations > 4 words with smart polish enabled, run the full LLM pass!
+        // Flow v4.1.0 Single-Pass Smart Mode Optimization:
+        // gemini-3.5-transcribe and gemini-3.5-transcribe-live running in mode: { type: "smart" }
+        // natively punctuate, strip fillers, correct speech, and structure paragraphs in 1 pass!
+        // Sending long dictations (> 35 words) to a second LLM wastes 25-45s token-by-token.
+        // Therefore, only invoke the second LLM pass if:
+        // 1. Transcript is short-to-medium (4..35 words)
+        // 2. Contains an explicit complex backtrack or list cue (BACKTRACK_OR_LIST_CUE_REGEX)
+        // 3. User has smart polish enabled
         val wordCount = workingTranscript.trim().split(Regex("\\s+")).count { it.isNotBlank() }
         val isSmartCandidate = isSmartMode &&
             (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE || recognitionSource == RecognitionSource.GEMINI_LIVE_STREAM) &&
             prefs.engineMode == EngineMode.CLOUD_AUDIO
 
         val hasComplexBacktrack = BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(workingTranscript)
+        val requiresSecondLlmPass = isSmartCandidate && (wordCount in 4..35) && hasComplexBacktrack && prefs.smartPolishEnabled
 
-        if (isSmartCandidate && !hasComplexBacktrack && (!prefs.smartPolishEnabled || prefs.autoCleanupLevel == AutoCleanupLevel.NONE || wordCount <= 4)) {
+        if (isSmartCandidate && !requiresSecondLlmPass) {
             val resolvedBacktracks = LocalBacktrackResolver.resolveOfflineBacktracks(workingTranscript)
             val postProcessed = TranscriptPostProcessor.process(resolvedBacktracks, numeralPreference = plan.numeralPreference)
             val dictionaryCleaned = applyDictionaryReplacementsSafely(postProcessed)

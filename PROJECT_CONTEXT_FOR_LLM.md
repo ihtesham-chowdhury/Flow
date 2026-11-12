@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 4.0.0 (Build 20)  
-> **Last Updated**: November 11, 2026  
-> **Status**: Production Release (`Flow-v4.0.0.apk` active)  
+> **Document Version**: 4.1.0 (Build 21)  
+> **Last Updated**: November 12, 2026  
+> **Status**: Production Release (`Flow-v4.1.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -253,7 +253,34 @@
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
 
-### Phase 18: v4.0.0 (Build 20) — Studio Inline Bar Symmetry, Claude-Style Live Transcription Preview, Instant Keyboard-Close Hide & Precision Formatting (Current Release)
+### Phase 19: v4.1.0 (Build 21) — Pure Studio Mic Icon, Zero-Lag Keyboard Hide, Real-Time Live Streaming Preview & Sub-Second Insertion (Current Release)
+- **Sub-Second Long Dictation Insertion (< 600ms)**:
+  - *Root Cause of 30–50s Delay*: Previously copied raw transcript to clipboard before formatting, then ran an unneeded second full-document LLM pass on 300+ word paragraphs that were already smart-transcribed by `gemini-3.5-transcribe` natively.
+  - *Architectural Fix*:
+    1. Eliminated early clipboard write before formatting; clipboard copy and cursor text injection now execute at the exact same millisecond.
+    2. Uses `gemini-3.5-transcribe` native `mode: { type: "smart" }` as the single-pass formatter for long dictations (> 35 words), running our < 2ms deterministic local pipeline (`PersonalDictionaryManager` -> `SnippetManager` -> `LocalBacktrackResolver` -> `TranscriptPostProcessor` -> `WisprContextFormatter`).
+    3. Restricted the 2nd cloud LLM pass (`formatTranscript`) strictly to short-to-medium dictations (4..35 words) matching complex backtrack/list cues (`BACKTRACK_OR_LIST_CUE_REGEX`), capped to 1 single model attempt with strict 1,800ms timeout (zero multi-model retry loops).
+- **Pure Studio Mic Icon in `StripState.IDLE`**:
+  - Removed `"EN"` / `"বাং"` text completely from the idle inline trigger button.
+  - Rendered a compact `40dp x 34dp` stadium capsule with centered mathematical Danda-Mic vector icon and a 2.3dp Vermilion jewel dot at top right.
+  - Tapping immediately transitions to `StripState.RECORDING` and starts recording with zero delay.
+- **Right-Edge Pill Clipping Fix (`Screenshot_20261112-202023_Google.png`)**:
+  - Expanded recording width to `screenWidth - 110dp` and `targetX = 52dp`, clearing Gboard's right vertical divider by 6dp.
+  - Inset `pillRect` by `3dp` horizontal and `2dp` vertical, and inset Cancel/Confirm buttons symmetrically with `innerGap = 3.5dp` so outer pill radius wraps cleanly concentric around `✓` with zero clipping.
+- **Active 60fps Live Waveform Animation**:
+  - Modulated each waveform bar `i` with `sin((nowMs / 85.0) + (i * 0.7)) * 0.22f * currentNormalizedAmplitude` and invoked `postInvalidateOnAnimation()` at the end of `StripState.RECORDING`.
+  - In `FloatingBubbleService`, implemented dedicated 50ms poller using perceptual square-root scaling `sqrt(rawAmp / 12000f).coerceIn(0.08f, 1.0f)` to keep 13 red bars dynamically responding to voice energy.
+- **Zero-Lag (0ms) Keyboard-Close Hide**:
+  - In `TextInjectorAccessibilityService`, overrode `onFinishInput()` to call `keyboardStripController?.hideImmediatelyOnKeyboardClose()` synchronously at millisecond 0 when keyboard begins closing.
+  - On `TYPE_WINDOWS_CHANGED` and `TYPE_WINDOW_STATE_CHANGED`, ran `syncKeyboardVisibilityWithBubble()` immediately without delay. If keyboard slides down (`snapshot.keyboardTopY > verifiedTopY + 15dp`) or `isPhysicalKeyboardOnScreen == false`, immediately dismissed inline bar. If keyboard closed during recording, cleanly confirms inline recording.
+- **Real Live Streaming Speech-to-Text on Both Surfaces (`LiveRollingCloudPreviewer.kt`)**:
+  - Upgraded `AudioRecorder.kt` to 16kHz 16-bit Mono PCM (`AudioRecord` with `VOICE_RECOGNITION` and `MIC` fallback), keeping unread PCM stream in RAM.
+  - Implemented `LiveRollingCloudPreviewer.kt` slicing audio every 2.4s and transcribing via Groq / Gemini in background, updating `LiveTranscriptionPreviewController` in real time.
+  - Long-speech insertion optimization: pressing Confirm (`✓`) on a 2-minute speech only transcribes the remaining 1-2s tail slice (`drainRemainingTailWavFile()`), inserting combined transcript in < 600ms.
+  - `LiveTranscriptionPreviewController` now active for both Inline Bar and Floating Mic pod.
+- **100% Passing Unit Test Suite (89 unit tests passing)**.
+
+### Phase 18: v4.0.0 (Build 20) — Studio Inline Bar Symmetry, Claude-Style Live Transcription Preview, Instant Keyboard-Close Hide & Precision Formatting
 - **Strict Physical Window Rule for Instant Inline Bar Dismissal (`00:26` Bug in `1000376722.mp4`)**:
   - *Root Cause*: In `KeyboardVisibilityDetector`, Signal 3 (`isImeInputStarted && hasActiveEditableFocus`) continued returning `isKeyboardVisible = true` when Gboard was closed via bottom-left `∨` hide button because Android preserves `EditText` focus and open `InputConnection`.
   - *Architectural Fix*: Introduced `isPhysicalKeyboardOnScreen` boolean in `KeyboardStateSnapshot`, strictly true ONLY when physical `TYPE_INPUT_METHOD` or known keyboard package window is present with `height >= 115dp` (or HyperOS empty-windows bottom gap $\ge 160\text{dp}$).

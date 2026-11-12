@@ -299,28 +299,24 @@ class GeminiInteractionsAdapter(
             throw FlowApiException(404, ErrorCategory.MODEL_NOT_AVAILABLE, "No live Gemini text formatting models available.")
         }
 
-        var lastException: FlowApiException? = null
-        for (spec in candidates) {
-            val startMs = System.currentTimeMillis()
-            val payload = JSONObject().apply {
-                put("model", spec.id)
-                put("store", false)
-                put("system_instruction", systemInstruction)
-                put("input", userEnvelope)
-                put("generation_config", JSONObject().put("temperature", 0.0))
-            }
-
-            try {
-                val text = executeInteractionsPost(payload, key, spec.id)
-                return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
-            } catch (e: FlowApiException) {
-                lastException = e
-                if (e.httpCode == 404) ModelCatalog.markModelUnavailableForSession(spec.id)
-                if (e.category == ErrorCategory.AUTHENTICATION_FAILED) throw e
-            }
+        // Flow v4.1.0: Cap to 1 single model attempt with ZERO multi-model retry loops
+        val spec = candidates.first()
+        val startMs = System.currentTimeMillis()
+        val payload = JSONObject().apply {
+            put("model", spec.id)
+            put("store", false)
+            put("system_instruction", systemInstruction)
+            put("input", userEnvelope)
+            put("generation_config", JSONObject().put("temperature", 0.0))
         }
 
-        throw lastException ?: FlowApiException(500, ErrorCategory.PROVIDER_SERVER_ERROR, "Formatting failed")
+        try {
+            val text = executeInteractionsPost(payload, key, spec.id)
+            return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
+        } catch (e: FlowApiException) {
+            if (e.httpCode == 404) ModelCatalog.markModelUnavailableForSession(spec.id)
+            throw e
+        }
     }
 
     private fun executeInteractionsPost(payload: JSONObject, cleanKey: String, modelId: String): String {

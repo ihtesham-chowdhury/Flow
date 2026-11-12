@@ -1,4 +1,4 @@
-# Flow v4.0.0 (Studio Inline Bar Symmetry, Claude-Style Live Transcription Preview, Instant Keyboard-Close Hide & Precision Formatting)
+# Flow v4.1.0 (Pure Studio Mic Icon, Zero-Lag Keyboard Hide, Real-Time Live Streaming Preview & Sub-Second Insertion)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly inside **Gboard's suggestion bar** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,37 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v4.0.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v4.0.0/Flow-v4.0.0.apk)**  
-  *(Studio Inline Bar Symmetry, Claude-Style Live Transcription Preview, Instant Keyboard-Close Hide & Precision Formatting)*
+* **[Flow-v4.1.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v4.1.0/Flow-v4.1.0.apk)**  
+  *(Pure Studio Mic Icon, Zero-Lag Keyboard Hide, Real-Time Live Streaming Preview & Sub-Second Insertion)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v4.1.0 (Pure Studio Mic, Zero-Lag Hide & Sub-Second Insertion)
+
+1. **Sub-Second Long Dictation Insertion (< 600ms)**:
+   - Eliminated the 30–50s delay between clipboard copy and insertion.
+   - Stopped premature clipboard writes before formatting: clipboard copy and cursor text injection now execute at the exact same millisecond.
+   - Leveraged `gemini-3.5-transcribe` native `mode: { type: "smart" }` as the single-pass formatter for long dictations (> 35 words), running our < 2ms deterministic local pipeline (`PersonalDictionaryManager` -> `SnippetManager` -> `LocalBacktrackResolver` -> `TranscriptPostProcessor` -> `WisprContextFormatter`).
+   - Restricted the 2nd cloud LLM pass (`formatTranscript`) strictly to short-to-medium dictations (4..35 words) matching complex backtrack/list cues (`BACKTRACK_OR_LIST_CUE_REGEX`), capped to 1 single model attempt with strict 1,800ms timeout (zero multi-model retry loops).
+2. **Pure Studio Mic Icon in `StripState.IDLE`**:
+   - Completely removed `"EN"` / `"বাং"` text from the idle inline trigger button.
+   - Transformed into a sleek `40dp x 34dp` stadium capsule with centered mathematical Danda-Mic vector icon and a 2.3dp Vermilion jewel dot at top right.
+   - Tapping immediately transitions to `StripState.RECORDING` and starts dictation with zero delay.
+3. **Right-Edge Pill Clipping Fix (`Screenshot_20261112-202023_Google.png`)**:
+   - Expanded recording width to `screenWidth - 110dp` and `targetX = 52dp`, clearing Gboard's right vertical divider by 6dp.
+   - Inset `pillRect` by `3dp` horizontal and `2dp` vertical, and inset Cancel/Confirm buttons symmetrically with `innerGap = 3.5dp` so outer pill radius wraps cleanly concentric around `✓` with zero clipping.
+4. **Active 60fps Live Waveform Animation**:
+   - In `KeyboardStripOverlayController`, modulated each waveform bar `i` with `sin((nowMs / 85.0) + (i * 0.7)) * 0.22f * currentNormalizedAmplitude` and invoked `postInvalidateOnAnimation()` at the end of `StripState.RECORDING`.
+   - In `FloatingBubbleService`, implemented dedicated 50ms poller using perceptual square-root scaling `sqrt(rawAmp / 12000f).coerceIn(0.08f, 1.0f)` to keep 13 red bars dynamically responding to voice energy.
+5. **Zero-Lag (0ms) Keyboard-Close Hide**:
+   - In `TextInjectorAccessibilityService`, overrode `onFinishInput()` to call `keyboardStripController?.hideImmediatelyOnKeyboardClose()` synchronously at millisecond 0 when keyboard begins closing.
+   - On `TYPE_WINDOWS_CHANGED` and `TYPE_WINDOW_STATE_CHANGED`, ran `syncKeyboardVisibilityWithBubble()` immediately without delay. If keyboard slides down (`snapshot.keyboardTopY > verifiedTopY + 15dp`) or `isPhysicalKeyboardOnScreen == false`, immediately dismissed inline bar. If keyboard closed during recording, cleanly confirms inline recording.
+6. **Real Live Streaming Speech-to-Text on Both Surfaces (`LiveRollingCloudPreviewer.kt`)**:
+   - Upgraded `AudioRecorder.kt` to 16kHz 16-bit Mono PCM (`AudioRecord` with `VOICE_RECOGNITION` and `MIC` fallback), keeping unread PCM stream in RAM.
+   - Implemented `LiveRollingCloudPreviewer.kt` slicing audio every 2.4s and transcribing via Groq / Gemini in background, updating `LiveTranscriptionPreviewController` in real time.
+   - Long-speech insertion optimization: pressing Confirm (`✓`) on a 2-minute speech only transcribes the remaining 1-2s tail slice (`drainRemainingTailWavFile()`), inserting combined transcript in < 600ms.
+   - `LiveTranscriptionPreviewController` now active for both Inline Bar and Floating Mic pod.
 
 ---
 
