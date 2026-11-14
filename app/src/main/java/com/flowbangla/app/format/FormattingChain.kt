@@ -162,13 +162,22 @@ class FormattingChain(
         try {
             when (prefs.engineMode) {
                 EngineMode.CLOUD_AUDIO -> {
-                    // In Cloud Audio, Gemini or Groq formats the text
-                    envelope = geminiFormatter.formatText(workingTranscript, plan)
-                    if (envelope != null) {
-                        formattingSource = FormattingSource.GEMINI_CLOUD
-                    } else if (prefs.groqApiKey.isNotBlank()) {
+                    // Try formatting across enabled providers in priority order: Groq (ultra-fast) -> Cerebras -> Gemini -> OpenRouter
+                    if (prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) {
                         envelope = groqFormatter.formatText(workingTranscript, plan)
                         if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
+                    }
+                    if (envelope == null && prefs.isCerebrasEnabled && prefs.cerebrasApiKey.isNotBlank()) {
+                        envelope = cerebrasFormatter.formatText(workingTranscript, plan)
+                        if (envelope != null) formattingSource = FormattingSource.CEREBRAS_CLOUD
+                    }
+                    if (envelope == null && prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank()) {
+                        envelope = geminiFormatter.formatText(workingTranscript, plan)
+                        if (envelope != null) formattingSource = FormattingSource.GEMINI_CLOUD
+                    }
+                    if (envelope == null && prefs.isOpenRouterEnabled && prefs.openRouterApiKey.isNotBlank()) {
+                        envelope = openRouterFormatter.formatText(workingTranscript, plan)
+                        if (envelope != null) formattingSource = FormattingSource.OPENROUTER_CLOUD
                     }
                 }
                 EngineMode.HYBRID_CLOUD_POLISH -> {

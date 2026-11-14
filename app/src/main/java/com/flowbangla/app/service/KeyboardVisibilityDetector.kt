@@ -57,9 +57,10 @@ object KeyboardVisibilityDetector {
         hasActiveEditableFocus: Boolean,
         appWindowBottomGapPx: Int,
         hasAppWindow: Boolean,
-        msSinceLastTouch: Long
+        msSinceLastTouch: Long,
+        savedImeTopY: Int = (screenHeightPx * 0.60f).toInt()
     ): KeyboardStateSnapshot {
-        val minKeyboardHeightPx = (115f * density).toInt()
+        val minKeyboardHeightPx = (110f * density).toInt()
 
         // 0. Security Exclusion: Banking apps & password fields
         if (isBankingOrSensitive) {
@@ -69,8 +70,8 @@ object KeyboardVisibilityDetector {
             return KeyboardStateSnapshot(false, screenHeightPx, 0, true, "PASSWORD_FIELD", false, false)
         }
 
-        // SIGNAL 1: Explicit TYPE_INPUT_METHOD window with height >= 115dp
-        if (hasTypeInputMethod && typeInputMethodHeightPx >= minKeyboardHeightPx && typeInputMethodBottomPx >= (screenHeightPx * 0.60f).toInt()) {
+        // SIGNAL 1: Explicit TYPE_INPUT_METHOD window with height >= 110dp
+        if (hasTypeInputMethod && typeInputMethodHeightPx >= minKeyboardHeightPx && typeInputMethodBottomPx >= (screenHeightPx * 0.55f).toInt()) {
             return KeyboardStateSnapshot(
                 isKeyboardVisible = true,
                 keyboardTopY = screenHeightPx - typeInputMethodHeightPx,
@@ -95,34 +96,33 @@ object KeyboardVisibilityDetector {
             )
         }
 
-        // SIGNAL 3: Android 13+ AccessibilityInputConnection is actively bound to a real input editor!
-        // On Xiaomi HyperOS after a Recents swipe, getWindows() can return empty even though
-        // onStartInput() fired with a real EditorInfo!
-        // Physical keyboard is ONLY considered on screen if window bottom is compressed by >= 160dp!
-        if (isImeInputStarted && hasActiveEditableFocus) {
-            val isCompressed = appWindowBottomGapPx >= (160f * density).toInt()
-            return KeyboardStateSnapshot(
-                isKeyboardVisible = true,
-                keyboardTopY = if (isCompressed) screenHeightPx - appWindowBottomGapPx else 0,
-                keyboardHeightPx = if (isCompressed) appWindowBottomGapPx else 0,
-                isRestrictedFieldOrApp = false,
-                matchedSignal = "SIGNAL_3_IME_INPUT_STARTED",
-                isMeasuredImeWindow = false,
-                isPhysicalKeyboardOnScreen = isCompressed
-            )
-        }
-
-        // SIGNAL 4: Application Window Bottom Compression (Active window is pushed up by >= 140dp at bottom)
-        if (hasAppWindow && hasActiveEditableFocus && appWindowBottomGapPx >= (140f * density).toInt()) {
-            val isPhysicalOnScreen = appWindowBottomGapPx >= (160f * density).toInt()
+        // SIGNAL 3: Application Window Bottom Compression (Active window pushed up >= 140dp)
+        // Works even when Xiaomi HyperOS or One UI omits TYPE_INPUT_METHOD from getWindows()!
+        if (hasAppWindow && appWindowBottomGapPx >= (140f * density).toInt()) {
             return KeyboardStateSnapshot(
                 isKeyboardVisible = true,
                 keyboardTopY = screenHeightPx - appWindowBottomGapPx,
                 keyboardHeightPx = appWindowBottomGapPx,
                 isRestrictedFieldOrApp = false,
-                matchedSignal = "SIGNAL_4_WINDOW_BOTTOM_COMPRESSED",
-                isMeasuredImeWindow = false,
-                isPhysicalKeyboardOnScreen = isPhysicalOnScreen
+                matchedSignal = "SIGNAL_3_WINDOW_BOTTOM_COMPRESSED",
+                isMeasuredImeWindow = true,
+                isPhysicalKeyboardOnScreen = true
+            )
+        }
+
+        // SIGNAL 4: Android 13+ onStartInput/InputConnection active with focused text box
+        if (isImeInputStarted) {
+            val isCompressed = hasAppWindow && appWindowBottomGapPx >= (110f * density).toInt()
+            val effectiveTopY = if (isCompressed) screenHeightPx - appWindowBottomGapPx else savedImeTopY
+            val effectiveHeight = screenHeightPx - effectiveTopY
+            return KeyboardStateSnapshot(
+                isKeyboardVisible = true,
+                keyboardTopY = effectiveTopY,
+                keyboardHeightPx = effectiveHeight,
+                isRestrictedFieldOrApp = false,
+                matchedSignal = "SIGNAL_4_IME_INPUT_STARTED",
+                isMeasuredImeWindow = isCompressed,
+                isPhysicalKeyboardOnScreen = true
             )
         }
 
@@ -214,7 +214,10 @@ object KeyboardVisibilityDetector {
             -1L
         }
 
-        return evaluateSignals(
+        val imePrefs = context.getSharedPreferences("flow_ime_geometry", Context.MODE_PRIVATE)
+        val savedImeTopY = imePrefs.getInt("verified_ime_top_y", (screenHeight * 0.60f).toInt())
+
+        val snapshot = evaluateSignals(
             isBankingOrSensitive = isBanking,
             isPasswordField = isPassword,
             hasTypeInputMethod = hasTypeInputMethod,
@@ -228,8 +231,20 @@ object KeyboardVisibilityDetector {
             hasActiveEditableFocus = hasActiveEditableFocus,
             appWindowBottomGapPx = appWindowBottomGap,
             hasAppWindow = hasAppWindow,
-            msSinceLastTouch = msSinceTouch
+            msSinceLastTouch = msSinceTouch,
+            savedImeTopY = savedImeTopY
         )
+
+        if (snapshot.isPhysicalKeyboardOnScreen && snapshot.isMeasuredImeWindow &&
+            snapshot.keyboardTopY in (screenHeight / 4)..(screenHeight - minKeyboardHeightPx / 2)
+        ) {
+            imePrefs.edit().putInt("verified_ime_top_y", snapshot.keyboardTopY).apply()
+            try {
+                com.flowbangla.app.FlowBanglaApp.instance.preferencesManager.verifiedImeTopYPortrait = snapshot.keyboardTopY
+            } catch (_: Throwable) {}
+        }
+
+        return snapshot
     }
 
     fun isRestrictedPackage(packageName: String): Boolean {

@@ -31,6 +31,8 @@ import com.flowbangla.app.FlowBanglaApp
 import com.flowbangla.app.R
 import com.flowbangla.app.api.GeminiInteractionsAdapter
 import com.flowbangla.app.api.GroqWhisperClient
+import com.flowbangla.app.api.SmartProviderRouter
+import com.flowbangla.app.api.AsrExecutionResult
 import com.flowbangla.app.audio.AudioRecorder
 import com.flowbangla.app.audio.OnDeviceSpeechRecognizer
 import com.flowbangla.app.format.ActiveFieldContext
@@ -86,13 +88,12 @@ class FloatingBubbleService : Service() {
     private lateinit var audioRecorder: AudioRecorder
     private lateinit var geminiInteractionsAdapter: GeminiInteractionsAdapter
     private lateinit var groqWhisperClient: GroqWhisperClient
+    private lateinit var smartProviderRouter: SmartProviderRouter
     private lateinit var onDeviceRecognizer: OnDeviceSpeechRecognizer
     private lateinit var formattingChain: FormattingChain
     private lateinit var okHttpClient: OkHttpClient
 
     private var liveTranscribeStreamer: com.flowbangla.app.api.GeminiLiveTranscribeStreamer? = null
-    private var rollingChunkTranscriber: com.flowbangla.app.audio.RollingChunkTranscriber? = null
-    private var liveRollingPreviewer: com.flowbangla.app.audio.LiveRollingCloudPreviewer? = null
     private var amplitudePollerJob: Job? = null
     private var livePreviewController: LiveTranscriptionPreviewController? = null
     private var activeDictationJob: Job? = null
@@ -107,9 +108,6 @@ class FloatingBubbleService : Service() {
     private var activeTriggerSurface: TriggerSurface = TriggerSurface.NONE
     private var recordingStartTimeMs: Long = 0L
 
-    private var autoCheckpointJob: Job? = null
-    private val AUTO_CHECKPOINT_SOFT_MS = 45_000L
-    private val AUTO_CHECKPOINT_HARD_MS = 58_000L
     private var vibrator: Vibrator? = null
 
     // Touch and drag tracking
@@ -158,6 +156,7 @@ class FloatingBubbleService : Service() {
         audioRecorder = AudioRecorder(this)
         geminiInteractionsAdapter = GeminiInteractionsAdapter(okHttpClient)
         groqWhisperClient = GroqWhisperClient(okHttpClient)
+        smartProviderRouter = SmartProviderRouter(okHttpClient, prefs, geminiInteractionsAdapter, groqWhisperClient)
         formattingChain = FormattingChain(this, prefs)
 
         audioRecorder.onAmplitudeChanged = { amp, _ ->
@@ -285,7 +284,6 @@ class FloatingBubbleService : Service() {
         serviceScope.cancel()
         activeDictationJob?.cancel()
         liveTranscribeStreamer?.cancelAndClose()
-        rollingChunkTranscriber?.cancelAll()
         TextInjectorAccessibilityService.instance?.onKeyboardVisibilityChanged = null
         livePreviewController?.detach()
         livePreviewController = null
@@ -851,8 +849,6 @@ class FloatingBubbleService : Service() {
         amplitudePollerJob?.cancel()
         amplitudePollerJob = null
         livePreviewController?.hide()
-        autoCheckpointJob?.cancel()
-        autoCheckpointJob = null
 
         val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
         val processingTimeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)
@@ -922,13 +918,9 @@ class FloatingBubbleService : Service() {
 
     fun onUserCancelDictation() {
         vibrateShort()
-        liveRollingPreviewer?.stopAndCancel()
-        liveRollingPreviewer = null
         amplitudePollerJob?.cancel()
         amplitudePollerJob = null
         livePreviewController?.hide()
-        autoCheckpointJob?.cancel()
-        autoCheckpointJob = null
         processingWatchdogJob?.cancel()
         processingWatchdogJob = null
         activeDictationJob?.cancel(CancellationException("User tapped Cancel (✕)"))
@@ -947,11 +939,6 @@ class FloatingBubbleService : Service() {
             liveTranscribeStreamer?.cancelAndClose()
         } catch (_: Exception) {}
         liveTranscribeStreamer = null
-
-        try {
-            rollingChunkTranscriber?.cancelAll()
-        } catch (_: Exception) {}
-        rollingChunkTranscriber = null
 
         hidePendingPasteBanner()
         hideThrottledPreviewText()
@@ -1111,7 +1098,7 @@ class FloatingBubbleService : Service() {
         val prefs = FlowBanglaApp.instance.preferencesManager
         if (!prefs.isConfigured) {
             val msg = when (prefs.engineMode) {
-                EngineMode.CLOUD_AUDIO -> "Please enter Gemini API Key in Flow settings / জেমিনি API Key দিন"
+                EngineMode.CLOUD_AUDIO -> "Please enter API Key in Flow settings / API Key দিন"
                 EngineMode.HYBRID_CLOUD_POLISH -> "Please enter ${prefs.cloudPolishProvider.displayName} API Key in Flow settings"
                 EngineMode.OFFLINE_LOCAL_LLM -> "Please download Gemma model first in Flow settings / মডেল ডাউনলোড করুন"
                 EngineMode.OFFLINE_LIGHTWEIGHT -> ""
@@ -1155,7 +1142,6 @@ class FloatingBubbleService : Service() {
 
         recordingStartTimeMs = SystemClock.elapsedRealtime()
         TextInjectorAccessibilityService.instance?.onRecordingStarted()
-        startAutoCheckpointMonitor()
 
         vibrateShort()
         currentState = TranscriptionState.Recording()
@@ -1170,34 +1156,6 @@ class FloatingBubbleService : Service() {
             }
         }
         livePreviewController?.updateLiveText("", anchorY)
-
-        // Flow v4.1.0: Real-time Live Rolling Cloud Previewer during CLOUD_AUDIO dictation
-        if (prefs.engineMode == EngineMode.CLOUD_AUDIO && prefs.enableLiveTranscriptionPreview) {
-            val geminiKey = prefs.geminiApiKey.trim()
-            val groqKey = prefs.groqApiKey.trim()
-            val customVocab = try {
-                FlowBanglaApp.instance.personalDictionaryManager.buildCustomVocabularyList(emptyList())
-            } catch (_: Throwable) {
-                emptyList()
-            }
-
-            liveRollingPreviewer?.stopAndCancel()
-            liveRollingPreviewer = com.flowbangla.app.audio.LiveRollingCloudPreviewer(
-                scope = serviceScope,
-                geminiAdapter = geminiInteractionsAdapter,
-                groqClient = groqWhisperClient,
-                geminiKey = geminiKey,
-                groqKey = groqKey,
-                customVocab = customVocab,
-                onLiveTextUpdated = { liveText ->
-                    livePreviewController?.updateLiveText(liveText, anchorY)
-                }
-            ).apply {
-                startLivePreviewLoop {
-                    audioRecorder.drainLatestLiveSliceWavFile()
-                }
-            }
-        }
 
         startAmplitudePoller()
     }
@@ -1221,98 +1179,22 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    private fun startAutoCheckpointMonitor() {
-        autoCheckpointJob?.cancel()
-        val prefs = FlowBanglaApp.instance.preferencesManager
-        if (prefs.engineMode != EngineMode.CLOUD_AUDIO) return
-
-        autoCheckpointJob = serviceScope.launch(Dispatchers.IO) {
-            var segmentStartMs = SystemClock.elapsedRealtime()
-            var silentConsecutiveMs = 0L
-
-            while (isActive && currentState is TranscriptionState.Recording) {
-                delay(100L)
-                val elapsed = SystemClock.elapsedRealtime() - segmentStartMs
-                val amp = audioRecorder.getCurrentAmplitude()
-
-                if (amp < 1200) {
-                    silentConsecutiveMs += 100L
-                } else {
-                    silentConsecutiveMs = 0L
-                }
-
-                val shouldCheckpoint = (elapsed >= AUTO_CHECKPOINT_SOFT_MS && silentConsecutiveMs >= 400L) ||
-                    (elapsed >= AUTO_CHECKPOINT_HARD_MS)
-
-                if (shouldCheckpoint) {
-                    val completedChunkFile = audioRecorder.rotateRecordingFileSafelyIo()
-                    segmentStartMs = SystemClock.elapsedRealtime()
-                    silentConsecutiveMs = 0L
-
-                    if (completedChunkFile != null && completedChunkFile.exists() && completedChunkFile.length() > 512L) {
-                        serviceScope.launch(Dispatchers.IO) {
-                            processAndInsertChunkIo(completedChunkFile)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private suspend fun processAndInsertChunkIo(chunkFile: File) {
-        val prefs = FlowBanglaApp.instance.preferencesManager
-        val geminiKey = prefs.geminiApiKey.trim()
-        val groqKey = prefs.groqApiKey.trim()
-        val customVocab = try {
-            val fc = TextInjectorAccessibilityService.instance?.extractActiveFieldContextFast() ?: ActiveFieldContext()
-            FlowBanglaApp.instance.personalDictionaryManager.buildCustomVocabularyList(fc.screenProperNouns)
-        } catch (_: Throwable) {
-            emptyList()
-        }
-
-        val rawTranscript = try {
-            if (geminiKey.isNotEmpty()) {
-                geminiInteractionsAdapter.transcribeAudioFile(chunkFile, geminiKey, customVocab, useVerbatimMode = false).text
-            } else if (groqKey.isNotEmpty()) {
-                groqWhisperClient.transcribeAudio(chunkFile, groqKey, customVocab).text
-            } else {
-                ""
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Chunk transcribe error: ${t.message}")
-            ""
-        }.trim()
-
-        try { chunkFile.delete() } catch (_: Throwable) {}
-
-        if (rawTranscript.isNotBlank()) {
-            val formatted = formattingChain.formatSmartTranscript(
-                rawTranscript = rawTranscript,
-                fieldContext = ActiveFieldContext(),
-                alreadySmartTranscribed = geminiKey.isNotEmpty()
-            ).ifBlank { rawTranscript }
-
-            deliverFormattedTextToTargetApp(
-                rawTranscript = rawTranscript,
-                formattedText = formatted,
-                durationSec = 45,
-                provenance = "Auto-Checkpoint (45s)"
-            )
-        }
-    }
-
     private suspend fun executeDictationPipelineIo() {
         try {
-            val prefs = FlowBanglaApp.instance.preferencesManager
-            val geminiKey = prefs.geminiApiKey.trim()
-            val groqKey = prefs.groqApiKey.trim()
+            val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L).toInt()
 
-            // Flow v4.1.0: Capture accumulated live transcript from rolling slices
-            val accumulatedLive = liveRollingPreviewer?.getAccumulatedLiveTranscript().orEmpty().trim()
-            liveRollingPreviewer?.stopAndCancel()
-            liveRollingPreviewer = null
+            // STEP 1: Stop AudioRecorder strictly on Dispatchers.IO (max 1.5s timeout)
+            val recordedFile = withTimeoutOrNull(1_500L) {
+                audioRecorder.stopRecordingSafelyIo()
+            }
 
-            val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
+            if (recordedFile == null || !recordedFile.exists() || recordedFile.length() < 256L) {
+                withContext(Dispatchers.Main) {
+                    currentState = TranscriptionState.Idle
+                    updateUiState(currentState)
+                }
+                return
+            }
 
             // STEP 2: Extract lightweight screen context with strict 150ms timeout (never block!)
             val fieldContext = withTimeoutOrNull(150L) {
@@ -1325,195 +1207,123 @@ class FloatingBubbleService : Service() {
                 emptyList()
             }
 
-            var rawTranscript = ""
-            var recognitionSource = RecognitionSource.GEMINI_TRANSCRIBE
+            // STEP 3: Smart Cloud Audio ASR across enabled providers (Groq Turbo <= 20s, Gemini > 20s)
+            val asrTimeoutMs = (10_000L + (durationSec * 600L)).coerceAtMost(60_000L)
+            val asrResult = withTimeoutOrNull(asrTimeoutMs) {
+                smartProviderRouter.transcribeAudioSmart(
+                    audioFile = recordedFile,
+                    audioDurationSeconds = durationSec,
+                    customVocab = customVocab
+                )
+            } ?: AsrExecutionResult("", RecognitionSource.UNKNOWN, false)
 
-            // SUB-SECOND INSERTION FAST-PATH (< 600ms):
-            // If liveRollingPreviewer already accumulated speech during the dictation,
-            // we only transcribe the remaining 1-2s tail slice instead of the whole 2-minute file!
-            if (accumulatedLive.isNotBlank()) {
-                val tailFile = audioRecorder.drainRemainingTailWavFile()
-                val tailText = if (tailFile != null && tailFile.exists() && tailFile.length() > 512L) {
-                    try {
-                        if (groqKey.isNotEmpty()) {
-                            recognitionSource = RecognitionSource.GROQ_WHISPER
-                            groqWhisperClient.transcribeAudio(tailFile, groqKey, customVocab).text
-                        } else if (geminiKey.isNotEmpty()) {
-                            geminiInteractionsAdapter.transcribeAudioFile(
-                                audioFile = tailFile,
-                                rawApiKey = geminiKey,
-                                customVocabulary = customVocab,
-                                useVerbatimMode = false
-                            ).text
-                        } else ""
-                    } catch (_: Throwable) {
-                        ""
-                    } finally {
-                        try { tailFile.delete() } catch (_: Throwable) {}
-                    }
-                } else ""
-
-                rawTranscript = if (tailText.isNotBlank()) {
-                    "$accumulatedLive $tailText".trim()
-                } else {
-                    accumulatedLive
-                }
-                // Stop audio recorder safely on IO and clean up full audio file
-                try { audioRecorder.stopRecordingSafelyIo()?.delete() } catch (_: Throwable) {}
-            }
-
-            if (rawTranscript.isBlank()) {
-                // STEP 1: Stop AudioRecorder strictly on Dispatchers.IO (max 1.5s timeout)
-                val recordedFile = withTimeoutOrNull(1_500L) {
-                    audioRecorder.stopRecordingSafelyIo()
-                }
-
-                if (recordedFile == null || !recordedFile.exists() || recordedFile.length() < 256L) {
-                    withContext(Dispatchers.Main) {
-                        currentState = TranscriptionState.Idle
-                        updateUiState(currentState)
-                    }
-                    return
-                }
-
-                val asrTimeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)
-
-                // STEP 3: Cloud ASR on Dispatchers.IO with duration-scaled timeout
-                val asrResult = withTimeoutOrNull(asrTimeoutMs) {
-                    try {
-                        if (geminiKey.isNotEmpty()) {
-                            geminiInteractionsAdapter.transcribeAudioFile(
-                                audioFile = recordedFile,
-                                rawApiKey = geminiKey,
-                                customVocabulary = customVocab,
-                                useVerbatimMode = false // Native SMART mode in 1 pass!
-                            ).text
-                        } else if (groqKey.isNotEmpty()) {
-                            recognitionSource = RecognitionSource.GROQ_WHISPER
-                            groqWhisperClient.transcribeAudio(recordedFile, groqKey, customVocab).text
-                        } else {
-                            ""
-                        }
-                    } catch (e: Throwable) {
-                        Log.w(TAG, "Primary ASR failed (${e.message}), trying Groq fallback if available.")
-                        if (groqKey.isNotEmpty()) {
-                            recognitionSource = RecognitionSource.GROQ_WHISPER
-                            try {
-                                groqWhisperClient.transcribeAudio(recordedFile, groqKey, customVocab).text
-                            } catch (_: Throwable) {
-                                ""
-                            }
-                        } else {
-                            ""
-                        }
-                    }
-                }.orEmpty().trim()
-
-                rawTranscript = asrResult
-                if (rawTranscript.isEmpty()) {
-                    // Save failed audio backup into History so user never loses their voice
-                    val backupFile = File(recordedFile.parentFile, "failed_${System.currentTimeMillis()}.wav")
-                    try {
-                        recordedFile.copyTo(backupFile, overwrite = true)
-                        FlowBanglaApp.instance.historyManager.addRecord(
-                            DictationRecord(
-                                text = "রেকর্ডিং ব্যর্থ হয়েছে (ইতিহাসে ট্যাপ করে আবার দেখুন) / Dictation Failed",
-                                durationSeconds = durationSec.toInt(),
-                                isSuccess = false,
-                                rawTranscript = "",
-                                provenance = "Failed ASR",
-                                audioFilePath = backupFile.absolutePath
-                            )
-                        )
-                    } catch (_: Throwable) {}
-                    try { recordedFile.delete() } catch (_: Throwable) {}
-
-                    withContext(Dispatchers.Main) {
-                        currentState = TranscriptionState.Idle
-                        updateUiState(currentState)
-                    }
-                    return
-                }
-
-                // Clean up audio file on IO
+            val rawTranscript = asrResult.transcript.trim()
+            if (rawTranscript.isEmpty()) {
+                val ext = recordedFile.extension.ifEmpty { "m4a" }
+                val backupFile = File(recordedFile.parentFile, "failed_${System.currentTimeMillis()}.$ext")
                 try {
-                    recordedFile.delete()
+                    recordedFile.copyTo(backupFile, overwrite = true)
+                    FlowBanglaApp.instance.historyManager.addRecord(
+                        DictationRecord(
+                            text = "রেকর্ডিং ব্যর্থ হয়েছে (ইতিহাসে ট্যাপ করে আবার দেখুন) / Dictation Failed",
+                            durationSeconds = durationSec,
+                            isSuccess = false,
+                            rawTranscript = "",
+                            provenance = "Failed ASR",
+                            audioFilePath = backupFile.absolutePath
+                        )
+                    )
                 } catch (_: Throwable) {}
+                try { recordedFile.delete() } catch (_: Throwable) {}
+
+                withContext(Dispatchers.Main) {
+                    currentState = TranscriptionState.Idle
+                    updateUiState(currentState)
+                }
+                return
             }
 
-            // Save raw transcript to History (DO NOT copy to clipboard here early!)
+            try { recordedFile.delete() } catch (_: Throwable) {}
+
             val historyId = java.util.UUID.randomUUID().toString()
+            val provenanceLabel = asrResult.source.label
+
             try {
                 FlowBanglaApp.instance.historyManager.addRecord(
                     DictationRecord(
                         id = historyId,
                         text = rawTranscript,
-                        durationSeconds = durationSec.toInt(),
+                        durationSeconds = durationSec,
                         isSuccess = true,
                         rawTranscript = rawTranscript,
-                        provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR (Raw)" else "Groq Whisper (Raw)"
+                        provenance = "$provenanceLabel (Raw)"
                     )
                 )
             } catch (_: Throwable) {}
 
-        // Check for Voice Command Mode on highlighted text
-        if (fieldContext.hasSelectedText && fieldContext.selectedText.isNotBlank() && geminiKey.isNotBlank()) {
-            try {
-                val transformResult = geminiInteractionsAdapter.runCommandTransform(
-                    selectedText = fieldContext.selectedText,
-                    spokenInstruction = rawTranscript,
-                    rawApiKey = geminiKey
-                )
-                if (transformResult.text.isNotBlank()) {
-                    try {
-                        FlowBanglaApp.instance.historyManager.updateRecord(
-                            id = historyId,
-                            text = transformResult.text,
-                            rawTranscript = rawTranscript,
-                            provenance = "Command Mode (${transformResult.modelId})"
-                        )
-                    } catch (_: Throwable) {}
-                    deliverFormattedTextToTargetApp(
-                        rawTranscript = rawTranscript,
-                        formattedText = transformResult.text,
-                        durationSec = durationSec.toInt(),
-                        provenance = "Command Mode (${transformResult.modelId})",
-                        alreadySavedToHistory = true
+            // Check for Voice Command Mode on highlighted text
+            val prefs = FlowBanglaApp.instance.preferencesManager
+            if (fieldContext.hasSelectedText && fieldContext.selectedText.isNotBlank() && prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank()) {
+                try {
+                    val transformResult = geminiInteractionsAdapter.runCommandTransform(
+                        selectedText = fieldContext.selectedText,
+                        spokenInstruction = rawTranscript,
+                        rawApiKey = prefs.geminiApiKey
                     )
-                    return
+                    if (transformResult.text.isNotBlank()) {
+                        try {
+                            FlowBanglaApp.instance.historyManager.updateRecord(
+                                id = historyId,
+                                text = transformResult.text,
+                                rawTranscript = rawTranscript,
+                                provenance = "Command Mode (${transformResult.modelId})"
+                            )
+                        } catch (_: Throwable) {}
+                        deliverFormattedTextToTargetApp(
+                            rawTranscript = rawTranscript,
+                            formattedText = transformResult.text,
+                            durationSec = durationSec,
+                            provenance = "Command Mode (${transformResult.modelId})",
+                            alreadySavedToHistory = true
+                        )
+                        return
+                    }
+                } catch (ce: Throwable) {
+                    Log.w(TAG, "Command Mode transformation failed: ${ce.message}")
                 }
-            } catch (ce: Throwable) {
-                Log.w(TAG, "Command Mode transformation failed: ${ce.message}")
             }
-        }
 
-        // STEP 4: Fast Formatting & Post-Processing on Dispatchers.IO (max 3s timeout)
-        val formattedText = withTimeoutOrNull(3_000L) {
-            formattingChain.formatSmartTranscript(
+            // STEP 4: Fast Formatting & Post-Processing (< 2ms local fast-path if already smart formatted)
+            val formattedText = if (asrResult.alreadySmartFormatted) {
+                formattingChain.formatLocalInstantOnly(rawTranscript, fieldContext)
+            } else {
+                withTimeoutOrNull(1_600L) {
+                    formattingChain.formatSmartTranscript(
+                        rawTranscript = rawTranscript,
+                        fieldContext = fieldContext,
+                        alreadySmartTranscribed = false
+                    )
+                } ?: formattingChain.formatLocalInstantOnly(rawTranscript, fieldContext)
+            }
+
+            val finalCleanText = formattedText.ifBlank { rawTranscript }
+
+            try {
+                FlowBanglaApp.instance.historyManager.updateRecord(
+                    id = historyId,
+                    text = finalCleanText,
+                    rawTranscript = rawTranscript,
+                    provenance = provenanceLabel
+                )
+            } catch (_: Throwable) {}
+
+            deliverFormattedTextToTargetApp(
                 rawTranscript = rawTranscript,
-                fieldContext = fieldContext,
-                alreadySmartTranscribed = (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE)
+                formattedText = finalCleanText,
+                durationSec = durationSec,
+                provenance = provenanceLabel,
+                alreadySavedToHistory = true
             )
-        } ?: formattingChain.formatLocalInstantOnly(rawTranscript, fieldContext)
-
-        val finalCleanText = formattedText.ifBlank { rawTranscript }
-
-        try {
-            FlowBanglaApp.instance.historyManager.updateRecord(
-                id = historyId,
-                text = finalCleanText,
-                rawTranscript = rawTranscript,
-                provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR" else "Groq Whisper"
-            )
-        } catch (_: Throwable) {}
-
-        deliverFormattedTextToTargetApp(
-            rawTranscript = rawTranscript,
-            formattedText = finalCleanText,
-            durationSec = durationSec.toInt(),
-            provenance = if (recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE) "Gemini Smart ASR" else "Groq Whisper",
-            alreadySavedToHistory = true
-        )
         } finally {
             withContext(NonCancellable + Dispatchers.Main) {
                 if (currentState !is TranscriptionState.Idle) {

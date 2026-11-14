@@ -45,12 +45,15 @@ class GroqWhisperClient(
         }
 
         val meta = AudioFileInspector.inspectAndValidate(audioFile)
-        val models = listOf(MODEL_LARGE_V3, MODEL_TURBO)
+        val models = listOf(MODEL_TURBO, MODEL_LARGE_V3)
         var lastException: FlowApiException? = null
 
-        val promptHint = if (customVocabulary.isNotEmpty()) {
-            customVocabulary.take(100).joinToString(", ")
-        } else null
+        val promptHint = buildString {
+            append("বাংলা এবং English voice dictation। ")
+            if (customVocabulary.isNotEmpty()) {
+                append(customVocabulary.take(40).joinToString(", "))
+            }
+        }.take(220)
 
         for (model in models) {
             val startMs = System.currentTimeMillis()
@@ -61,11 +64,8 @@ class GroqWhisperClient(
                     .addFormDataPart("file", audioFile.name, fileBody)
                     .addFormDataPart("model", model)
                     .addFormDataPart("response_format", "json")
-                    .addFormDataPart("temperature", "0.0")
-
-                if (!promptHint.isNullOrBlank()) {
-                    multipartBuilder.addFormDataPart("prompt", promptHint)
-                }
+                    .addFormDataPart("temperature", "0")
+                    .addFormDataPart("prompt", promptHint)
 
                 val request = Request.Builder()
                     .url(GROQ_TRANSCRIPTION_URL)

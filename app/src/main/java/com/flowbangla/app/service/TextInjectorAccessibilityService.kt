@@ -86,6 +86,10 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     var onKeyboardVisibilityChanged: ((isKeyboardVisible: Boolean) -> Unit)? = null
 
     @Volatile
+    var isImeWindowViewVisible: Boolean = false
+        private set
+
+    @Volatile
     private var lastFocusedEditableNode: AccessibilityNodeInfo? = null
 
     @Volatile
@@ -218,6 +222,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
                 super.onStartInput(attribute, restarting)
                 val isRealInput = attribute.inputType != android.text.InputType.TYPE_NULL
                 isInputConnectionStarted = isRealInput
+                isImeWindowViewVisible = isRealInput
                 currentEditorPackage = attribute.packageName
                 if (isRealInput) {
                     lastEditableTouchElapsedMs = SystemClock.elapsedRealtime()
@@ -240,6 +245,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
 
             override fun onFinishInput() {
                 super.onFinishInput()
+                isImeWindowViewVisible = false
                 isInputConnectionStarted = false
                 lastEditableTouchElapsedMs = 0L
                 // 0ms INSTANT HIDE: Fires the exact frame Gboard starts closing!
@@ -1012,7 +1018,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             context = this,
             windows = windowList,
             activeRoot = activeRoot,
-            isImeInputStarted = isInputConnectionStarted,
+            isImeInputStarted = isInputConnectionStarted || isImeWindowViewVisible,
             hasActiveEditableFocus = hasFocus,
             lastEditableTouchElapsedMs = lastEditableTouchElapsedMs
         )

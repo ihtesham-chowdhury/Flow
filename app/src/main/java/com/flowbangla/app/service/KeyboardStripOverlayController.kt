@@ -152,13 +152,10 @@ class KeyboardStripOverlayController(
 
     fun hideImmediatelyOnKeyboardClose() {
         isKeyboardCurrentlyOpen = false
+        // Visually hide the inline bar in 0ms so it never floats in mid-air when Gboard closes,
+        // BUT keep `currentState` (RECORDING / PROCESSING) intact so recording continues uninterrupted
+        // and re-appears inside the strip the instant the user re-opens Gboard!
         stripView?.visibility = View.GONE
-        // If recording was active on the inline keyboard bar when the user closed the keyboard,
-        // immediately finish/stop the inline bar so it never floats over the screen without a keyboard!
-        if (stripView?.currentState == StripState.RECORDING) {
-            stripView?.currentState = StripState.IDLE
-            onConfirmRecording()
-        }
     }
 
     /**
@@ -174,11 +171,11 @@ class KeyboardStripOverlayController(
             return
         }
 
-        val state = view.currentState
-        if (!isKeyboardCurrentlyOpen && state == StripState.IDLE) {
+        if (!isKeyboardCurrentlyOpen) {
             view.visibility = View.GONE
             return
         }
+        val state = view.currentState
 
         val metrics = a11yService.resources.displayMetrics
         val density = metrics.density

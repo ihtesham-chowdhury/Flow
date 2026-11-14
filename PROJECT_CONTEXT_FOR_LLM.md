@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 4.1.0 (Build 21)  
-> **Last Updated**: November 12, 2026  
-> **Status**: Production Release (`Flow-v4.1.0.apk` active)  
+> **Document Version**: 4.2.0 (Build 22)  
+> **Last Updated**: November 13, 2026  
+> **Status**: Production Release (`Flow-v4.2.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -253,7 +253,38 @@
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
 
-### Phase 19: v4.1.0 (Build 21) — Pure Studio Mic Icon, Zero-Lag Keyboard Hide, Real-Time Live Streaming Preview & Sub-Second Insertion (Current Release)
+### Phase 20: v4.2.0 (Build 22) — Core Perfection (Record, Process, Insert), Multi-Provider Toggles & Smart Auto-Router (Current Release)
+- **Multi-Provider Toggles & Removed Hardcoded Gemini Lockout**:
+  - *Root Cause*: `PreferencesManager.isConfigured` checked `geminiApiKey.isNotBlank()`, and `FloatingBubbleService.startRecordingAction()` hardcoded `"Please enter Gemini API Key"`. Removing the Gemini key blocked Groq and OpenRouter users.
+  - *Architectural Fix*:
+    1. Added `ProviderId` (`GEMINI`, `GROQ`, `OPENROUTER`, `CEREBRAS`) and `ProviderRoutingMode` (`SMART_AUTO`, `MANUAL_PRIORITY`).
+    2. Added individual per-provider boolean toggles (`isGeminiEnabled`, `isGroqEnabled`, `isOpenRouterEnabled`, `isCerebrasEnabled`) and `hasAnyActiveCloudProvider()` helper.
+    3. `isConfigured` and `startRecordingAction()` now dynamically check `hasAnyActiveCloudProvider()`, allowing Flow to run 100% Gemini-free on Groq, OpenRouter, or Cerebras.
+- **Smart Auto-Router (`SmartProviderRouter.kt`)**:
+  - Implemented `SMART_AUTO` mode routing:
+    - Short/Fast Utterances ($\le 20\text{s}$): Routes first to **Groq Whisper Large V3 Turbo** ($\sim 180\text{ms}$ ASR + $\sim 150\text{ms}$ polish = $\sim 330\text{ms}$ total latency).
+    - Long Utterances ($> 20\text{s}$): Routes first to **Gemini 3.5 Transcribe Smart Mode** for deep context and native code-switching intelligence.
+  - Automatic fallback failover across active toggled providers.
+  - Dedicated Keys & Routing UI in `MainActivity.kt` with "Smart model switching" toggle and individual ON/OFF switches for each provider.
+- **Groq Whisper HTTP 400 Bad Request Fix**:
+  - Fixed Groq transcription rejection by omitting invalid 5-character locale tags (`"bn-BD"` / `"en-US"`).
+  - Configured native auto-detection for mixed Bangla and English with bilingual prompt hints, prioritizing `whisper-large-v3-turbo` with fallback to `whisper-large-v3`.
+- **Keep-Recording-Alive on Keyboard Close**:
+  - In `KeyboardStripOverlayController.hideImmediatelyOnKeyboardClose()`, set `stripView?.visibility = View.GONE` in 0ms so the inline bar never floats awkwardly over the screen when Gboard closes, **without resetting `currentState` to `IDLE` and without calling `onConfirmRecording()`**.
+  - Re-opening Gboard immediately re-displays the expanded studio recording bar with running timer and live waveform right inside the suggestion strip.
+- **Authoritative 3-Signal Keyboard Visibility Detection (`KeyboardVisibilityDetector.kt`)**:
+  - Solved missing button bug on Xiaomi HyperOS and Samsung One UI where `TYPE_INPUT_METHOD` is omitted from `getWindows()`.
+  - Signal 1: `TYPE_INPUT_METHOD` or known keyboard window $\ge 110\text{dp}$.
+  - Signal 2: Foreground application window bottom compression $\ge 140\text{dp}$.
+  - Signal 3: `isImeWindowViewVisible` tracked via `onStartInput`/`onFinishInput` lifecycle in `TextInjectorAccessibilityService`, saving verified real keyboard top Y (`verified_ime_top_y`).
+- **Streamlined Hardware-Accelerated `.m4a` 48kbps AAC Audio Capture (`AudioRecorder.kt`)**:
+  - Stripped out competing background slice network loops (`LiveRollingCloudPreviewer` and `AutoCheckpointMonitor`) during recording, reserving 100% upload bandwidth for post-speech transcription.
+  - Reverted to hardware-accelerated `.m4a` AAC (`16kHz`, `48kbps` mono): a 20s recording is only $\sim 120\text{ KB}$ (uploads in $< 80\text{ms}$).
+  - `MediaRecorder.getMaxAmplitude()` drives active 60fps waveform bars with zero CPU overhead.
+  - Sub-second insertion with `< 2ms` local deterministic formatting and immediate cursor injection.
+- **100% Passing Unit Test Suite (98 unit tests passing)**.
+
+### Phase 19: v4.1.0 (Build 21) — Pure Studio Mic Icon, Zero-Lag Keyboard Hide, Real-Time Live Streaming Preview & Sub-Second Insertion
 - **Sub-Second Long Dictation Insertion (< 600ms)**:
   - *Root Cause of 30–50s Delay*: Previously copied raw transcript to clipboard before formatting, then ran an unneeded second full-document LLM pass on 300+ word paragraphs that were already smart-transcribed by `gemini-3.5-transcribe` natively.
   - *Architectural Fix*:

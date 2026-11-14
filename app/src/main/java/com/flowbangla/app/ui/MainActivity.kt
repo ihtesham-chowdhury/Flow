@@ -49,6 +49,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.flowbangla.app.FlowBanglaApp
 import com.flowbangla.app.data.PreferencesManager
+import com.flowbangla.app.data.ProviderRoutingMode
 import com.flowbangla.app.diagnostics.ConnectivityLabReport
 import com.flowbangla.app.diagnostics.ConnectivityLabRunner
 import com.flowbangla.app.format.AutoCleanupLevel
@@ -253,10 +254,12 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 4.1.0 (21)",
+        "version" to "Version 4.2.0 (22)",
         "added" to "Added",
         "not_added" to "Not added",
-        "save_key_first" to "Please save required API Key first"
+        "save_key_first" to "Please save required API Key first",
+        "smart_model_switching" to "Smart model switching",
+        "smart_model_switching_desc" to "Uses Groq for quick phrases and Gemini for long notes"
     )
 
     private val bnMap = mapOf(
@@ -319,10 +322,12 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৪.০.০ (২০)",
+        "version" to "ভার্সন ৪.২.০ (২২)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
-        "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন"
+        "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন",
+        "smart_model_switching" to "স্মার্ট মডেল সুইচিং",
+        "smart_model_switching_desc" to "ছোট কথার জন্য Groq এবং দীর্ঘ নোটের জন্য Gemini"
     )
 }
 
@@ -373,6 +378,11 @@ fun MainScreen(
     var groqKeyText by remember { mutableStateOf(prefs.groqApiKey) }
     var cerebrasKeyText by remember { mutableStateOf(prefs.cerebrasApiKey) }
     var openRouterKeyText by remember { mutableStateOf(prefs.openRouterApiKey) }
+    var isGeminiEnabled by remember { mutableStateOf(prefs.isGeminiEnabled) }
+    var isGroqEnabled by remember { mutableStateOf(prefs.isGroqEnabled) }
+    var isCerebrasEnabled by remember { mutableStateOf(prefs.isCerebrasEnabled) }
+    var isOpenRouterEnabled by remember { mutableStateOf(prefs.isOpenRouterEnabled) }
+    var providerRoutingMode by remember { mutableStateOf(prefs.providerRoutingMode) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
     var connectivityReport by remember { mutableStateOf<ConnectivityLabReport?>(null) }
@@ -1061,61 +1071,157 @@ fun MainScreen(
                     )
 
                     FlowGroup {
-                        val keyRows = listOf(
-                            Pair("Gemini", geminiKeyText.isNotBlank()),
-                            Pair("Groq", groqKeyText.isNotBlank()),
-                            Pair("Cerebras", cerebrasKeyText.isNotBlank()),
-                            Pair("OpenRouter", openRouterKeyText.isNotBlank())
-                        )
-
-                        keyRows.forEachIndexed { idx, (provider, isAdded) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 52.dp)
-                                    .clickable { activeKeySheetProvider = provider },
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                        // Smart model switching row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp)
+                                .clickable {
+                                    val newMode = if (providerRoutingMode == ProviderRoutingMode.SMART_AUTO) {
+                                        ProviderRoutingMode.MANUAL_PRIORITY
+                                    } else {
+                                        ProviderRoutingMode.SMART_AUTO
+                                    }
+                                    providerRoutingMode = newMode
+                                    prefs.providerRoutingMode = newMode
+                                    notifyServiceSettingsChanged(context)
+                                }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
-                                    text = provider,
+                                    text = str("smart_model_switching"),
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = DarkInk
                                 )
+                                Text(
+                                    text = str("smart_model_switching_desc"),
+                                    fontSize = 12.sp,
+                                    color = DarkInkMuted,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                            Switch(
+                                checked = providerRoutingMode == ProviderRoutingMode.SMART_AUTO,
+                                onCheckedChange = { checked ->
+                                    val newMode = if (checked) ProviderRoutingMode.SMART_AUTO else ProviderRoutingMode.MANUAL_PRIORITY
+                                    providerRoutingMode = newMode
+                                    prefs.providerRoutingMode = newMode
+                                    notifyServiceSettingsChanged(context)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
+                                )
+                            )
+                        }
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    if (isAdded) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = SageDark,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
+                        FlowHairline()
+
+                        data class ProviderItem(
+                            val name: String,
+                            val isAdded: Boolean,
+                            val isEnabled: Boolean,
+                            val onToggle: (Boolean) -> Unit
+                        )
+
+                        val providers = listOf(
+                            ProviderItem("Gemini", geminiKeyText.isNotBlank(), isGeminiEnabled) {
+                                isGeminiEnabled = it
+                                prefs.isGeminiEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            },
+                            ProviderItem("Groq", groqKeyText.isNotBlank(), isGroqEnabled) {
+                                isGroqEnabled = it
+                                prefs.isGroqEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            },
+                            ProviderItem("Cerebras", cerebrasKeyText.isNotBlank(), isCerebrasEnabled) {
+                                isCerebrasEnabled = it
+                                prefs.isCerebrasEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            },
+                            ProviderItem("OpenRouter", openRouterKeyText.isNotBlank(), isOpenRouterEnabled) {
+                                isOpenRouterEnabled = it
+                                prefs.isOpenRouterEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            }
+                        )
+
+                        providers.forEachIndexed { idx, p ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 52.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { activeKeySheetProvider = p.name }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
                                         Text(
-                                            text = str("added"),
-                                            fontSize = 12.sp,
-                                            color = SageDark
+                                            text = p.name,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = DarkInk
                                         )
-                                    } else {
-                                        Text(
-                                            text = str("not_added"),
-                                            fontSize = 12.sp,
-                                            color = DarkInkMuted
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (p.isAdded) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = SageDark,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text(
+                                                    text = str("added"),
+                                                    fontSize = 12.sp,
+                                                    color = SageDark
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = str("not_added"),
+                                                    fontSize = 12.sp,
+                                                    color = DarkInkMuted
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = if (p.isAdded) "• [Edit]" else "• [Add]",
+                                                fontSize = 12.sp,
+                                                color = LocalAccentColor.current,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.ChevronRight,
-                                        contentDescription = null,
-                                        tint = DarkInkMuted,
-                                        modifier = Modifier.size(16.dp)
-                                    )
                                 }
+
+                                Switch(
+                                    checked = p.isEnabled,
+                                    onCheckedChange = { p.onToggle(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = DarkInkOnAccent,
+                                        checkedTrackColor = DarkInk,
+                                        uncheckedThumbColor = DarkInkMuted,
+                                        uncheckedTrackColor = DarkSurfaceSunken,
+                                        uncheckedBorderColor = DarkHairline
+                                    )
+                                )
                             }
 
-                            if (idx < keyRows.size - 1) {
+                            if (idx < providers.size - 1) {
                                 FlowHairline()
                             }
                         }
@@ -1126,9 +1232,13 @@ fun MainScreen(
                     // Test Connection Button (§6.3)
                     Button(
                         onClick = {
-                            if (prefs.geminiApiKey.isBlank()) {
+                            if (!prefs.hasAnyActiveCloudProvider()) {
                                 Toast.makeText(context, str("save_key_first"), Toast.LENGTH_SHORT).show()
                                 activeKeySheetProvider = "Gemini"
+                                return@Button
+                            }
+                            if (prefs.geminiApiKey.isBlank()) {
+                                Toast.makeText(context, "Active cloud provider configured! Full diagnostic lab specializes in Gemini API testing.", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             isTestingConnection = true

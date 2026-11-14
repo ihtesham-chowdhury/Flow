@@ -10,6 +10,18 @@ import com.flowbangla.app.model.EngineMode
 import com.flowbangla.app.model.InteractionMode
 import com.flowbangla.app.model.SttLanguage
 
+enum class ProviderId {
+    GEMINI,
+    GROQ,
+    OPENROUTER,
+    CEREBRAS
+}
+
+enum class ProviderRoutingMode {
+    SMART_AUTO,      // Short/Fast (<=20s) -> Groq Turbo; Long/Complex (>20s) -> Gemini 3.5 Smart
+    MANUAL_PRIORITY  // Uses whichever provider(s) the user toggled ON
+}
+
 class PreferencesManager(context: Context) {
 
     private val prefs: SharedPreferences = try {
@@ -201,14 +213,51 @@ class PreferencesManager(context: Context) {
             }
         }
 
+    var isGeminiEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_gemini", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_gemini", value).apply()
+
+    var isGroqEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_groq", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_groq", value).apply()
+
+    var isOpenRouterEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_openrouter", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_openrouter", value).apply()
+
+    var isCerebrasEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_cerebras", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_cerebras", value).apply()
+
+    var providerRoutingMode: ProviderRoutingMode
+        get() = try {
+            ProviderRoutingMode.valueOf(
+                prefs.getString("provider_routing_mode", ProviderRoutingMode.SMART_AUTO.name) ?: ProviderRoutingMode.SMART_AUTO.name
+            )
+        } catch (_: Throwable) {
+            ProviderRoutingMode.SMART_AUTO
+        }
+        set(value) = prefs.edit().putString("provider_routing_mode", value.name).apply()
+
+    /**
+     * Returns true if AT LEAST ONE cloud provider has a non-empty API key AND its toggle is ON!
+     * Replaces the old hardcoded Gemini-only gatekeeper.
+     */
+    fun hasAnyActiveCloudProvider(): Boolean {
+        return (isGeminiEnabled && geminiApiKey.trim().isNotEmpty()) ||
+            (isGroqEnabled && groqApiKey.trim().isNotEmpty()) ||
+            (isOpenRouterEnabled && openRouterApiKey.trim().isNotEmpty()) ||
+            (isCerebrasEnabled && cerebrasApiKey.trim().isNotEmpty())
+    }
+
     val isConfigured: Boolean
         get() = when (engineMode) {
-            EngineMode.CLOUD_AUDIO -> geminiApiKey.isNotBlank()
+            EngineMode.CLOUD_AUDIO -> hasAnyActiveCloudProvider()
             EngineMode.HYBRID_CLOUD_POLISH -> when (cloudPolishProvider) {
-                CloudPolishProvider.GEMINI -> geminiApiKey.isNotBlank()
-                CloudPolishProvider.GROQ -> groqApiKey.isNotBlank()
-                CloudPolishProvider.CEREBRAS -> cerebrasApiKey.isNotBlank()
-                CloudPolishProvider.OPENROUTER -> openRouterApiKey.isNotBlank()
+                CloudPolishProvider.GEMINI -> isGeminiEnabled && geminiApiKey.isNotBlank()
+                CloudPolishProvider.GROQ -> isGroqEnabled && groqApiKey.isNotBlank()
+                CloudPolishProvider.CEREBRAS -> isCerebrasEnabled && cerebrasApiKey.isNotBlank()
+                CloudPolishProvider.OPENROUTER -> isOpenRouterEnabled && openRouterApiKey.isNotBlank()
             }
             EngineMode.OFFLINE_LIGHTWEIGHT -> true
             EngineMode.OFFLINE_LOCAL_LLM -> !downloadedLocalModelPath.isNullOrBlank()

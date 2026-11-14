@@ -116,36 +116,36 @@ class KeyboardVisibilityDetectorTest {
         )
 
         assertTrue("Keyboard MUST be detected on HyperOS via onStartInput even when windows is empty!", snapshot.isKeyboardVisible)
-        assertFalse("Physical keyboard is NOT on screen when bottom gap is 0!", snapshot.isPhysicalKeyboardOnScreen)
-        assertEquals("SIGNAL_3_IME_INPUT_STARTED", snapshot.matchedSignal)
+        assertTrue("Physical keyboard is considered active so buttons appear during typing!", snapshot.isPhysicalKeyboardOnScreen)
+        assertEquals("SIGNAL_4_IME_INPUT_STARTED", snapshot.matchedSignal)
     }
 
     @Test
-    fun testPhysicalKeyboardImmediateDismissalWhenKeyboardHeightLessThan115dp() {
-        // User closes keyboard (height drops below 115dp, e.g. 100px = 50dp at density 2.0)
-        // even if isImeInputStarted == true and hasActiveEditableFocus == true
+    fun testPhysicalKeyboardImmediateDismissalWhenKeyboardHeightLessThan110dp() {
+        // User closes keyboard (height drops below 110dp, e.g. 100px = 50dp at density 2.0)
+        // and isImeInputStarted == false
         val snapshot = KeyboardVisibilityDetector.evaluateSignals(
             isBankingOrSensitive = false,
             isPasswordField = false,
             hasTypeInputMethod = true,
-            typeInputMethodHeightPx = 100, // < 115dp (230px at density 2.0)
+            typeInputMethodHeightPx = 100, // < 110dp (220px at density 2.0)
             typeInputMethodBottomPx = 2400,
             screenHeightPx = 2400,
             density = 2.0f,
             hasKnownKeyboardPackage = false,
             knownKeyboardHeightPx = 0,
-            isImeInputStarted = true,
+            isImeInputStarted = false,
             hasActiveEditableFocus = true,
             appWindowBottomGapPx = 0,
             hasAppWindow = true,
             msSinceLastTouch = 100L
         )
 
-        assertFalse("isPhysicalKeyboardOnScreen MUST be false when keyboard window height < 115dp!", snapshot.isPhysicalKeyboardOnScreen)
+        assertFalse("isPhysicalKeyboardOnScreen MUST be false when keyboard window height < 110dp!", snapshot.isPhysicalKeyboardOnScreen)
     }
 
     @Test
-    fun testSignal4ApplicationWindowBottomCompression() {
+    fun testSignal3ApplicationWindowBottomCompression() {
         // App window is pushed up by 600px (300dp at density 2.0)
         val snapshot = KeyboardVisibilityDetector.evaluateSignals(
             isBankingOrSensitive = false,
@@ -165,7 +165,7 @@ class KeyboardVisibilityDetectorTest {
         )
 
         assertTrue(snapshot.isKeyboardVisible)
-        assertEquals("SIGNAL_4_WINDOW_BOTTOM_COMPRESSED", snapshot.matchedSignal)
+        assertEquals("SIGNAL_3_WINDOW_BOTTOM_COMPRESSED", snapshot.matchedSignal)
         assertEquals(600, snapshot.keyboardHeightPx)
     }
 
