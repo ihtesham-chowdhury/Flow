@@ -35,6 +35,7 @@ import com.flowbangla.app.api.SmartProviderRouter
 import com.flowbangla.app.api.AsrExecutionResult
 import com.flowbangla.app.audio.AudioRecorder
 import com.flowbangla.app.audio.OnDeviceSpeechRecognizer
+import com.flowbangla.app.data.PreferencesManager
 import com.flowbangla.app.format.ActiveFieldContext
 import com.flowbangla.app.format.FormattingChain
 import com.flowbangla.app.format.RecognitionSource
@@ -100,6 +101,7 @@ class FloatingBubbleService : Service() {
     private var processingWatchdogJob: Job? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val prefs: PreferencesManager get() = FlowBanglaApp.instance.preferencesManager
     var currentState: TranscriptionState = TranscriptionState.Idle
         private set
 
@@ -848,6 +850,8 @@ class FloatingBubbleService : Service() {
         vibrateShort()
         amplitudePollerJob?.cancel()
         amplitudePollerJob = null
+        livePreviewJob?.cancel()
+        livePreviewJob = null
         livePreviewController?.hide()
 
         val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
@@ -920,6 +924,8 @@ class FloatingBubbleService : Service() {
         vibrateShort()
         amplitudePollerJob?.cancel()
         amplitudePollerJob = null
+        livePreviewJob?.cancel()
+        livePreviewJob = null
         livePreviewController?.hide()
         processingWatchdogJob?.cancel()
         processingWatchdogJob = null
@@ -1146,7 +1152,15 @@ class FloatingBubbleService : Service() {
         vibrateShort()
         currentState = TranscriptionState.Recording()
         updateUiState(currentState)
-        val anchorY = if (activeTriggerSurface == TriggerSurface.INLINE_BAR) {
+
+        startLivePreviewIfEnabled()
+        startAmplitudePoller()
+    }
+
+    private var livePreviewJob: Job? = null
+
+    private fun getCurrentRecordingSurfaceTopY(): Int {
+        return if (activeTriggerSurface == TriggerSurface.INLINE_BAR) {
             if (prefs.verifiedImeTopYPortrait > 0) prefs.verifiedImeTopYPortrait else (resources.displayMetrics.heightPixels * 0.60f).toInt()
         } else {
             if (windowParams.y > resources.displayMetrics.heightPixels * 0.4f) {
@@ -1155,9 +1169,56 @@ class FloatingBubbleService : Service() {
                 (resources.displayMetrics.heightPixels * 0.55f).toInt()
             }
         }
+    }
+
+    private fun startLivePreviewIfEnabled() {
+        livePreviewJob?.cancel()
+        if (!prefs.enableLiveTranscriptionPreview) {
+            livePreviewController?.hide()
+            return
+        }
+
+        val anchorY = getCurrentRecordingSurfaceTopY()
         livePreviewController?.updateLiveText("", anchorY)
 
-        startAmplitudePoller()
+        val liveBuilder = StringBuilder()
+        livePreviewJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive && currentState is TranscriptionState.Recording) {
+                delay(1_800L)
+                if (!isActive || currentState !is TranscriptionState.Recording) break
+
+                val sliceFile = audioRecorder.drainLatestLiveSliceWavFile() ?: continue
+                try {
+                    val rawPiece = withTimeoutOrNull(1_500L) {
+                        smartProviderRouter.transcribeAudioSmart(
+                            audioFile = sliceFile,
+                            audioDurationSeconds = 2,
+                            customVocab = emptyList()
+                        ).transcript
+                    }.orEmpty().trim()
+
+                    val safePiece = com.flowbangla.app.format.GibberishAndHallucinationGuard.sanitizeCorruptedTokens(rawPiece)
+                    if (safePiece.isNotEmpty() && !com.flowbangla.app.format.GibberishAndHallucinationGuard.isHallucinatedOrCorrupted(safePiece)) {
+                        if (liveBuilder.isNotEmpty() && !liveBuilder.endsWith(" ")) {
+                            liveBuilder.append(" ")
+                        }
+                        liveBuilder.append(safePiece)
+                        val currentLiveText = liveBuilder.toString()
+                        withContext(Dispatchers.Main) {
+                            if (currentState is TranscriptionState.Recording) {
+                                livePreviewController?.updateLiveText(
+                                    partialTranscript = currentLiveText,
+                                    anchorTopY = getCurrentRecordingSurfaceTopY()
+                                )
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {
+                } finally {
+                    try { sliceFile.delete() } catch (_: Throwable) {}
+                }
+            }
+        }
     }
 
     private fun startAmplitudePoller() {

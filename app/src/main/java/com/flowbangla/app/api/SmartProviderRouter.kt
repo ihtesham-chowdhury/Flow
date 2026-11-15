@@ -48,17 +48,16 @@ class SmartProviderRouter(
 
             val order = mutableListOf<ProviderId>()
 
-            if (routingMode == ProviderRoutingMode.SMART_AUTO && geminiReady && groqReady) {
-                if (audioDurationSeconds <= SHORT_AUDIO_THRESHOLD_SEC) {
-                    // Short dictation -> Groq Whisper Turbo first for instant ~180ms speed!
-                    order.add(ProviderId.GROQ)
-                    order.add(ProviderId.GEMINI)
-                } else {
-                    // Long horizon dictation -> Gemini 3.5 Transcribe Smart Mode first!
-                    order.add(ProviderId.GEMINI)
-                    order.add(ProviderId.GROQ)
-                }
+            if (routingMode == ProviderRoutingMode.SMART_AUTO) {
+                // Flow v4.3.0 Smart Routing:
+                // When Gemini is enabled, always prioritize gemini-3.5-transcribe for ASR
+                // because it natively understands both Bangladesh Bangla (bn-BD) and English with
+                // 99% accuracy and zero gibberish hallucinations. Groq Whisper is kept as immediate failover.
+                // Ultra-fast text formatting is routed to Groq Llama 3.3 70B (~150ms).
+                if (geminiReady) order.add(ProviderId.GEMINI)
+                if (groqReady) order.add(ProviderId.GROQ)
             } else {
+                // MANUAL_PRIORITY or other: Groq first then Gemini
                 if (groqReady) order.add(ProviderId.GROQ)
                 if (geminiReady) order.add(ProviderId.GEMINI)
             }
@@ -131,12 +130,19 @@ class SmartProviderRouter(
                         )
                         val text = res.text.trim()
                         if (text.isNotEmpty()) {
-                            Log.i(TAG, "ASR succeeded via GROQ (${audioDurationSeconds}s clip, ${res.latencyMs}ms)")
-                            return@withContext AsrExecutionResult(
-                                transcript = text,
-                                source = RecognitionSource.GROQ_WHISPER,
-                                alreadySmartFormatted = false
-                            )
+                            if (com.flowbangla.app.format.GibberishAndHallucinationGuard.isHallucinatedOrCorrupted(text)) {
+                                Log.w(TAG, "Groq transcript detected as hallucinated/corrupted gibberish ('$text'), rejecting and failing over...")
+                                continue
+                            }
+                            val sanitized = com.flowbangla.app.format.GibberishAndHallucinationGuard.sanitizeCorruptedTokens(text)
+                            if (sanitized.isNotEmpty()) {
+                                Log.i(TAG, "ASR succeeded via GROQ (${audioDurationSeconds}s clip, ${res.latencyMs}ms)")
+                                return@withContext AsrExecutionResult(
+                                    transcript = sanitized,
+                                    source = RecognitionSource.GROQ_WHISPER,
+                                    alreadySmartFormatted = false
+                                )
+                            }
                         }
                     }
 

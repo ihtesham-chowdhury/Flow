@@ -45,15 +45,19 @@ class GroqWhisperClient(
         }
 
         val meta = AudioFileInspector.inspectAndValidate(audioFile)
-        val models = listOf(MODEL_TURBO, MODEL_LARGE_V3)
+        val models = listOf(MODEL_LARGE_V3, MODEL_TURBO)
         var lastException: FlowApiException? = null
 
-        val promptHint = buildString {
-            append("বাংলা এবং English voice dictation। ")
-            if (customVocabulary.isNotEmpty()) {
-                append(customVocabulary.take(40).joinToString(", "))
-            }
-        }.take(220)
+        // Flow v4.3.0: NEVER pass Bengali tokens into Whisper's prompt parameter!
+        // Whisper decoder treats 'prompt' as preceding acoustic tokens, which poisons
+        // the decoder into hallucinating Bengali syllables over English speech.
+        // Only pass clean ASCII proper nouns/vocabulary if available.
+        val asciiVocab = customVocabulary.filter { word ->
+            word.isNotBlank() && word.all { it.code < 128 }
+        }
+        val promptHint = if (asciiVocab.isNotEmpty()) {
+            asciiVocab.take(40).joinToString(", ").take(220)
+        } else ""
 
         for (model in models) {
             val startMs = System.currentTimeMillis()
@@ -65,7 +69,10 @@ class GroqWhisperClient(
                     .addFormDataPart("model", model)
                     .addFormDataPart("response_format", "json")
                     .addFormDataPart("temperature", "0")
-                    .addFormDataPart("prompt", promptHint)
+
+                if (promptHint.isNotBlank()) {
+                    multipartBuilder.addFormDataPart("prompt", promptHint)
+                }
 
                 val request = Request.Builder()
                     .url(GROQ_TRANSCRIPTION_URL)

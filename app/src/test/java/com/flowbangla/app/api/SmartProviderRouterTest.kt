@@ -9,10 +9,10 @@ import org.junit.Test
 class SmartProviderRouterTest {
 
     @Test
-    fun testSmartAutoShortDurationPrefersGroqFirst() {
+    fun testSmartAutoWithGeminiAndGroqPrioritizesGeminiForAsrAccuracy() {
         val order = SmartProviderRouter.computeAsrProviderOrder(
             routingMode = ProviderRoutingMode.SMART_AUTO,
-            audioDurationSeconds = 12, // Short <= 20s
+            audioDurationSeconds = 12,
             isGeminiEnabled = true,
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,
@@ -22,15 +22,15 @@ class SmartProviderRouterTest {
         )
 
         assertEquals(2, order.size)
-        assertEquals(ProviderId.GROQ, order[0])
-        assertEquals(ProviderId.GEMINI, order[1])
+        assertEquals(ProviderId.GEMINI, order[0])
+        assertEquals(ProviderId.GROQ, order[1])
     }
 
     @Test
-    fun testSmartAutoLongDurationPrefersGeminiFirst() {
+    fun testSmartAutoLongDurationPreservesGeminiFirst() {
         val order = SmartProviderRouter.computeAsrProviderOrder(
             routingMode = ProviderRoutingMode.SMART_AUTO,
-            audioDurationSeconds = 45, // Long > 20s
+            audioDurationSeconds = 45,
             isGeminiEnabled = true,
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,

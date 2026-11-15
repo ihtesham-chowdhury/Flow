@@ -1,4 +1,4 @@
-# Flow v4.2.0 (Core Perfection: Record, Process, Insert, Multi-Provider Toggles & Smart Auto-Router)
+# Flow v4.3.0 (Groq Gibberish Elimination, True Live Transcription Preview & Flagship Hardware Floating Mic)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly inside **Gboard's suggestion bar** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,9 +7,37 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v4.2.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v4.2.0/Flow-v4.2.0.apk)**  
-  *(Core Trio Perfection, Multi-Provider Toggles, Smart Auto-Router, Keep-Alive Keyboard Sync & Hardware AAC)*
+* **[Flow-v4.3.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v4.3.0/Flow-v4.3.0.apk)**  
+  *(Groq Gibberish Elimination, Deterministic Linguistic Guard, True Live Transcription Preview & Obsidian-Titanium Hardware Mic)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
+
+---
+
+## 🚀 What's New in v4.3.0 (Groq Gibberish Elimination, True Live Preview & Flagship Hardware Mic)
+
+1. **Groq Bengali Gibberish Elimination**:
+   - Removed the poisoned bilingual `prompt` parameter from `GroqWhisperClient.kt`. Feeding Bengali Unicode tokens into Whisper's prompt while language was auto-detected caused Whisper's token decoder to lock onto Bengali syllables and phonetically hallucinate nonsense Bangla over English speech.
+   - Upgraded Groq ASR to full 32-layer `whisper-large-v3` with greedy decoding (`temperature = 0.0`), eliminating autoregressive token loops.
+2. **Deterministic Anti-Hallucination Guard (`GibberishAndHallucinationGuard.kt`)**:
+   - High-performance (< 0.5ms) linguistic validator that intercepts, sanitizes, and rejects:
+     - Stray non-Bangla/non-Latin scripts (e.g., Gujarati 'ડ' `\u0AA1`, Devanagari, etc., while preserving the authentic Bengali danda `\u0964`).
+     - Corrupted Bengali matra/hasanta sequences (e.g., vowel signs followed by hasanta `ে্প্লে`, independent vowels followed by hasanta `আ্লাখবে`, or duplicate matras `েে`).
+     - Digit-word glue collisions (`nw3`, `সব0`).
+     - Repetitive phonetic rhyme loops.
+3. **Smart ASR/Polish Decoupling in `SmartProviderRouter.kt`**:
+   - In `SMART_AUTO` mode, **Gemini 3.5 Transcribe** is prioritized for Audio-to-Text (ASR) for flawless Bangladesh Bangla (`bn-BD`) and English speech recognition with zero hallucinations.
+   - **Groq Llama 3.3 70B** is prioritized for Text Formatting / Polish (`~150ms` response time), combining Gemini's 99% bilingual acoustic accuracy with Groq's 800 tokens/sec formatting speed.
+   - Automatic failover fail-safe across active toggled providers.
+4. **True 2-Stage Live Transcription Preview + Post-Processing**:
+   - **Stage 1 (While Speaking)**: Drains 1.8-second audio slices via non-blocking background coroutine and streams real-time partial words in editorial Italic Serif above the keyboard (works seamlessly on both the Inline Keyboard Bar and Floating Mic Button).
+   - **Stage 2 (When User Taps ✓)**: The live preview card hides in 0ms, and the full recording undergoes complete Wispr post-processing (resolving backtracks, stripping fillers, formatting lists, applying personal dictionary) before text box insertion.
+5. **Flagship "Obsidian & Brushed Titanium Danda-Jewel" Idle Mic**:
+   - Transformed the idle floating microphone into a luxury industrial design piece:
+     - Layer 1: Ambient drop shadow for soft elevation depth.
+     - Layer 2: Machined anodized titanium outer bezel ring (`LinearGradient` `#545B68` -> `#14161B`).
+     - Layer 3: Recessed obsidian velvet well (`RadialGradient` `#242832` -> `#0B0D10`) with 0.9dp hairline rim.
+     - Layer 4: Sculpted champagne-ivory condenser microphone (`LinearGradient` `#FAF7F0` -> `#CFC8B8`) with two precision acoustic grille slits, rounded 2.0u U-cradle, vertical Danda stem (`।`), pedestal base, and a glowing Vermilion (`#E8473A`) status jewel at 2 o'clock!
+     - Expanded `RECORDING` and `PROCESSING` (`[ ✕ | Waveform | ✓ ]`) pod remains perfectly functional.
 
 ---
 

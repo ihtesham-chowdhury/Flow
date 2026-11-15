@@ -9,7 +9,6 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
-import androidx.compose.ui.graphics.toArgb
 import com.flowbangla.app.FlowBanglaApp
 import com.flowbangla.app.model.TranscriptionState
 
@@ -372,8 +371,15 @@ class FloatingMicCanvasView(context: Context) : View(context) {
             canvas.restore()
 
             try {
-                val accent = FlowBanglaApp.instance.preferencesManager.accentColorKey
-                confirmBgPaint.color = com.flowbangla.app.ui.theme.getAccentColor(accent).toArgb()
+                val accent = when (FlowBanglaApp.instance.preferencesManager.accentColorKey) {
+                    "ochre" -> 0xFFE3B257.toInt()
+                    "sage" -> 0xFF8FBF9F.toInt()
+                    "sky" -> 0xFF38BDF8.toInt()
+                    "rose" -> 0xFFFB7185.toInt()
+                    "violet" -> 0xFFA78BFA.toInt()
+                    else -> colorSuccessSage
+                }
+                confirmBgPaint.color = accent
             } catch (_: Exception) {
                 confirmBgPaint.color = colorSuccessSage
             }
@@ -466,38 +472,17 @@ class FloatingMicCanvasView(context: Context) : View(context) {
             canvas.restore()
         }
 
-        // 4. Main Disc Fill
-        val (discColor, discAlpha) = when {
-            isSuccess -> Pair(colorSuccessSage, 255)
-            isRecording -> Pair(colorDiscRecording, 255)
-            isProcessing -> Pair(colorDiscIdle, (255 * 0.80f).toInt())
-            else -> Pair(colorDiscIdle, 255)
-        }
-        discPaint.color = discColor
-        discPaint.alpha = discAlpha
-        canvas.drawCircle(cx, cy, discRadius, discPaint)
-
-        // 5. Keyline around disc (keeps ivory disc visible on light apps per §7.1)
-        if (!isRecording && !isSuccess) {
-            canvas.drawCircle(cx, cy, discRadius - (keylinePaint.strokeWidth / 2f), keylinePaint)
-        }
-
-        // 6. Center Glyph: Danda-Mic or Checkmark
-        val (glyphColor, glyphAlpha) = when {
-            isRecording -> Pair(colorGlyphRecording, 255)
-            isSuccess -> Pair(colorGlyphIdle, 255)
-            isProcessing -> Pair(colorGlyphIdle, (255 * 0.60f).toInt())
-            else -> Pair(colorGlyphIdle, 255)
-        }
-        glyphFillPaint.color = glyphColor
-        glyphFillPaint.alpha = glyphAlpha
-        glyphStrokePaint.color = glyphColor
-        glyphStrokePaint.alpha = glyphAlpha
-
+        // 4. Main Disc & Microphone Rendering
         if (isSuccess) {
+            discPaint.color = colorSuccessSage
+            discPaint.alpha = 255
+            canvas.drawCircle(cx, cy, discRadius, discPaint)
+            glyphStrokePaint.color = colorGlyphIdle
+            glyphStrokePaint.alpha = 255
             drawCheckmark(canvas, cx, cy, discRadius * 0.5f, glyphStrokePaint)
         } else {
-            drawDandaMicGeometry(canvas, cx, cy, u, glyphFillPaint, glyphStrokePaint)
+            // Flow v4.3.0 Flagship Hardware Idle Mic: Obsidian & Brushed Titanium Danda-Jewel
+            drawLuxuryIdleMicButton(canvas, cx, cy, discRadius)
         }
 
         // 7. Language Chip (§7.5: 22dp circle at bottom-right, overlapping by 6dp)
@@ -516,6 +501,141 @@ class FloatingMicCanvasView(context: Context) : View(context) {
             val textOffset = (chipTextPaint.descent() + chipTextPaint.ascent()) / 2f
             canvas.drawText(badge, chipCx, chipCy - textOffset, chipTextPaint)
         }
+    }
+
+    /**
+     * Flow v4.3.0 Senior Industrial Design Spec:
+     * The "Obsidian & Brushed Titanium Danda-Jewel" Idle Floating Button.
+     * Four tactile depth layers:
+     * 1. Ambient drop shadow (elevation depth)
+     * 2. Machined anodized titanium outer bezel ring (linear gradient #545B68 -> #14161B)
+     * 3. Recessed obsidian velvet well (radial gradient #242832 -> #0B0D10) with 0.9dp hairline rim
+     * 4. Sculpted champagne-ivory condenser mic (#FAF7F0 -> #CFC8B8) with 2 horizontal grille slits,
+     *    precision 2.0u U-cradle, vertical Danda stem (।), pedestal base, and a 2 o'clock Vermilion status jewel!
+     */
+    private fun drawLuxuryIdleMicButton(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
+        val d = resources.displayMetrics.density
+
+        // 1. Soft Ambient Elevation Shadow
+        val outerDiscRadius = radius - 3f * d
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(110, 0, 0, 0)
+            maskFilter = BlurMaskFilter(4.5f * d, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(cx, cy + 2f * d, outerDiscRadius, shadowPaint)
+
+        // 2. Machined Anodized Titanium Outer Bezel Ring (Top-Left Specular Highlight -> Bottom-Right Shadow)
+        val bezelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cx - outerDiscRadius, cy - outerDiscRadius,
+                cx + outerDiscRadius, cy + outerDiscRadius,
+                intArrayOf(
+                    Color.parseColor("#545B68"), // Top-lit brushed titanium highlight
+                    Color.parseColor("#2A2E37"), // Mid-tone
+                    Color.parseColor("#14161B")  // Deep bottom chamfer
+                ),
+                floatArrayOf(0f, 0.5f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawCircle(cx, cy, outerDiscRadius, bezelPaint)
+
+        // 3. Inner Recessed Obsidian Velvet Well (Radial Gradient)
+        val innerWellRadius = outerDiscRadius - 2.2f * d
+        val wellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(
+                cx - innerWellRadius * 0.2f,
+                cy - innerWellRadius * 0.25f,
+                innerWellRadius * 1.15f,
+                intArrayOf(
+                    Color.parseColor("#242832"), // Subtle top-left studio sheen
+                    Color.parseColor("#14171D"), // Rich obsidian body
+                    Color.parseColor("#0B0D10")  // Deep perimeter well shadow
+                ),
+                floatArrayOf(0f, 0.65f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawCircle(cx, cy, innerWellRadius, wellPaint)
+
+        // 4. Inner Specular Hairline Rim (0.9dp)
+        val innerRimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 0.9f * d
+            color = Color.argb(45, 238, 235, 227)
+        }
+        canvas.drawCircle(cx, cy, innerWellRadius - 0.5f * d, innerRimPaint)
+
+        // 5. Sculpted Champagne-Ivory Condenser Microphone Glyph
+        val u = innerWellRadius / 22f // Precision proportional unit
+
+        // 5a. Condenser Capsule Head with Metallic Vertical Gradient
+        val capWidth = 7.6f * u
+        val capHeight = 13.5f * u
+        val capTop = cy - 9.2f * u
+        val capRect = RectF(cx - capWidth / 2f, capTop, cx + capWidth / 2f, capTop + capHeight)
+        val capRadius = capWidth / 2f
+
+        val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                cx, capRect.top,
+                cx, capRect.bottom,
+                Color.parseColor("#FAF7F0"), // Warm ivory crest
+                Color.parseColor("#CFC8B8"), // Champagne metallic base
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRoundRect(capRect, capRadius, capRadius, capsulePaint)
+
+        // 5b. Two Precision Acoustic Grille Slits Carved into Upper Capsule
+        val slitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#181B22")
+            style = Paint.Style.STROKE
+            strokeWidth = 1.15f * u
+            strokeCap = Paint.Cap.ROUND
+        }
+        val slitHalfW = capWidth * 0.24f
+        canvas.drawLine(cx - slitHalfW, capTop + 3.8f * u, cx + slitHalfW, capTop + 3.8f * u, slitPaint)
+        canvas.drawLine(cx - slitHalfW, capTop + 6.4f * u, cx + slitHalfW, capTop + 6.4f * u, slitPaint)
+
+        // 5c. U-Cradle Arc, Vertical Danda Stem (।) & Weighted Pedestal Base
+        val cradlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EEEBE3")
+            style = Paint.Style.STROKE
+            strokeWidth = 2.0f * u
+            strokeCap = Paint.Cap.ROUND
+        }
+        val cradleRadius = 6.8f * u
+        val cradleCenterY = capRect.bottom - capRadius
+        val cradleRect = RectF(
+            cx - cradleRadius,
+            cradleCenterY - cradleRadius,
+            cx + cradleRadius,
+            cradleCenterY + cradleRadius
+        )
+        canvas.drawArc(cradleRect, 0f, 180f, false, cradlePaint)
+
+        // Vertical Danda Stem
+        val stemTop = cradleRect.bottom
+        val stemBottom = cy + 8.6f * u
+        canvas.drawLine(cx, stemTop, cx, stemBottom, cradlePaint)
+
+        // Pedestal Base Bar
+        val baseHalfW = 3.8f * u
+        canvas.drawLine(cx - baseHalfW, stemBottom, cx + baseHalfW, stemBottom, cradlePaint)
+
+        // 6. Signature Vermilion Status Jewel Dot at 2 o'clock (with soft glow)
+        val jewelX = cx + 8.2f * u
+        val jewelY = cy - 7.8f * u
+        val jewelGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(65, 232, 71, 58) // #E8473A soft halo
+        }
+        canvas.drawCircle(jewelX, jewelY, 3.6f * u, jewelGlowPaint)
+
+        val jewelCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E8473A") // Vermilion core
+        }
+        canvas.drawCircle(jewelX, jewelY, 2.0f * u, jewelCorePaint)
     }
 
     /**
