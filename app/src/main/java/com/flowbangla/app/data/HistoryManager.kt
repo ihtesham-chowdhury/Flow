@@ -4,15 +4,91 @@ import android.content.Context
 import com.flowbangla.app.model.DictationRecord
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
-class HistoryManager(context: Context) {
+class HistoryManager(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("flowbangla_history", Context.MODE_PRIVATE)
+
+    /**
+     * Called BEFORE any network call starts so a 4-5 minute recording is NEVER lost!
+     * Saves audio to filesDir/voice_vault/rec_${id}.wav, retains the latest 3 recordings on disk,
+     * and immediately creates a pending entry in History.
+     */
+    @Synchronized
+    fun createPendingAudioRecord(audioFile: File, durationSeconds: Int): String {
+        val vaultDir = File(context.filesDir, "voice_vault").apply { mkdirs() }
+        val recordId = "rec_${System.currentTimeMillis()}"
+        val ext = audioFile.extension.ifEmpty { "wav" }
+        val vaultFile = File(vaultDir, "$recordId.$ext")
+        try {
+            audioFile.copyTo(vaultFile, overwrite = true)
+        } catch (_: Throwable) {}
+
+        // Prune older audio files so ONLY the latest 3 voice recordings are kept on disk (~10-15 MB cap)
+        try {
+            val allVaultFiles = vaultDir.listFiles()?.sortedByDescending { it.lastModified() }.orEmpty()
+            allVaultFiles.drop(3).forEach { oldFile ->
+                try { oldFile.delete() } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+
+        val pendingRecord = DictationRecord(
+            id = recordId,
+            timestamp = System.currentTimeMillis(),
+            text = "⏳ Processing voice recording... / অডিও প্রসেসিং হচ্ছে...",
+            durationSeconds = durationSeconds,
+            isSuccess = true,
+            rawTranscript = "",
+            provenance = "In Progress",
+            audioFilePath = vaultFile.absolutePath,
+            isFailed = false
+        )
+        addRecord(pendingRecord)
+        return recordId
+    }
+
+    @Synchronized
+    fun markRecordSuccess(recordId: String, text: String, rawTranscript: String, provenance: String) {
+        val list = getRecentRecords().toMutableList()
+        val index = list.indexOfFirst { it.id == recordId }
+        if (index != -1) {
+            val old = list[index]
+            list[index] = old.copy(
+                text = text,
+                rawTranscript = rawTranscript,
+                provenance = provenance,
+                isSuccess = true,
+                isFailed = false
+            )
+            saveList(list)
+        }
+    }
+
+    @Synchronized
+    fun markRecordFailed(recordId: String, errorSummary: String) {
+        val list = getRecentRecords().toMutableList()
+        val index = list.indexOfFirst { it.id == recordId }
+        if (index != -1) {
+            val old = list[index]
+            list[index] = old.copy(
+                text = "⚠️ Transcription failed ($errorSummary) — Voice saved locally. Tap Regenerate below / লেখা তৈরি হয়নি — অডিও সংরক্ষিত আছে। নিচে রি-জেনারেট করুন।",
+                isSuccess = false,
+                isFailed = true
+            )
+            saveList(list)
+        }
+    }
 
     @Synchronized
     fun addRecord(record: DictationRecord) {
         val list = getRecentRecords().toMutableList()
-        list.add(0, record)
+        val existingIndex = list.indexOfFirst { it.id == record.id }
+        if (existingIndex != -1) {
+            list[existingIndex] = record
+        } else {
+            list.add(0, record)
+        }
         if (list.size > MAX_HISTORY) {
             list.removeAt(list.size - 1)
         }
@@ -21,13 +97,7 @@ class HistoryManager(context: Context) {
 
     @Synchronized
     fun updateRecord(id: String, text: String, rawTranscript: String, provenance: String) {
-        val list = getRecentRecords().toMutableList()
-        val index = list.indexOfFirst { it.id == id }
-        if (index != -1) {
-            val old = list[index]
-            list[index] = old.copy(text = text, rawTranscript = rawTranscript, provenance = provenance, isSuccess = true)
-            saveList(list)
-        }
+        markRecordSuccess(id, text, rawTranscript, provenance)
     }
 
     @Synchronized
@@ -39,16 +109,19 @@ class HistoryManager(context: Context) {
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
                 val audioPath = if (obj.has("audio_file_path")) obj.optString("audio_file_path").takeIf { it.isNotBlank() } else null
+                val isSuccess = obj.optBoolean("success", true)
+                val isFailed = obj.optBoolean("is_failed", !isSuccess)
                 list.add(
                     DictationRecord(
                         id = obj.getString("id"),
                         timestamp = obj.getLong("timestamp"),
                         text = obj.getString("text"),
                         durationSeconds = obj.optInt("duration", 0),
-                        isSuccess = obj.optBoolean("success", true),
+                        isSuccess = isSuccess,
                         rawTranscript = obj.optString("raw_transcript", ""),
                         provenance = obj.optString("provenance", ""),
-                        audioFilePath = if (audioPath.isNullOrBlank()) null else audioPath
+                        audioFilePath = if (audioPath.isNullOrBlank()) null else audioPath,
+                        isFailed = isFailed
                     )
                 )
             }
@@ -61,12 +134,21 @@ class HistoryManager(context: Context) {
     @Synchronized
     fun clearHistory() {
         prefs.edit().remove(KEY_RECORDS).apply()
+        try {
+            val vaultDir = File(context.filesDir, "voice_vault")
+            vaultDir.listFiles()?.forEach { it.delete() }
+        } catch (_: Throwable) {}
     }
 
     @Synchronized
     fun deleteRecord(id: String) {
-        val list = getRecentRecords().filter { it.id != id }
-        saveList(list)
+        val list = getRecentRecords().toMutableList()
+        val itemToDelete = list.find { it.id == id }
+        if (itemToDelete?.audioFilePath != null) {
+            try { File(itemToDelete.audioFilePath).delete() } catch (_: Throwable) {}
+        }
+        val remaining = list.filter { it.id != id }
+        saveList(remaining)
     }
 
     private fun saveList(list: List<DictationRecord>) {
@@ -78,6 +160,7 @@ class HistoryManager(context: Context) {
                 put("text", item.text)
                 put("duration", item.durationSeconds)
                 put("success", item.isSuccess)
+                put("is_failed", item.isFailed)
                 put("raw_transcript", item.rawTranscript)
                 put("provenance", item.provenance)
                 if (item.audioFilePath != null) {

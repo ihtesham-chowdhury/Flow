@@ -52,43 +52,51 @@ class OpenAiCompatibleTextFormatter(
             put(JSONObject().put("role", "user").put("content", userPrompt))
         }
 
-        val payload = JSONObject().apply {
-            put("model", model)
-            put("messages", messages)
-            put("temperature", 0.1)
-            put("max_tokens", 2048)
-            put("response_format", JSONObject().put("type", "json_object"))
+        val candidateModels = if (endpointUrl.contains("cerebras", ignoreCase = true)) {
+            listOf(model, "llama-3.3-70b", "llama3.1-8b").distinct()
+        } else {
+            listOf(model)
         }
 
-        val requestBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = Request.Builder()
-            .url(endpointUrl)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", "application/json")
-            .post(requestBody)
-            .build()
-
-        return@withContext try {
-            httpClient.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val bodyStr = response.body?.string().orEmpty()
-                    val json = JSONObject(bodyStr)
-                    val content = json.optJSONArray("choices")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("message")
-                        ?.optString("content")
-
-                    if (!content.isNullOrBlank()) {
-                        FormatterResponseParser.parse(content)
-                    } else null
-                } else {
-                    Log.w(TAG, "OpenAI-compatible request failed: ${response.code}")
-                    null
-                }
+        for (targetModel in candidateModels) {
+            val payload = JSONObject().apply {
+                put("model", targetModel)
+                put("messages", messages)
+                put("temperature", 0.1)
+                put("max_tokens", 2048)
+                put("response_format", JSONObject().put("type", "json_object"))
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "OpenAI-compatible formatting error: ${e.message}")
-            null
+
+            val requestBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(endpointUrl)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody)
+                .build()
+
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val bodyStr = response.body?.string().orEmpty()
+                        val json = JSONObject(bodyStr)
+                        val content = json.optJSONArray("choices")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("message")
+                            ?.optString("content")
+
+                        if (!content.isNullOrBlank()) {
+                            val parsed = FormatterResponseParser.parse(content)
+                            if (parsed != null) return@withContext parsed
+                        }
+                    } else {
+                        Log.w(TAG, "OpenAI-compatible request failed for $targetModel: ${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "OpenAI-compatible formatting error for $targetModel: ${e.message}")
+            }
         }
+        return@withContext null
     }
 }

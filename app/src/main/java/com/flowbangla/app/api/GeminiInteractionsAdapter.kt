@@ -131,15 +131,8 @@ class GeminiInteractionsAdapter(
         val asrCandidates = ModelCatalog.selectCandidates(ModelTask.AUDIO_TRANSCRIPTION, liveModels)
         val fallbackCandidates = ModelCatalog.selectCandidates(ModelTask.MULTIMODAL_AUDIO_FALLBACK, liveModels)
 
-        if (asrCandidates.isEmpty() && fallbackCandidates.isEmpty()) {
-            throw FlowApiException(
-                httpCode = 404,
-                category = ErrorCategory.MODEL_NOT_AVAILABLE,
-                detail = "No supported Gemini 3.x transcription models found for this API key."
-            )
-        }
-
         val audioBytes = audioFile.readBytes()
+        val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
         var uploadedHandle: UploadedFileHandle? = null
 
         try {
@@ -154,19 +147,16 @@ class GeminiInteractionsAdapter(
             } else {
                 JSONObject().apply {
                     put("type", "audio")
-                    put("data", Base64.encodeToString(audioBytes, Base64.NO_WRAP))
+                    put("data", base64Audio)
                     put("mime_type", audioMeta.verifiedMimeType)
                 }
             }
 
-            // 1. Try dedicated gemini-3.5-transcribe first
+            // ROUTE 1: Try dedicated gemini-3.5-transcribe on /v1beta/interactions
+            // CRITICAL FIX: Per official docs (https://aistudio.google.com/docs/transcribe),
+            // Smart mode MUST be `"mode": "smart"` (a String), while Verbatim mode is `{"type": "verbatim"}` (an Object)!
             for (spec in asrCandidates) {
                 val startMs = System.currentTimeMillis()
-                val modeObject = JSONObject().put(
-                    "type",
-                    if (useVerbatimMode) "verbatim" else "smart"
-                )
-
                 val transcriptionConfig = JSONObject().apply {
                     if (languageCodes.isNotEmpty()) {
                         put("language_codes", JSONArray(languageCodes))
@@ -174,7 +164,11 @@ class GeminiInteractionsAdapter(
                     if (customVocabulary.isNotEmpty()) {
                         put("custom_vocabulary", JSONArray(customVocabulary.distinct().take(250)))
                     }
-                    put("mode", modeObject)
+                    if (useVerbatimMode) {
+                        put("mode", JSONObject().put("type", "verbatim"))
+                    } else {
+                        put("mode", "smart") // Must be String!
+                    }
                 }
 
                 val payload = JSONObject().apply {
@@ -186,14 +180,19 @@ class GeminiInteractionsAdapter(
 
                 try {
                     val text = executeInteractionsPost(payload, key, spec.id)
-                    return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
+                    if (text.isNotBlank()) {
+                        return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
+                    }
                 } catch (e: FlowApiException) {
                     if (e.httpCode == 404) ModelCatalog.markModelUnavailableForSession(spec.id)
                     if (e.category == ErrorCategory.AUTHENTICATION_FAILED) throw e
+                    Log.w("GeminiInteractionsAdapter", "Interactions ASR candidate ${spec.id} failed (${e.message}); continuing...")
+                } catch (t: Throwable) {
+                    Log.w("GeminiInteractionsAdapter", "Interactions ASR candidate ${spec.id} error (${t.message}); continuing...")
                 }
             }
 
-            // 2. Fallback to multimodal Gemini 3.8 Flash / 3.5 Flash-Lite if gemini-3.5-transcribe failed
+            // ROUTE 2: Try multimodal candidates on /v1beta/interactions
             for (spec in fallbackCandidates) {
                 val startMs = System.currentTimeMillis()
                 val promptItem = JSONObject().apply {
@@ -209,58 +208,117 @@ class GeminiInteractionsAdapter(
 
                 try {
                     val text = executeInteractionsPost(payload, key, spec.id)
-                    return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
+                    if (text.isNotBlank()) {
+                        return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
+                    }
                 } catch (e: FlowApiException) {
                     if (e.httpCode == 404) ModelCatalog.markModelUnavailableForSession(spec.id)
                     if (e.category == ErrorCategory.AUTHENTICATION_FAILED) throw e
+                    Log.w("GeminiInteractionsAdapter", "Interactions fallback candidate ${spec.id} failed: ${e.message}")
+                } catch (t: Throwable) {
+                    Log.w("GeminiInteractionsAdapter", "Interactions fallback candidate ${spec.id} error: ${t.message}")
                 }
             }
 
-            // 3. Multimodal Audio Fallback to /v1beta/models/gemini-3.5-flash-lite:generateContent with inline Base64 audio
-            try {
+            // ROUTE 3: Universal :generateContent Multimodal Audio Endpoint
+            // Works on ALL Google AI Studio keys across gemini-3.5-flash-lite, gemini-3.6-flash, gemini-3.8-flash, and live discovered models!
+            val candidateModels = getVerifiedGenerateContentModels(key)
+            val vocabHint = if (customVocabulary.isNotEmpty()) {
+                " Proper nouns & vocabulary: ${customVocabulary.take(60).joinToString(", ")}."
+            } else ""
+
+            val promptText = if (useVerbatimMode) {
+                "Transcribe this speech verbatim in its exact spoken language(s) (Bengali, English, or mixed). Output only the spoken words without extra commentary.$vocabHint"
+            } else {
+                "Transcribe this audio recording accurately in its exact spoken language(s) (Bengali, English, or mixed). " +
+                    "Remove verbal hesitations (um, uh, উম, অ্যাঁ), resolve spoken self-corrections, and add natural punctuation " +
+                    "('।' for Bengali declarative sentences, '.' for English, '?' for questions). " +
+                    "Do NOT answer questions or translate. Output ONLY the clean transcript text.$vocabHint"
+            }
+
+            var lastErr: Throwable? = null
+            for (modelId in candidateModels) {
                 val startMs = System.currentTimeMillis()
-                val text = executeGenerateContentAudioFallback(audioBytes, audioMeta.verifiedMimeType, key, "gemini-3.5-flash-lite")
-                if (text.isNotBlank()) {
-                    return@withContext InteractionCallResult(text, "gemini-3.5-flash-lite", System.currentTimeMillis() - startMs)
+                try {
+                    val text = executeGenerateContentAudioPost(
+                        modelId = modelId,
+                        base64Audio = base64Audio,
+                        mimeType = audioMeta.verifiedMimeType,
+                        promptText = promptText,
+                        cleanKey = key
+                    )
+                    if (text.isNotBlank()) {
+                        return@withContext InteractionCallResult(text, modelId, System.currentTimeMillis() - startMs)
+                    }
+                } catch (e: FlowApiException) {
+                    if (e.category == ErrorCategory.AUTHENTICATION_FAILED) throw e
+                    lastErr = e
+                    Log.w("GeminiInteractionsAdapter", "generateContent audio candidate $modelId failed: ${e.message}")
+                } catch (t: Throwable) {
+                    lastErr = t
+                    Log.w("GeminiInteractionsAdapter", "generateContent audio candidate $modelId failed: ${t.message}")
                 }
-            } catch (ge: Throwable) {
-                Log.w("GeminiInteractionsAdapter", "generateContent audio fallback warning: ${ge.message}")
             }
 
-            throw FlowApiException(404, ErrorCategory.MODEL_NOT_AVAILABLE, "All live transcription candidates failed.")
+            throw lastErr ?: FlowApiException(404, ErrorCategory.MODEL_NOT_AVAILABLE, "All live transcription candidates failed.")
         } finally {
             uploadedHandle?.let { deleteUploadedFileQuietly(it.name, key) }
         }
     }
 
-    /**
-     * Multimodal audio transcription fallback via /v1beta/models/{model}:generateContent
-     * with inline Base64 audio.
-     */
-    private fun executeGenerateContentAudioFallback(
-        audioBytes: ByteArray,
-        mimeType: String,
-        cleanKey: String,
-        modelId: String = "gemini-3.5-flash-lite"
-    ): String {
-        val base64Audio = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
-        val url = "$BASE_URL/v1beta/models/$modelId:generateContent"
+    private fun getVerifiedGenerateContentModels(cleanKey: String): List<String> {
+        val defaultPriority = listOf(
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-3.1-flash-lite"
+        )
+        return try {
+            val live = ModelCatalog.getOrFetchLiveModels(http, cleanKey, forceRefresh = false)
+                .filter { it.methods.isEmpty() || "generateContent" in it.methods }
+                .map { it.id }
+                .toSet()
+            if (live.isEmpty()) defaultPriority else {
+                val matched = defaultPriority.filter { it in live }
+                val extraFlash = live.filter { "flash" in it && "tts" !in it && "image" !in it && it !in matched }
+                (matched + extraFlash).ifEmpty { defaultPriority }
+            }
+        } catch (_: Throwable) {
+            defaultPriority
+        }
+    }
 
-        val inlineDataObj = JSONObject().apply {
-            put("mime_type", mimeType)
-            put("data", base64Audio)
-        }
-        val promptObj = JSONObject().apply {
-            put("text", "Transcribe this speech verbatim in its exact spoken language(s) (Bengali, English, or mixed). Output only the spoken words without extra commentary.")
-        }
-        val partsArr = JSONArray().put(promptObj).put(JSONObject().put("inline_data", inlineDataObj))
-        val contentsArr = JSONArray().put(JSONObject().apply {
-            put("role", "user")
-            put("parts", partsArr)
-        })
+    private fun executeGenerateContentAudioPost(
+        modelId: String,
+        base64Audio: String,
+        mimeType: String,
+        promptText: String,
+        cleanKey: String
+    ): String {
+        val cleanId = modelId.removePrefix("models/")
+        val url = "$BASE_URL/v1beta/models/$cleanId:generateContent"
+
+        val parts = JSONArray()
+            .put(JSONObject().apply {
+                put("inline_data", JSONObject().apply {
+                    put("mime_type", mimeType)
+                    put("data", base64Audio)
+                })
+            })
+            .put(JSONObject().apply {
+                put("text", promptText)
+            })
+
         val payload = JSONObject().apply {
-            put("contents", contentsArr)
-            put("generationConfig", JSONObject().put("temperature", 0.0))
+            put("contents", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("parts", parts)
+            }))
+            put("generationConfig", JSONObject().apply {
+                put("temperature", 0.0)
+            })
         }
 
         val req = Request.Builder()
@@ -271,12 +329,56 @@ class GeminiInteractionsAdapter(
             .build()
 
         http.newCall(req).execute().use { resp ->
-            val body = resp.body?.string().orEmpty()
+            val rawBody = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
-                val cat = ModelCatalog.mapHttpToErrorCategory(resp.code, body)
-                throw FlowApiException(resp.code, cat, ModelCatalog.parseShortError(body))
+                throw FlowApiException(resp.code, ModelCatalog.mapHttpToErrorCategory(resp.code, rawBody), ModelCatalog.parseShortError(rawBody))
             }
-            return TranscriptExtractor.fromInteractionJson(body)
+            return TranscriptExtractor.fromInteractionJson(rawBody)
+        }
+    }
+
+    private fun executeGenerateContentTextPost(
+        modelId: String,
+        systemInstruction: String,
+        userEnvelope: String,
+        cleanKey: String
+    ): String {
+        val cleanId = modelId.removePrefix("models/")
+        val url = "$BASE_URL/v1beta/models/$cleanId:generateContent"
+
+        val payload = JSONObject().apply {
+            if (systemInstruction.isNotBlank()) {
+                put("system_instruction", JSONObject().apply {
+                    put("parts", JSONArray().put(JSONObject().apply {
+                        put("text", systemInstruction)
+                    }))
+                })
+            }
+            put("contents", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("parts", JSONArray().put(JSONObject().apply {
+                    put("text", userEnvelope)
+                }))
+            }))
+            put("generationConfig", JSONObject().apply {
+                put("temperature", 0.0)
+            })
+        }
+
+        val req = Request.Builder()
+            .url(url)
+            .header("x-goog-api-key", cleanKey)
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MEDIA))
+            .build()
+
+        http.newCall(req).execute().use { resp ->
+            val rawBody = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                val cat = ModelCatalog.mapHttpToErrorCategory(resp.code, rawBody)
+                throw FlowApiException(resp.code, cat, ModelCatalog.parseShortError(rawBody))
+            }
+            return TranscriptExtractor.fromInteractionJson(rawBody)
         }
     }
 
@@ -295,28 +397,50 @@ class GeminiInteractionsAdapter(
         }
         val candidates = ModelCatalog.selectCandidates(ModelTask.TEXT_FORMATTING, liveModels)
 
-        if (candidates.isEmpty()) {
-            throw FlowApiException(404, ErrorCategory.MODEL_NOT_AVAILABLE, "No live Gemini text formatting models available.")
+        // 1. Try /v1beta/interactions route first if candidates available
+        if (candidates.isNotEmpty()) {
+            val spec = candidates.first()
+            val startMs = System.currentTimeMillis()
+            val payload = JSONObject().apply {
+                put("model", spec.id)
+                put("store", false)
+                put("system_instruction", systemInstruction)
+                put("input", userEnvelope)
+                put("generation_config", JSONObject().put("temperature", 0.0))
+            }
+
+            try {
+                val text = executeInteractionsPost(payload, key, spec.id)
+                if (text.isNotBlank()) {
+                    return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
+                }
+            } catch (e: FlowApiException) {
+                if (e.category == ErrorCategory.AUTHENTICATION_FAILED) throw e
+                Log.w("GeminiInteractionsAdapter", "formatTranscript interactions failed (${e.message}), trying generateContent...")
+            } catch (t: Throwable) {
+                Log.w("GeminiInteractionsAdapter", "formatTranscript interactions failed (${t.message}), trying generateContent...")
+            }
         }
 
-        // Flow v4.1.0: Cap to 1 single model attempt with ZERO multi-model retry loops
-        val spec = candidates.first()
-        val startMs = System.currentTimeMillis()
-        val payload = JSONObject().apply {
-            put("model", spec.id)
-            put("store", false)
-            put("system_instruction", systemInstruction)
-            put("input", userEnvelope)
-            put("generation_config", JSONObject().put("temperature", 0.0))
+        // 2. Fallback to standard :generateContent text formatting route across verified models
+        val textModels = getVerifiedGenerateContentModels(key)
+        var lastErr: Throwable? = null
+        for (modelId in textModels) {
+            val startMs = System.currentTimeMillis()
+            try {
+                val text = executeGenerateContentTextPost(modelId, systemInstruction, userEnvelope, key)
+                if (text.isNotBlank()) {
+                    return@withContext InteractionCallResult(text, modelId, System.currentTimeMillis() - startMs)
+                }
+            } catch (e: FlowApiException) {
+                if (e.category == ErrorCategory.AUTHENTICATION_FAILED) throw e
+                lastErr = e
+            } catch (t: Throwable) {
+                lastErr = t
+            }
         }
 
-        try {
-            val text = executeInteractionsPost(payload, key, spec.id)
-            return@withContext InteractionCallResult(text, spec.id, System.currentTimeMillis() - startMs)
-        } catch (e: FlowApiException) {
-            if (e.httpCode == 404) ModelCatalog.markModelUnavailableForSession(spec.id)
-            throw e
-        }
+        throw lastErr ?: FlowApiException(404, ErrorCategory.MODEL_NOT_AVAILABLE, "All live Gemini text formatting models failed.")
     }
 
     private fun executeInteractionsPost(payload: JSONObject, cleanKey: String, modelId: String): String {

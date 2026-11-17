@@ -1237,19 +1237,13 @@ fun MainScreen(
                                 activeKeySheetProvider = "Gemini"
                                 return@Button
                             }
-                            if (prefs.geminiApiKey.isBlank()) {
-                                Toast.makeText(context, "Active cloud provider configured! Full diagnostic lab specializes in Gemini API testing.", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
                             isTestingConnection = true
                             scope.launch {
                                 try {
                                     val report = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        ConnectivityLabRunner.runThreeStageTest(
+                                        ConnectivityLabRunner.runUniversalTest(
                                             context = context,
-                                            http = okhttp3.OkHttpClient(),
-                                            rawApiKey = prefs.geminiApiKey,
-                                            latestRecordedFile = null
+                                            prefs = prefs
                                         )
                                     }
                                     connectivityReport = report
@@ -1888,6 +1882,42 @@ fun MainScreen(
                 onClear = {
                     historyManager.clearHistory()
                     recentHistory = emptyList()
+                },
+                onRegenerate = { record ->
+                    val audioPath = record.audioFilePath
+                    if (!audioPath.isNullOrBlank()) {
+                        val audioFile = java.io.File(audioPath)
+                        if (audioFile.exists()) {
+                            Toast.makeText(context, if (isBn) "পুনরায় তৈরি করা হচ্ছে..." else "Regenerating text...", Toast.LENGTH_SHORT).show()
+                            scope.launch {
+                                try {
+                                    val (newText, rawText, prov) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        val okHttpClient = okhttp3.OkHttpClient()
+                                        val geminiAdapter = com.flowbangla.app.api.GeminiInteractionsAdapter(okHttpClient)
+                                        val groqClient = com.flowbangla.app.api.GroqWhisperClient(okHttpClient)
+                                        val router = com.flowbangla.app.api.SmartProviderRouter(okHttpClient, prefs, geminiAdapter, groqClient)
+                                        val chain = com.flowbangla.app.format.FormattingChain(context, prefs)
+
+                                        val asr = router.transcribeAudioSmart(audioFile, record.durationSeconds.coerceAtLeast(1), emptyList())
+                                        if (asr.transcript.isBlank()) {
+                                            throw RuntimeException("Audio transcription returned empty")
+                                        }
+                                        val fmt = chain.format(asr.transcript, asr.source)
+                                        Triple(fmt.formattedText.ifBlank { asr.transcript }, asr.transcript, fmt.displaySummary)
+                                    }
+
+                                    historyManager.markRecordSuccess(record.id, newText, rawText, prov)
+                                    recentHistory = historyManager.getRecentRecords()
+
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Flow", newText))
+                                    Toast.makeText(context, if (isBn) "লেখা তৈরি ও কপি হয়েছে!" else "Text regenerated & copied!", Toast.LENGTH_SHORT).show()
+                                } catch (t: Throwable) {
+                                    Toast.makeText(context, "Regeneration failed: ${t.localizedMessage ?: t.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    }
                 }
             )
         }

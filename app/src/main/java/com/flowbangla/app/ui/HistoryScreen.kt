@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +45,7 @@ fun HistoryScreen(
     isBn: Boolean,
     onCopy: (String) -> Unit,
     onClear: () -> Unit,
+    onRegenerate: ((DictationRecord) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("hh:mm a, dd MMM", Locale.getDefault()) }
@@ -204,6 +206,42 @@ fun HistoryScreen(
                             horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val hasSavedAudio = !item.audioFilePath.isNullOrBlank() && java.io.File(item.audioFilePath).exists()
+                            if (hasSavedAudio && onRegenerate != null) {
+                                var isRegeneratingThis by remember(item.id) { mutableStateOf(false) }
+                                val regenColor = if (item.isFailed || !item.isSuccess) OchreDark else DarkInk
+                                TextButton(
+                                    onClick = {
+                                        isRegeneratingThis = true
+                                        onRegenerate(item)
+                                        scope.launch {
+                                            delay(3000L)
+                                            isRegeneratingThis = false
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Regenerate",
+                                        tint = regenColor,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isRegeneratingThis) {
+                                            if (isBn) "তৈরি হচ্ছে..." else "Regenerating..."
+                                        } else {
+                                            if (isBn) "আবার তৈরি করুন" else "Regenerate"
+                                        },
+                                        color = regenColor,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                            }
+
                             if (hasUndo) {
                                 TextButton(
                                     onClick = {

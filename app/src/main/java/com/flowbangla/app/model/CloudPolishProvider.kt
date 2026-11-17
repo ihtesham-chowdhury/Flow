@@ -23,8 +23,8 @@ enum class CloudPolishProvider(
     ),
     CEREBRAS(
         id = "cerebras",
-        displayName = "Cerebras Inference (Ultra-Fast Llama 3.1 8B)",
-        defaultModel = "llama3.1-8b",
+        displayName = "Cerebras Inference (Ultra-Fast Llama 3.3 70B)",
+        defaultModel = "llama-3.3-70b",
         endpointUrl = "https://api.cerebras.ai/v1/chat/completions",
         freeQuotaSummary = "~2,000 tokens/sec instant response; generous free developer tier"
     ),

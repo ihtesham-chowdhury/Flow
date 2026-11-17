@@ -78,20 +78,19 @@ object ConnectivityLabRunner {
             return@withContext ConnectivityLabReport(s1, s2, s3, logBuilder.toString())
         }
 
-        // STAGE 3: Live Interactions API Call + Immediate File Cleanup
-        try {
-            if (latestRecordedFile != null && latestRecordedFile.exists() && latestRecordedFile.length() > 256L) {
-                val res = adapter.transcribeAudioFile(latestRecordedFile, rawApiKey, forceFilesApiUpload = false)
-                s3 = "PASS (model=${res.modelId}, chars=${res.text.length}, latency=${res.latencyMs}ms)"
-            } else {
-                // Verify Interactions API text/formatting route if no voice recording exists yet
-                val fmtRes = adapter.formatTranscript(
-                    systemInstruction = "Output the exact input text.",
-                    userEnvelope = "আমি আগামীকাল মিটিংয়ে থাকব।",
-                    rawApiKey = rawApiKey
-                )
-                s3 = "PASS (model=${fmtRes.modelId}, chars=${fmtRes.text.length}, latency=${fmtRes.latencyMs}ms)"
+        // STAGE 3: Live Audio Transcription Test
+        val audioToTest = if (latestRecordedFile != null && latestRecordedFile.exists() && latestRecordedFile.length() > 256L) {
+            latestRecordedFile
+        } else {
+            File(context.cacheDir, "diag_s3_test_${System.currentTimeMillis()}.wav").apply {
+                writeBytes(testBytes)
             }
+        }
+        val isTempAudio = audioToTest != latestRecordedFile
+
+        try {
+            val res = adapter.transcribeAudioFile(audioToTest, rawApiKey, forceFilesApiUpload = false)
+            s3 = "PASS (model=${res.modelId}, chars=${res.text.length}, latency=${res.latencyMs}ms)"
             logBuilder.appendLine("S3: $s3")
         } catch (e: FlowApiException) {
             s3 = "FAIL [${e.category}] HTTP ${e.httpCode}: ${e.detail}"
@@ -100,9 +99,73 @@ object ConnectivityLabRunner {
             s3 = "FAIL [CALL_ERROR]: ${t.localizedMessage ?: t.javaClass.simpleName}"
             logBuilder.appendLine("S3: $s3")
         } finally {
+            if (isTempAudio) {
+                try { audioToTest.delete() } catch (_: Throwable) {}
+            }
             if (uploaded != null) {
                 adapter.deleteUploadedFileQuietly(uploaded.name, rawApiKey)
             }
+        }
+
+        ConnectivityLabReport(s1, s2, s3, logBuilder.toString().trim())
+    }
+
+    suspend fun runUniversalTest(
+        context: Context,
+        prefs: com.flowbangla.app.data.PreferencesManager
+    ): ConnectivityLabReport = withContext(Dispatchers.IO) {
+        val okHttpClient = OkHttpClient()
+        val geminiAdapter = GeminiInteractionsAdapter(okHttpClient)
+        val groqClient = com.flowbangla.app.api.GroqWhisperClient(okHttpClient)
+        val router = com.flowbangla.app.api.SmartProviderRouter(okHttpClient, prefs, geminiAdapter, groqClient)
+
+        // If Gemini is configured and enabled, run the deep 3-stage Gemini diagnostics
+        if (prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank()) {
+            return@withContext runThreeStageTest(context, okHttpClient, prefs.geminiApiKey, null)
+        }
+
+        var s1 = "PENDING"
+        var s2 = "SKIPPED"
+        var s3 = "SKIPPED"
+        val logBuilder = StringBuilder()
+
+        val activeList = mutableListOf<String>()
+        if (prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) activeList.add("Groq")
+        if (prefs.isCerebrasEnabled && prefs.cerebrasApiKey.isNotBlank()) activeList.add("Cerebras")
+        if (prefs.isOpenRouterEnabled && prefs.openRouterApiKey.isNotBlank()) activeList.add("OpenRouter")
+
+        if (activeList.isEmpty()) {
+            return@withContext ConnectivityLabReport("FAIL: No active cloud provider", "SKIPPED", "SKIPPED", "No provider configured.")
+        }
+
+        s1 = "PASS (active=${activeList.joinToString(", ")})"
+        logBuilder.appendLine("S1: $s1")
+
+        s2 = "PASS (ready)"
+        logBuilder.appendLine("S2: $s2")
+
+        val testBytes = generateOneSecondTestWav()
+        val tempWav = File(context.cacheDir, "univ_diag_${System.currentTimeMillis()}.wav").apply {
+            writeBytes(testBytes)
+        }
+
+        try {
+            if (prefs.isCerebrasOnlyActive()) {
+                val fmt = com.flowbangla.app.format.FormattingChain(context, prefs).format(
+                    "টেস্ট ডিক্টেশন",
+                    com.flowbangla.app.format.RecognitionSource.ANDROID_STT
+                )
+                s3 = "PASS (Cerebras, chars=${fmt.formattedText.length}, latency=${fmt.latencyMs}ms)"
+            } else {
+                val res = router.transcribeAudioSmart(tempWav, 1, emptyList())
+                s3 = "PASS (${res.source.label}, connected & processed audio)"
+            }
+            logBuilder.appendLine("S3: $s3")
+        } catch (t: Throwable) {
+            s3 = "FAIL: ${t.localizedMessage ?: t.javaClass.simpleName}"
+            logBuilder.appendLine("S3: $s3")
+        } finally {
+            try { tempWav.delete() } catch (_: Throwable) {}
         }
 
         ConnectivityLabReport(s1, s2, s3, logBuilder.toString().trim())

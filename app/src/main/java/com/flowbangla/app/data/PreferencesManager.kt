@@ -250,6 +250,24 @@ class PreferencesManager(context: Context) {
             (isCerebrasEnabled && cerebrasApiKey.trim().isNotEmpty())
     }
 
+    /**
+     * Returns true if at least one cloud provider with dedicated speech-to-text audio support
+     * (Gemini, Groq, OpenRouter) is enabled with a valid key.
+     */
+    fun hasAnyCloudAudioAsrProvider(): Boolean {
+        return (isGeminiEnabled && geminiApiKey.isNotBlank()) ||
+            (isGroqEnabled && groqApiKey.isNotBlank()) ||
+            (isOpenRouterEnabled && openRouterApiKey.isNotBlank())
+    }
+
+    /**
+     * Returns true when Cerebras is active and is the ONLY enabled cloud provider.
+     * In this mode, speech is captured via on-device STT and formatted via Cerebras Llama 3.3 70B!
+     */
+    fun isCerebrasOnlyActive(): Boolean {
+        return !hasAnyCloudAudioAsrProvider() && (isCerebrasEnabled && cerebrasApiKey.isNotBlank())
+    }
+
     val isConfigured: Boolean
         get() = when (engineMode) {
             EngineMode.CLOUD_AUDIO -> hasAnyActiveCloudProvider()

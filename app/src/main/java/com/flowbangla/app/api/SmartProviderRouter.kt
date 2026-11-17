@@ -190,21 +190,59 @@ class SmartProviderRouter(
     }
 
     /**
-     * Allows OpenRouter keys to transcribe audio directly using OpenRouter's multimodal audio input
-     * (`google/gemini-2.5-flash` or `openai/gpt-4o-audio-preview`) when Gemini & Groq are disabled!
+     * Allows OpenRouter keys to transcribe audio directly using OpenRouter's official
+     * /api/v1/audio/transcriptions endpoint (whisper-large-v3 / whisper-1) or multimodal fallback!
      */
     private fun transcribeViaOpenRouterAudio(
         audioFile: File,
         openRouterKey: String,
         customVocab: List<String>
     ): String {
+        val cleanKey = openRouterKey.trim()
         val b64 = Base64.encodeToString(audioFile.readBytes(), Base64.NO_WRAP)
-        val format = if (audioFile.extension.lowercase() == "wav") "wav" else "m4a"
+        val ext = audioFile.extension.lowercase()
+        val format = when (ext) {
+            "wav" -> "wav"
+            "mp3" -> "mp3"
+            else -> "m4a"
+        }
+
+        // 1. Primary: Official OpenRouter Dedicated STT Endpoint (/api/v1/audio/transcriptions)
+        // Docs: https://openrouter.ai/docs/guides/overview/multimodal/stt
+        val sttModels = listOf("openai/whisper-large-v3", "openai/whisper-1")
+        for (sttModel in sttModels) {
+            try {
+                val sttPayload = JSONObject().apply {
+                    put("model", sttModel)
+                    put("temperature", 0)
+                    put("input_audio", JSONObject().apply {
+                        put("data", b64)
+                        put("format", format)
+                    })
+                }
+                val req = Request.Builder()
+                    .url("https://openrouter.ai/api/v1/audio/transcriptions")
+                    .header("Authorization", "Bearer $cleanKey")
+                    .header("Content-Type", "application/json")
+                    .post(sttPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                http.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string().orEmpty()
+                    if (resp.isSuccessful) {
+                        val text = JSONObject(body).optString("text", "").trim()
+                        if (text.isNotEmpty()) return text
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // 2. Secondary Fallback: OpenRouter Multimodal Chat/Responses with Gemini Flash
         val vocabHint = if (customVocab.isNotEmpty()) {
             " Custom vocabulary terms: ${customVocab.take(50).joinToString(", ")}."
         } else ""
 
-        val payload = JSONObject().apply {
+        val chatPayload = JSONObject().apply {
             put("model", "google/gemini-2.5-flash")
             put("temperature", 0.0)
             put("messages", JSONArray().put(
@@ -213,7 +251,7 @@ class SmartProviderRouter(
                     put("content", JSONArray()
                         .put(JSONObject().apply {
                             put("type", "text")
-                            put("text", "Transcribe this speech accurately in its spoken language (Bengali, English, or mixed), removing verbal fillers and adding proper punctuation ('।' for Bangla sentences, '.' for English). Output ONLY the final text.$vocabHint")
+                            put("text", "Transcribe this speech accurately in its spoken language (Bengali, English, or mixed), removing fillers and adding proper punctuation ('।' for Bangla, '.' for English). Output ONLY the transcript.$vocabHint")
                         })
                         .put(JSONObject().apply {
                             put("type", "input_audio")
@@ -227,14 +265,14 @@ class SmartProviderRouter(
             ))
         }
 
-        val req = Request.Builder()
+        val chatReq = Request.Builder()
             .url("https://openrouter.ai/api/v1/chat/completions")
-            .header("Authorization", "Bearer $openRouterKey")
+            .header("Authorization", "Bearer $cleanKey")
             .header("Content-Type", "application/json")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .post(chatPayload.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        http.newCall(req).execute().use { resp ->
+        http.newCall(chatReq).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) throw RuntimeException("OpenRouter HTTP ${resp.code}: $body")
             return JSONObject(body)

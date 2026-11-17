@@ -624,18 +624,7 @@ class FloatingMicCanvasView(context: Context) : View(context) {
         val baseHalfW = 3.8f * u
         canvas.drawLine(cx - baseHalfW, stemBottom, cx + baseHalfW, stemBottom, cradlePaint)
 
-        // 6. Signature Vermilion Status Jewel Dot at 2 o'clock (with soft glow)
-        val jewelX = cx + 8.2f * u
-        val jewelY = cy - 7.8f * u
-        val jewelGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(65, 232, 71, 58) // #E8473A soft halo
-        }
-        canvas.drawCircle(jewelX, jewelY, 3.6f * u, jewelGlowPaint)
-
-        val jewelCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#E8473A") // Vermilion core
-        }
-        canvas.drawCircle(jewelX, jewelY, 2.0f * u, jewelCorePaint)
+        // 6. Vermilion red dot removed in v4.4.0 — pure sculpted Champagne-Ivory condenser mic
     }
 
     /**

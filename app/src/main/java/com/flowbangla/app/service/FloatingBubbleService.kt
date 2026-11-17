@@ -179,11 +179,7 @@ class FloatingBubbleService : Service() {
                 }
             },
             onPartialTranscript = { partialText ->
-                val anchorY = if (activeTriggerSurface == TriggerSurface.INLINE_BAR) {
-                    prefs.verifiedImeTopYPortrait
-                } else {
-                    windowParams.y
-                }
+                val anchorY = getCurrentRecordingSurfaceTopY()
                 livePreviewController?.updateLiveText(partialText, anchorY)
                 if (prefs.isLivePreviewEnabled) {
                     val now = SystemClock.elapsedRealtime()
@@ -865,7 +861,7 @@ class FloatingBubbleService : Service() {
         startProcessingWatchdog(processingTimeoutMs + 10_000L)
 
         val prefs = FlowBanglaApp.instance.preferencesManager
-        if (prefs.engineMode == EngineMode.CLOUD_AUDIO) {
+        if (prefs.engineMode == EngineMode.CLOUD_AUDIO && !prefs.isCerebrasOnlyActive()) {
             activeDictationJob?.cancel()
             // Launch the heavy pipeline strictly on Dispatchers.IO (NEVER on Dispatchers.Main!)
             activeDictationJob = serviceScope.launch(Dispatchers.IO) {
@@ -1121,14 +1117,22 @@ class FloatingBubbleService : Service() {
 
         when (prefs.engineMode) {
             EngineMode.CLOUD_AUDIO -> {
-                // In v3.5.1, live WebSocket streamer & rolling chunker are disabled during recording
-                // so AudioRecorder (24kHz 64kbps AAC) has 100% exclusive access to hardware mic without contention
-                val result = audioRecorder.startRecording()
-                if (result.isFailure) {
-                    Toast.makeText(this, "Microphone failed to start / মাইক্রোফোন চালু করা যায়নি", Toast.LENGTH_SHORT).show()
-                    currentState = TranscriptionState.Idle
-                    updateUiState(currentState)
-                    return
+                if (prefs.isCerebrasOnlyActive()) {
+                    // Standalone Cerebras mode: capture speech via on-device recognizer
+                    onDeviceRecognizer.startListening(
+                        language = prefs.sttLanguage,
+                        preferOfflineOnly = false
+                    )
+                } else {
+                    // In v3.5.1, live WebSocket streamer & rolling chunker are disabled during recording
+                    // so AudioRecorder (24kHz 64kbps AAC) has 100% exclusive access to hardware mic without contention
+                    val result = audioRecorder.startRecording()
+                    if (result.isFailure) {
+                        Toast.makeText(this, "Microphone failed to start / মাইক্রোফোন চালু করা যায়নি", Toast.LENGTH_SHORT).show()
+                        currentState = TranscriptionState.Idle
+                        updateUiState(currentState)
+                        return
+                    }
                 }
             }
             EngineMode.HYBRID_CLOUD_POLISH -> {
@@ -1189,7 +1193,7 @@ class FloatingBubbleService : Service() {
 
                 val sliceFile = audioRecorder.drainLatestLiveSliceWavFile() ?: continue
                 try {
-                    val rawPiece = withTimeoutOrNull(1_500L) {
+                    val rawPiece = withTimeoutOrNull(3_200L) {
                         smartProviderRouter.transcribeAudioSmart(
                             audioFile = sliceFile,
                             audioDurationSeconds = 2,
@@ -1257,6 +1261,9 @@ class FloatingBubbleService : Service() {
                 return
             }
 
+            // CRITICAL VAULT SAVE: Save audio copy to voice_vault BEFORE network calls!
+            val historyId = FlowBanglaApp.instance.historyManager.createPendingAudioRecord(recordedFile, durationSec)
+
             // STEP 2: Extract lightweight screen context with strict 150ms timeout (never block!)
             val fieldContext = withTimeoutOrNull(150L) {
                 TextInjectorAccessibilityService.instance?.extractActiveFieldContextFast()
@@ -1280,21 +1287,7 @@ class FloatingBubbleService : Service() {
 
             val rawTranscript = asrResult.transcript.trim()
             if (rawTranscript.isEmpty()) {
-                val ext = recordedFile.extension.ifEmpty { "m4a" }
-                val backupFile = File(recordedFile.parentFile, "failed_${System.currentTimeMillis()}.$ext")
-                try {
-                    recordedFile.copyTo(backupFile, overwrite = true)
-                    FlowBanglaApp.instance.historyManager.addRecord(
-                        DictationRecord(
-                            text = "রেকর্ডিং ব্যর্থ হয়েছে (ইতিহাসে ট্যাপ করে আবার দেখুন) / Dictation Failed",
-                            durationSeconds = durationSec,
-                            isSuccess = false,
-                            rawTranscript = "",
-                            provenance = "Failed ASR",
-                            audioFilePath = backupFile.absolutePath
-                        )
-                    )
-                } catch (_: Throwable) {}
+                FlowBanglaApp.instance.historyManager.markRecordFailed(historyId, "No speech detected or provider timeout")
                 try { recordedFile.delete() } catch (_: Throwable) {}
 
                 withContext(Dispatchers.Main) {
@@ -1306,21 +1299,13 @@ class FloatingBubbleService : Service() {
 
             try { recordedFile.delete() } catch (_: Throwable) {}
 
-            val historyId = java.util.UUID.randomUUID().toString()
             val provenanceLabel = asrResult.source.label
-
-            try {
-                FlowBanglaApp.instance.historyManager.addRecord(
-                    DictationRecord(
-                        id = historyId,
-                        text = rawTranscript,
-                        durationSeconds = durationSec,
-                        isSuccess = true,
-                        rawTranscript = rawTranscript,
-                        provenance = "$provenanceLabel (Raw)"
-                    )
-                )
-            } catch (_: Throwable) {}
+            FlowBanglaApp.instance.historyManager.markRecordSuccess(
+                recordId = historyId,
+                text = rawTranscript,
+                rawTranscript = rawTranscript,
+                provenance = "$provenanceLabel (Raw)"
+            )
 
             // Check for Voice Command Mode on highlighted text
             val prefs = FlowBanglaApp.instance.preferencesManager

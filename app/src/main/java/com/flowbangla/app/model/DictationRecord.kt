@@ -8,5 +8,9 @@ data class DictationRecord(
     val isSuccess: Boolean = true,
     val rawTranscript: String = "",
     val provenance: String = "",
-    val audioFilePath: String? = null
-)
+    val audioFilePath: String? = null,
+    val isFailed: Boolean = !isSuccess
+) {
+    val savedAudioPath: String?
+        get() = audioFilePath
+}

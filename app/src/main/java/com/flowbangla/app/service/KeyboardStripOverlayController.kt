@@ -188,16 +188,20 @@ class KeyboardStripOverlayController(
             (metrics.heightPixels * 0.60f).toInt()
         }
 
-        val targetY = computeExactInStripParamsY(view, params.y, kbdTop, density)
+        val targetY = if (state == StripState.IDLE) {
+            kbdTop + (2f * density).toInt()
+        } else {
+            computeExactInStripParamsY(view, params.y, kbdTop, density)
+        }
         val targetH: Int
         val targetW: Int
         val targetX: Int
 
         if (state == StripState.IDLE) {
-            // Pure 40dp x 34dp studio mic capsule — no 'EN' or 'বাং' text!
-            targetW = (40f * density).toInt()
-            targetH = (34f * density).toInt()
-            targetX = screenW - targetW - (54f * density).toInt()
+            // 52dp x 40dp solid mask completely covers Gboard's underlying '↶' undo icon slot!
+            targetW = (52f * density).toInt()
+            targetH = (40f * density).toInt()
+            targetX = screenW - targetW - (50f * density).toInt()
         } else {
             // Expanded studio bar between Gboard's left [⊞] icon (52dp) and right [🎤] divider (58dp)
             // Using 58dp right margin guarantees we NEVER touch Gboard's vertical divider line!
@@ -337,16 +341,39 @@ class KeyboardStripOverlayController(
             super.onDraw(canvas)
             val w = width.toFloat()
             val h = height.toFloat()
+
+            if (currentState == StripState.IDLE) {
+                // 1. Draw an opaque Gboard-toolbar-matched backing plate (#1F2227) across the full 52dp x 40dp bounds
+                //    so Gboard's underlying '↶' Undo icon NEVER bleeds through!
+                bgPaint.color = Color.parseColor("#1F2227")
+                canvas.drawRect(0f, 0f, w, h, bgPaint)
+
+                // 2. Draw our centered 38dp x 32dp rounded Obsidian Mic Capsule on top of the solid backing plate
+                val btnW = 38f * density
+                val btnH = 32f * density
+                val left = (w - btnW) / 2f
+                val top = (h - btnH) / 2f
+                pillRect.set(left, top, left + btnW, top + btnH)
+                val btnRadius = btnH / 2f
+
+                bgPaint.color = Color.parseColor("#2B3038")
+                canvas.drawRoundRect(pillRect, btnRadius, btnRadius, bgPaint)
+                canvas.drawRoundRect(pillRect, btnRadius, btnRadius, borderPaint)
+
+                // 3. Draw ONLY the clean, centered Champagne-Ivory Danda-Mic icon (NO red dot!)
+                drawMiniDandaMicIcon(canvas, cx = w / 2f, cy = h / 2f, color = Color.parseColor("#EEEBE3"))
+                return
+            }
+
             val hPad = 3f * density
             val vPad = 2f * density
             pillRect.set(hPad, vPad, w - hPad, h - vPad)
             val r = pillRect.height() / 2f
 
-            // 1. Studio Obsidian Capsule Background (#23262B in IDLE, #141619 in RECORDING/PROCESSING, #8FBF9F in INSERTED)
+            // 1. Studio Obsidian Capsule Background (#141619 in RECORDING/PROCESSING, #8FBF9F in INSERTED)
             bgPaint.color = when (currentState) {
                 StripState.INSERTED -> Color.parseColor("#8FBF9F")
-                StripState.RECORDING, StripState.PROCESSING -> Color.parseColor("#141619")
-                else -> Color.parseColor("#23262B")
+                else -> Color.parseColor("#141619")
             }
             canvas.drawRoundRect(pillRect, r, r, bgPaint)
             if (currentState != StripState.INSERTED) {
@@ -357,14 +384,7 @@ class KeyboardStripOverlayController(
             val textY = h / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
 
             when (currentState) {
-                StripState.IDLE -> {
-                    // Pure 40dp x 34dp studio mic capsule — no 'EN' or 'বাং' text!
-                    drawMiniDandaMicIcon(canvas, cx = w / 2f, cy = h / 2f, color = Color.parseColor("#EEEBE3"))
-                    val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = Color.parseColor("#E8473A")
-                    }
-                    canvas.drawCircle(w / 2f + 6.5f * density, h / 2f - 6.5f * density, 2.3f * density, dotPaint)
-                }
+                StripState.IDLE -> {} // Handled above with solid mask
 
                 StripState.RECORDING -> {
                     val innerGap = 3.5f * density

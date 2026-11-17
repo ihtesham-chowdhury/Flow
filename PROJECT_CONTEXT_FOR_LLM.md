@@ -1,8 +1,8 @@
 # Flow (Wispr Flow Replacement for Android) — Master Technical Blueprint & Living Project Context
 
-> **Document Version**: 4.3.0 (Build 23)  
-> **Last Updated**: November 15, 2026  
-> **Status**: Production Release (`Flow-v4.3.0.apk` active)  
+> **Document Version**: 4.4.0 (Build 24)  
+> **Last Updated**: November 18, 2026  
+> **Status**: Production Release (`Flow-v4.4.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -252,6 +252,32 @@
   - Deep-links to OEM-specific autostart/auto-launch management for Xiaomi, Samsung, OPPO/Realme/OnePlus, Vivo/iQOO, Huawei, Transsion.
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
+
+### Phase 22: v4.4.0 (Build 24) — Universal Provider Fix (Gemini, OpenRouter & Cerebras), 3-Slot Audio History Recovery, Universal Live Preview & Seamless Gboard Mic (Current Release)
+- **Universal Provider Fix (Gemini, OpenRouter & Cerebras)**:
+  - *Gemini Schema & Endpoint Fix*:
+    - Fixed `/v1beta/interactions` mode bug: when `useVerbatimMode == false` (Smart Mode), `mode` is passed as a **String** `"smart"` (NOT `{"type": "smart"}`, which caused HTTP 400 Invalid Argument per Google AI Studio documentation).
+    - Added universal zero-upload multimodal audio route: `POST https://generativelanguage.googleapis.com/v1beta/models/{modelId}:generateContent` with inline Base64 audio (`inline_data`) across `gemini-3.5-flash-lite`, `gemini-3.6-flash`, `gemini-3.8-flash`, `gemini-2.5-flash`, and live-discovered models. Executes in ~600ms whenever `/v1beta/interactions` fails or for live slices.
+    - Added `:generateContent` text formatting fallback in `GeminiInteractionsAdapter.formatTranscript()`.
+  - *OpenRouter STT Fix*:
+    - Replaced chat completions audio hack with official OpenRouter Speech-to-Text endpoint: `POST https://openrouter.ai/api/v1/audio/transcriptions` with `openai/whisper-large-v3` (and fallback to `openai/whisper-1` and chat completions), sending `input_audio: { data: "<base64>", format: "wav" }`.
+  - *Standalone Cerebras Mode (`isCerebrasOnlyActive()`)*:
+    - Cerebras is an ultra-fast text-only LLM inference provider (2,000 tokens/sec). When only Cerebras is enabled, Flow automatically captures speech via `OnDeviceSpeechRecognizer` (streaming live partials) and routes the transcript to Cerebras (`llama-3.3-70b` with fallback to `llama3.1-8b`) for instant cloud formatting.
+  - *Universal Connection Lab Test*:
+    - Updated `ConnectivityLabRunner.kt` to run `runUniversalTest()` for all active cloud providers using real audio transcription via `SmartProviderRouter.transcribeAudioSmart()`.
+- **Persistent 3-Slot Voice Vault & 1-Tap "Regenerate Text" in History**:
+  - The exact millisecond recording completes, `HistoryManager.createPendingAudioRecord()` saves a copy of the audio to `filesDir/voice_vault/rec_${id}.wav` and registers a pending record in history *before* making any network calls.
+  - Auto-prunes disk storage to retain strictly the latest 3 recordings (`~10–15 MB` cap).
+  - If a 4–5 minute speech fails or times out, marks the record as failed (`markRecordFailed`) but preserves the audio file on disk.
+  - In `HistoryScreen.kt` and `MainActivity.kt`, renders a **`[ ↻ Regenerate / আবার তৈরি করুন ]`** button for any item whose audio file exists on disk (tinted `OchreDark` if failed). Tapping it re-runs ASR and formatting with the currently active providers without re-speaking!
+- **Solid Gboard-Matched Backing Mask (`#1F2227`) & Red-Dot Removal**:
+  - In `KeyboardStripOverlayController.kt` (`StripState.IDLE`), expanded window bounds to `52dp x 40dp` at `targetX = screenW - targetW - 50dp`, `targetY = kbdTop + 2dp`.
+  - In `onDraw()`, renders an opaque `#1F2227` backing plate covering the full 52dp x 40dp bounds so Gboard's underlying Undo (`↶`) icon is 100% occluded (zero bleed-through). On top, draws a centered `38dp x 32dp` `#2B3038` capsule with an Ivory microphone glyph and **NO red dot**.
+  - In `FloatingMicCanvasView.kt` (`drawLuxuryIdleMicButton`), removed the 2 o'clock vermilion red jewel dot so only the pure sculpted Champagne-Ivory condenser mic is displayed.
+- **Universal Live Preview Across All Models & Modes**:
+  - Increased per-slice timeout in `startLivePreviewIfEnabled()` from 1,500ms to 3,200ms so Gemini and OpenRouter slices return reliably alongside Groq.
+  - Wired `OnDeviceSpeechRecognizer.onPartialResults` directly to `LiveTranscriptionPreviewController` for Offline, Offline AI, Fast Cloud, and Cerebras modes.
+- **100% Passing Unit Test Suite (105 unit tests passing)**.
 
 ### Phase 21: v4.3.0 (Build 23) — Groq Bengali Gibberish Elimination, Deterministic Linguistic Guard, True Live Transcription Preview & Flagship Hardware Mic (Current Release)
 - **Elimination of Groq Bengali Hallucinations**:
