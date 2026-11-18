@@ -168,4 +168,67 @@ class SmartProviderRouterTest {
 
         assertTrue(order.isEmpty())
     }
+
+    @Test
+    fun testLanguageAwareSmartAutoEnglishUsesGroqFirst() {
+        val order = SmartProviderRouter.computeAsrProviderOrder(
+            routingMode = ProviderRoutingMode.SMART_AUTO,
+            audioDurationSeconds = 10,
+            isGeminiEnabled = true,
+            geminiApiKey = "AIzaSyGeminiKey",
+            isGroqEnabled = true,
+            groqApiKey = "gsk_GroqKey",
+            isOpenRouterEnabled = false,
+            openRouterApiKey = "",
+            isBanglaPreferred = false
+        )
+
+        assertEquals(2, order.size)
+        assertEquals(ProviderId.GROQ, order[0])
+        assertEquals(ProviderId.GEMINI, order[1])
+    }
+
+    @Test
+    fun testLanguageAwareSmartAutoBanglaUsesGeminiFirst() {
+        val order = SmartProviderRouter.computeAsrProviderOrder(
+            routingMode = ProviderRoutingMode.SMART_AUTO,
+            audioDurationSeconds = 10,
+            isGeminiEnabled = true,
+            geminiApiKey = "AIzaSyGeminiKey",
+            isGroqEnabled = true,
+            groqApiKey = "gsk_GroqKey",
+            isOpenRouterEnabled = false,
+            openRouterApiKey = "",
+            isBanglaPreferred = true
+        )
+
+        assertEquals(2, order.size)
+        assertEquals(ProviderId.GEMINI, order[0])
+        assertEquals(ProviderId.GROQ, order[1])
+    }
+
+    @Test
+    fun testElevenLabsAndDeepgramIntegrationInSmartAuto() {
+        val order = SmartProviderRouter.computeAsrProviderOrder(
+            routingMode = ProviderRoutingMode.SMART_AUTO,
+            audioDurationSeconds = 15,
+            isGeminiEnabled = true,
+            geminiApiKey = "AIzaSyGeminiKey",
+            isGroqEnabled = true,
+            groqApiKey = "gsk_GroqKey",
+            isOpenRouterEnabled = false,
+            openRouterApiKey = "",
+            isElevenLabsEnabled = true,
+            elevenLabsApiKey = "xi_key",
+            isDeepgramEnabled = true,
+            deepgramApiKey = "dg_key",
+            isBanglaPreferred = true
+        )
+
+        assertEquals(4, order.size)
+        assertEquals(ProviderId.GEMINI, order[0])
+        assertEquals(ProviderId.ELEVENLABS, order[1])
+        assertEquals(ProviderId.DEEPGRAM, order[2])
+        assertEquals(ProviderId.GROQ, order[3])
+    }
 }

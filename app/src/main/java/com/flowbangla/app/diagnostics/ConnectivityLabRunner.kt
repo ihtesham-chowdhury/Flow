@@ -133,6 +133,8 @@ object ConnectivityLabRunner {
         if (prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) activeList.add("Groq")
         if (prefs.isCerebrasEnabled && prefs.cerebrasApiKey.isNotBlank()) activeList.add("Cerebras")
         if (prefs.isOpenRouterEnabled && prefs.openRouterApiKey.isNotBlank()) activeList.add("OpenRouter")
+        if (prefs.isElevenLabsEnabled && prefs.elevenLabsApiKey.isNotBlank()) activeList.add("ElevenLabs")
+        if (prefs.isDeepgramEnabled && prefs.deepgramApiKey.isNotBlank()) activeList.add("Deepgram")
 
         if (activeList.isEmpty()) {
             return@withContext ConnectivityLabReport("FAIL: No active cloud provider", "SKIPPED", "SKIPPED", "No provider configured.")
@@ -158,7 +160,11 @@ object ConnectivityLabRunner {
                 s3 = "PASS (Cerebras, chars=${fmt.formattedText.length}, latency=${fmt.latencyMs}ms)"
             } else {
                 val res = router.transcribeAudioSmart(tempWav, 1, emptyList())
-                s3 = "PASS (${res.source.label}, connected & processed audio)"
+                if (res.transcript.isBlank()) {
+                    s3 = "FAIL: Cloud ASR returned empty response"
+                } else {
+                    s3 = "PASS (${res.source.label}, connected & processed audio)"
+                }
             }
             logBuilder.appendLine("S3: $s3")
         } catch (t: Throwable) {

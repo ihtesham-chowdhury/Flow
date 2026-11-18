@@ -98,6 +98,7 @@ object KeyboardVisibilityDetector {
 
         // SIGNAL 3: Application Window Bottom Compression (Active window pushed up >= 140dp)
         // Works even when Xiaomi HyperOS or One UI omits TYPE_INPUT_METHOD from getWindows()!
+        // isPhysicalKeyboardOnScreen MUST be false so inline strip overlay never shows on non-keyboard dialogs!
         if (hasAppWindow && appWindowBottomGapPx >= (140f * density).toInt()) {
             return KeyboardStateSnapshot(
                 isKeyboardVisible = true,
@@ -106,11 +107,12 @@ object KeyboardVisibilityDetector {
                 isRestrictedFieldOrApp = false,
                 matchedSignal = "SIGNAL_3_WINDOW_BOTTOM_COMPRESSED",
                 isMeasuredImeWindow = true,
-                isPhysicalKeyboardOnScreen = true
+                isPhysicalKeyboardOnScreen = false
             )
         }
 
         // SIGNAL 4: Android 13+ onStartInput/InputConnection active with focused text box
+        // isPhysicalKeyboardOnScreen MUST be false when no verified physical keyboard window is present!
         if (isImeInputStarted) {
             val isCompressed = hasAppWindow && appWindowBottomGapPx >= (110f * density).toInt()
             val effectiveTopY = if (isCompressed) screenHeightPx - appWindowBottomGapPx else savedImeTopY
@@ -122,7 +124,7 @@ object KeyboardVisibilityDetector {
                 isRestrictedFieldOrApp = false,
                 matchedSignal = "SIGNAL_4_IME_INPUT_STARTED",
                 isMeasuredImeWindow = isCompressed,
-                isPhysicalKeyboardOnScreen = true
+                isPhysicalKeyboardOnScreen = false
             )
         }
 
@@ -172,7 +174,10 @@ object KeyboardVisibilityDetector {
             if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
                 window.getBoundsInScreen(rect)
                 val h = rect.height()
-                if (h >= minKeyboardHeightPx && rect.bottom >= (screenHeight * 0.60f).toInt()) {
+                if (h >= minKeyboardHeightPx &&
+                    rect.top >= (screenHeight * 0.30f).toInt() &&
+                    rect.bottom >= (screenHeight * 0.70f).toInt()
+                ) {
                     hasTypeInputMethod = true
                     typeInputMethodHeight = h
                     typeInputMethodBottom = rect.bottom
@@ -187,13 +192,29 @@ object KeyboardVisibilityDetector {
                 if (pkg in KNOWN_KEYBOARD_PACKAGES || KNOWN_KEYBOARD_PACKAGES.any { pkg.contains(it, ignoreCase = true) }) {
                     window.getBoundsInScreen(rect)
                     val h = rect.height()
-                    if (h >= minKeyboardHeightPx) {
+                    if (h >= minKeyboardHeightPx &&
+                        rect.top >= (screenHeight * 0.30f).toInt() &&
+                        rect.bottom >= (screenHeight * 0.70f).toInt()
+                    ) {
                         hasKnownKeyboard = true
                         knownKeyboardHeight = h
                         break
                     }
                 }
             }
+        }
+
+        // When inside Flow's own activities/dialogs (e.g. Diagnostics modal) and Gboard is not up, keyboard is CLOSED!
+        if (activePkg == context.packageName && !hasTypeInputMethod && !hasKnownKeyboard) {
+            return KeyboardStateSnapshot(
+                isKeyboardVisible = false,
+                keyboardTopY = screenHeight,
+                keyboardHeightPx = 0,
+                isRestrictedFieldOrApp = false,
+                matchedSignal = "NONE_FLOW_APP_NO_IME",
+                isMeasuredImeWindow = false,
+                isPhysicalKeyboardOnScreen = false
+            )
         }
 
         var appWindowBottomGap = 0

@@ -116,7 +116,7 @@ class KeyboardVisibilityDetectorTest {
         )
 
         assertTrue("Keyboard MUST be detected on HyperOS via onStartInput even when windows is empty!", snapshot.isKeyboardVisible)
-        assertTrue("Physical keyboard is considered active so buttons appear during typing!", snapshot.isPhysicalKeyboardOnScreen)
+        assertFalse("Physical keyboard must be false when no actual keyboard window is present!", snapshot.isPhysicalKeyboardOnScreen)
         assertEquals("SIGNAL_4_IME_INPUT_STARTED", snapshot.matchedSignal)
     }
 

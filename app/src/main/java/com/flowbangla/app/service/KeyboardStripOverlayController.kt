@@ -189,7 +189,7 @@ class KeyboardStripOverlayController(
         }
 
         val targetY = if (state == StripState.IDLE) {
-            kbdTop + (2f * density).toInt()
+            kbdTop + (5f * density).toInt()
         } else {
             computeExactInStripParamsY(view, params.y, kbdTop, density)
         }
@@ -198,10 +198,11 @@ class KeyboardStripOverlayController(
         val targetX: Int
 
         if (state == StripState.IDLE) {
-            // 52dp x 40dp solid mask completely covers Gboard's underlying '↶' undo icon slot!
-            targetW = (52f * density).toInt()
-            targetH = (40f * density).toInt()
-            targetX = screenW - targetW - (50f * density).toInt()
+            // Pure 46dp x 34dp rounded stadium capsule centered directly over Gboard's right-side slot
+            // Covers Gboard's 20dp underlying icon 100% with ZERO square background!
+            targetW = (46f * density).toInt()
+            targetH = (34f * density).toInt()
+            targetX = screenW - targetW - (53f * density).toInt()
         } else {
             // Expanded studio bar between Gboard's left [⊞] icon (52dp) and right [🎤] divider (58dp)
             // Using 58dp right margin guarantees we NEVER touch Gboard's vertical divider line!
@@ -343,24 +344,20 @@ class KeyboardStripOverlayController(
             val h = height.toFloat()
 
             if (currentState == StripState.IDLE) {
-                // 1. Draw an opaque Gboard-toolbar-matched backing plate (#1F2227) across the full 52dp x 40dp bounds
-                //    so Gboard's underlying '↶' Undo icon NEVER bleeds through!
-                bgPaint.color = Color.parseColor("#1F2227")
-                canvas.drawRect(0f, 0f, w, h, bgPaint)
+                // CRITICAL: NEVER call canvas.drawRect()!
+                // Draw ONLY the pure rounded stadium capsule (cornerRadius = h / 2f) on a transparent canvas!
+                val pad = 1.2f * density
+                pillRect.set(pad, pad, w - pad, h - pad)
+                val r = pillRect.height() / 2f
 
-                // 2. Draw our centered 38dp x 32dp rounded Obsidian Mic Capsule on top of the solid backing plate
-                val btnW = 38f * density
-                val btnH = 32f * density
-                val left = (w - btnW) / 2f
-                val top = (h - btnH) / 2f
-                pillRect.set(left, top, left + btnW, top + btnH)
-                val btnRadius = btnH / 2f
+                // Solid opaque #23272F fill completely hides the 20dp Gboard icon underneath while keeping 100% rounded corners!
+                bgPaint.color = Color.parseColor("#23272F")
+                canvas.drawRoundRect(pillRect, r, r, bgPaint)
 
-                bgPaint.color = Color.parseColor("#2B3038")
-                canvas.drawRoundRect(pillRect, btnRadius, btnRadius, bgPaint)
-                canvas.drawRoundRect(pillRect, btnRadius, btnRadius, borderPaint)
+                borderPaint.color = Color.parseColor("#3B404C")
+                canvas.drawRoundRect(pillRect, r, r, borderPaint)
 
-                // 3. Draw ONLY the clean, centered Champagne-Ivory Danda-Mic icon (NO red dot!)
+                // Centered Champagne-Ivory Danda-Mic icon (Zero red dot, zero square edges!)
                 drawMiniDandaMicIcon(canvas, cx = w / 2f, cy = h / 2f, color = Color.parseColor("#EEEBE3"))
                 return
             }

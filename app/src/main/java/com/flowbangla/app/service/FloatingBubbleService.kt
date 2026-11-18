@@ -1278,11 +1278,17 @@ class FloatingBubbleService : Service() {
             // STEP 3: Smart Cloud Audio ASR across enabled providers (Groq Turbo <= 20s, Gemini > 20s)
             val asrTimeoutMs = (10_000L + (durationSec * 600L)).coerceAtMost(60_000L)
             val asrResult = withTimeoutOrNull(asrTimeoutMs) {
-                smartProviderRouter.transcribeAudioSmart(
-                    audioFile = recordedFile,
-                    audioDurationSeconds = durationSec,
-                    customVocab = customVocab
-                )
+                try {
+                    smartProviderRouter.transcribeAudioSmart(
+                        audioFile = recordedFile,
+                        audioDurationSeconds = durationSec,
+                        customVocab = customVocab,
+                        surroundingTextBeforeCursor = fieldContext.textBeforeCursor
+                    )
+                } catch (t: Throwable) {
+                    android.util.Log.w(TAG, "transcribeAudioSmart failed: ${t.message}")
+                    null
+                }
             } ?: AsrExecutionResult("", RecognitionSource.UNKNOWN, false)
 
             val rawTranscript = asrResult.transcript.trim()

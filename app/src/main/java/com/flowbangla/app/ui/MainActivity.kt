@@ -254,12 +254,12 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 4.2.0 (22)",
+        "version" to "Version 4.5.0 (25)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first",
         "smart_model_switching" to "Smart model switching",
-        "smart_model_switching_desc" to "Uses Groq for quick phrases and Gemini for long notes"
+        "smart_model_switching_desc" to "Uses Groq for fast English and Gemini for accurate Bangla"
     )
 
     private val bnMap = mapOf(
@@ -322,12 +322,12 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৪.২.০ (২২)",
+        "version" to "ভার্সন ৪.৫.০ (২৫)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
         "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন",
         "smart_model_switching" to "স্মার্ট মডেল সুইচিং",
-        "smart_model_switching_desc" to "ছোট কথার জন্য Groq এবং দীর্ঘ নোটের জন্য Gemini"
+        "smart_model_switching_desc" to "ইংরেজির জন্য দ্রুত Groq এবং বাংলার জন্য নিখুঁত Gemini ব্যবহার করে"
     )
 }
 
@@ -378,10 +378,14 @@ fun MainScreen(
     var groqKeyText by remember { mutableStateOf(prefs.groqApiKey) }
     var cerebrasKeyText by remember { mutableStateOf(prefs.cerebrasApiKey) }
     var openRouterKeyText by remember { mutableStateOf(prefs.openRouterApiKey) }
+    var elevenLabsKeyText by remember { mutableStateOf(prefs.elevenLabsApiKey) }
+    var deepgramKeyText by remember { mutableStateOf(prefs.deepgramApiKey) }
     var isGeminiEnabled by remember { mutableStateOf(prefs.isGeminiEnabled) }
     var isGroqEnabled by remember { mutableStateOf(prefs.isGroqEnabled) }
     var isCerebrasEnabled by remember { mutableStateOf(prefs.isCerebrasEnabled) }
     var isOpenRouterEnabled by remember { mutableStateOf(prefs.isOpenRouterEnabled) }
+    var isElevenLabsEnabled by remember { mutableStateOf(prefs.isElevenLabsEnabled) }
+    var isDeepgramEnabled by remember { mutableStateOf(prefs.isDeepgramEnabled) }
     var providerRoutingMode by remember { mutableStateOf(prefs.providerRoutingMode) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
@@ -1140,6 +1144,16 @@ fun MainScreen(
                             ProviderItem("Groq", groqKeyText.isNotBlank(), isGroqEnabled) {
                                 isGroqEnabled = it
                                 prefs.isGroqEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            },
+                            ProviderItem("ElevenLabs", elevenLabsKeyText.isNotBlank(), isElevenLabsEnabled) {
+                                isElevenLabsEnabled = it
+                                prefs.isElevenLabsEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            },
+                            ProviderItem("Deepgram", deepgramKeyText.isNotBlank(), isDeepgramEnabled) {
+                                isDeepgramEnabled = it
+                                prefs.isDeepgramEnabled = it
                                 notifyServiceSettingsChanged(context)
                             },
                             ProviderItem("Cerebras", cerebrasKeyText.isNotBlank(), isCerebrasEnabled) {
@@ -1943,6 +1957,8 @@ fun MainScreen(
         val currentKey = when (provider) {
             "Gemini" -> geminiKeyText
             "Groq" -> groqKeyText
+            "ElevenLabs" -> elevenLabsKeyText
+            "Deepgram" -> deepgramKeyText
             "Cerebras" -> cerebrasKeyText
             else -> openRouterKeyText
         }
@@ -1959,6 +1975,14 @@ fun MainScreen(
                     "Groq" -> {
                         groqKeyText = savedKey
                         prefs.groqApiKey = savedKey
+                    }
+                    "ElevenLabs" -> {
+                        elevenLabsKeyText = savedKey
+                        prefs.elevenLabsApiKey = savedKey
+                    }
+                    "Deepgram" -> {
+                        deepgramKeyText = savedKey
+                        prefs.deepgramApiKey = savedKey
                     }
                     "Cerebras" -> {
                         cerebrasKeyText = savedKey

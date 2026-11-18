@@ -14,7 +14,9 @@ enum class ProviderId {
     GEMINI,
     GROQ,
     OPENROUTER,
-    CEREBRAS
+    CEREBRAS,
+    ELEVENLABS,
+    DEEPGRAM
 }
 
 enum class ProviderRoutingMode {
@@ -229,6 +231,22 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean("provider_enabled_cerebras", true)
         set(value) = prefs.edit().putBoolean("provider_enabled_cerebras", value).apply()
 
+    var elevenLabsApiKey: String
+        get() = prefs.getString("elevenlabs_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("elevenlabs_api_key", value.trim()).apply()
+
+    var isElevenLabsEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_elevenlabs", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_elevenlabs", value).apply()
+
+    var deepgramApiKey: String
+        get() = prefs.getString("deepgram_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("deepgram_api_key", value.trim()).apply()
+
+    var isDeepgramEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_deepgram", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_deepgram", value).apply()
+
     var providerRoutingMode: ProviderRoutingMode
         get() = try {
             ProviderRoutingMode.valueOf(
@@ -247,17 +265,21 @@ class PreferencesManager(context: Context) {
         return (isGeminiEnabled && geminiApiKey.trim().isNotEmpty()) ||
             (isGroqEnabled && groqApiKey.trim().isNotEmpty()) ||
             (isOpenRouterEnabled && openRouterApiKey.trim().isNotEmpty()) ||
-            (isCerebrasEnabled && cerebrasApiKey.trim().isNotEmpty())
+            (isCerebrasEnabled && cerebrasApiKey.trim().isNotEmpty()) ||
+            (isElevenLabsEnabled && elevenLabsApiKey.trim().isNotEmpty()) ||
+            (isDeepgramEnabled && deepgramApiKey.trim().isNotEmpty())
     }
 
     /**
      * Returns true if at least one cloud provider with dedicated speech-to-text audio support
-     * (Gemini, Groq, OpenRouter) is enabled with a valid key.
+     * (Gemini, Groq, OpenRouter, ElevenLabs, Deepgram) is enabled with a valid key.
      */
     fun hasAnyCloudAudioAsrProvider(): Boolean {
         return (isGeminiEnabled && geminiApiKey.isNotBlank()) ||
             (isGroqEnabled && groqApiKey.isNotBlank()) ||
-            (isOpenRouterEnabled && openRouterApiKey.isNotBlank())
+            (isOpenRouterEnabled && openRouterApiKey.isNotBlank()) ||
+            (isElevenLabsEnabled && elevenLabsApiKey.isNotBlank()) ||
+            (isDeepgramEnabled && deepgramApiKey.isNotBlank())
     }
 
     /**

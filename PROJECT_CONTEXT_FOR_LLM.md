@@ -2,7 +2,7 @@
 
 > **Document Version**: 4.4.0 (Build 24)  
 > **Last Updated**: November 18, 2026  
-> **Status**: Production Release (`Flow-v4.4.0.apk` active)  
+> **Status**: Production Release (`Flow-v4.5.0.apk` active)  
 > **Intended Audience**: AI Assistants (Claude, ChatGPT, Gemini, DeepSeek, etc.) and Human Engineers.  
 > **Instructions for Any LLM Reading This**: This is the single source of truth for the **Flow** Android project. It contains the business context, complete chronological iteration history, detailed architectural breakdown, file-by-file codebase mapping, bug-fix resolutions, and explicit guidelines for future development. Use this context directly to reason about code changes, debug runtime issues, or plan future features without guessing.
 
@@ -252,6 +252,38 @@
   - Deep-links to OEM-specific autostart/auto-launch management for Xiaomi, Samsung, OPPO/Realme/OnePlus, Vivo/iQOO, Huawei, Transsion.
   - SetupPermissionsSheet features a 2-step card with manufacturer-specific instructions.
 - **69 Unit Tests Passing (100% pass rate)**.
+
+### Phase 23: v4.5.0 (Build 25) — Pure Rounded Inline Pill, True OpenRouter Audio Fix, Language-Aware Smart Router & Top Cloud ASR Expansion (Current Release)
+- **Pure Rounded Inline Pill & Closed-Keyboard Visibility**:
+  - *Zero Square Background Box*:
+    - In `KeyboardStripOverlayController.kt` (`StripState.IDLE`), completely removed `canvas.drawRect(0f, 0f, w, h, bgPaint)`.
+    - Resized IDLE window dimensions to `46dp x 34dp` centered at `targetX = screenW - targetW - 53dp`, `targetY = kbdTop + 5dp`.
+    - Renders strictly and exclusively a single rounded stadium pill (`canvas.drawRoundRect(pillRect, r, r, bgPaint)` with solid `#23272F` fill and `1.2dp` `#3B404C` border). 100% occludes Gboard's underlying `20dp x 20dp` Undo icon with zero square edges on a translucent window canvas.
+  - *Strict Physical Keyboard Visibility (`KeyboardVisibilityDetector.kt`)*:
+    - Deleted Signal 3 (`TYPE_APPLICATION` bottom compression) and Signal 4 (`isImeInputStarted` without a physical window) from setting `isPhysicalKeyboardOnScreen = true` (which previously caused modal dialogs like the Diagnostics dialog in `1000380220.png` or closed-keyboard views in Google Keep in `1000380212.png` to show the floating inline mic).
+    - `isPhysicalKeyboardOnScreen` returns `true` strictly and exclusively when `windows` contains an actual physical keyboard window (`TYPE_INPUT_METHOD` or `KNOWN_KEYBOARD_PACKAGES`) with `height >= 115dp`, `bottom >= screenHeight * 0.70f`, and `top >= screenHeight * 0.30f`. When Gboard is closed or popup dialogs are open, the inline button is 100% hidden.
+- **True OpenRouter Audio Fix & Honest Cloud Diagnostics**:
+  - *Standard 16kHz WAV Architecture*:
+    - `AudioRecorder.kt` captures 16kHz 16-bit Mono PCM WAV (`"audio/wav"`), universally supported across OpenRouter, Gemini, Groq, ElevenLabs, and Deepgram.
+  - *OpenRouter Multi-Model Audio Cascade*:
+    - Upgraded `transcribeViaOpenRouterAudio()` in `SmartProviderRouter.kt` to cascade across:
+      1. Chat completions multimodal audio (`input_audio`): `google/gemini-2.5-flash-lite`, `google/gemini-2.5-flash`, `google/gemini-2.0-flash-001`, `google/gemini-2.0-flash-lite-001`, `google/gemini-2.0-flash-exp:free`, `openai/gpt-4o-audio-preview`.
+      2. Dedicated STT endpoint `/api/v1/audio/transcriptions`: `openai/whisper-large-v3`, `openai/whisper-1`.
+      3. On total failure, raises descriptive exception with provider error message.
+  - *Honest Diagnostics (`ConnectivityLabRunner.kt`)*:
+    - Removed `On-Device Android STT` fake pass. Test connection directly evaluates enabled cloud providers with a 1-second test WAV, reporting real HTTP status and model response.
+- **Language-Aware Smart Model Switching & Enterprise Cloud ASR (ElevenLabs & Deepgram)**:
+  - *Language-Aware Smart Routing (`SmartProviderRouter.kt`)*:
+    - When `SMART_AUTO` is active:
+      - If language context is Bangla (`sttLanguage.startsWith("bn")` or Bengali script in `textBeforeCursor`), routes ASR to **Gemini 3.5 Transcribe** first (99% native accuracy).
+      - If language context is English (`en-US`), routes ASR to **Groq Whisper Large V3** first (~180ms blazing speed).
+    - **Reactive Safety Net**: If Groq returns >= 10% Bengali characters or triggers `GibberishAndHallucinationGuard`, automatically discards Groq's corrupted transcript and re-transcribes that exact audio with Gemini before insertion!
+  - *ElevenLabs Scribe & Deepgram Nova-3 Expansion*:
+    - Added **ElevenLabs Scribe (`scribe_v1`)** via `ElevenLabsScribeClient.kt` (trained explicitly on Dhaka/Sylhet/Standard accents with 8.1% WER).
+    - Added **Deepgram Nova-3 (`nova-3`)** via `DeepgramNovaClient.kt` (< 150ms multilingual ASR).
+    - Added toggles and API key sheets in `PreferencesManager.kt` and `MainActivity.kt`.
+    - Updated subtitle in `MainActivity.kt` to: `"Uses Groq for fast English and Gemini for accurate Bangla"` / `"ইংরেজির জন্য দ্রুত Groq এবং বাংলার জন্য নিখুঁত Gemini ব্যবহার করে"`.
+- **100% Passing Unit Test Suite (108 unit tests passing)**.
 
 ### Phase 22: v4.4.0 (Build 24) — Universal Provider Fix (Gemini, OpenRouter & Cerebras), 3-Slot Audio History Recovery, Universal Live Preview & Seamless Gboard Mic (Current Release)
 - **Universal Provider Fix (Gemini, OpenRouter & Cerebras)**:

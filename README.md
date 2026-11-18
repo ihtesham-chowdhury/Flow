@@ -1,4 +1,4 @@
-# Flow v4.4.0 (Groq Gibberish Elimination, True Live Transcription Preview & Flagship Hardware Floating Mic)
+# Flow v4.5.0 (Groq Gibberish Elimination, True Live Transcription Preview & Flagship Hardware Floating Mic)
 
 **Flow** is an Android voice dictation app designed as an ultra-fast, unlimited replacement for Wispr Flow. It floats directly inside **Gboard's suggestion bar** and supports **Bengali (বাংলা), English, and Banglish (code-mixed)** speech with intelligent document-type detection, screen and cursor context awareness, verbal filler removal, and native punctuation (`. , ? ! ""` for English and `। , ? ! ""` for Bengali).
 
@@ -7,7 +7,7 @@
 ## 📱 Pre-Built APK
 
 Download the latest ready-to-install Android package:
-* **[Flow-v4.4.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v4.4.0/Flow-v4.4.0.apk)**  
+* **[Flow-v4.5.0.apk (Latest Release)](https://github.com/ihtesham-chowdhury/Flow/releases/download/v4.4.0/Flow-v4.5.0.apk)**  
   *(Groq Gibberish Elimination, Deterministic Linguistic Guard, True Live Transcription Preview & Obsidian-Titanium Hardware Mic)*
 * View all releases and previous builds on the **[Releases Page](https://github.com/ihtesham-chowdhury/Flow/releases)**.
 

@@ -4,6 +4,9 @@ enum class RecognitionSource(val label: String) {
     GEMINI_LIVE_STREAM("Gemini Live Stream"),
     GEMINI_TRANSCRIBE("Gemini Transcribe"),
     GROQ_WHISPER("Groq Whisper Large V3"),
+    ELEVENLABS_SCRIBE("ElevenLabs Scribe"),
+    DEEPGRAM_NOVA("Deepgram Nova-3"),
+    OPENROUTER_AUDIO("OpenRouter Audio"),
     ANDROID_STT("On-Device Android STT"),
     UNKNOWN("Unknown")
 }
@@ -14,6 +17,8 @@ enum class FormattingSource(val label: String) {
     GROQ_CLOUD("Groq Format"),
     CEREBRAS_CLOUD("Cerebras Format"),
     OPENROUTER_CLOUD("OpenRouter Format"),
+    ELEVENLABS_CLOUD("ElevenLabs Scribe"),
+    DEEPGRAM_CLOUD("Deepgram Nova-3"),
     LOCAL_LLM("Local Gemma LLM"),
     LOCAL_RULES("Local Rules"),
     RAW_FALLBACK("Raw Transcript")
