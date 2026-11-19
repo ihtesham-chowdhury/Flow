@@ -481,8 +481,12 @@ class FloatingMicCanvasView(context: Context) : View(context) {
             glyphStrokePaint.alpha = 255
             drawCheckmark(canvas, cx, cy, discRadius * 0.5f, glyphStrokePaint)
         } else {
-            // Flow v4.3.0 Flagship Hardware Idle Mic: Obsidian & Brushed Titanium Danda-Jewel
-            drawLuxuryIdleMicButton(canvas, cx, cy, discRadius)
+            val style = try { FlowBanglaApp.instance.preferencesManager.idleMicStyle } catch (_: Throwable) { "titanium_obsidian" }
+            if (style == "minimal_ivory") {
+                drawMinimalIvoryIdleMicButton(canvas, cx, cy, discRadius)
+            } else {
+                drawLuxuryIdleMicButton(canvas, cx, cy, discRadius)
+            }
         }
 
         // 7. Language Chip (§7.5: 22dp circle at bottom-right, overlapping by 6dp)
@@ -501,6 +505,44 @@ class FloatingMicCanvasView(context: Context) : View(context) {
             val textOffset = (chipTextPaint.descent() + chipTextPaint.ascent()) / 2f
             canvas.drawText(badge, chipCx, chipCy - textOffset, chipTextPaint)
         }
+    }
+
+    private fun drawMinimalIvoryIdleMicButton(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
+        val d = resources.displayMetrics.density
+        val outerRadius = radius - 3f * d
+
+        // Ambient elevation shadow
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(55, 0, 0, 0)
+            maskFilter = BlurMaskFilter(3.5f * d, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(cx, cy + 1.5f * d, outerRadius, shadowPaint)
+
+        // Ivory disc body
+        val ivoryPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#EEEBE3")
+        }
+        canvas.drawCircle(cx, cy, outerRadius, ivoryPaint)
+
+        // Subtle hairline rim
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f * d
+            color = Color.parseColor("#D3D6D0")
+        }
+        canvas.drawCircle(cx, cy, outerRadius, borderPaint)
+
+        // Obsidian Danda-mic glyph
+        val u = (outerRadius - 2f * d) / 28f
+        val micFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#17181B")
+        }
+        val micStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#17181B")
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        drawDandaMicGeometry(canvas, cx, cy, u, micFillPaint, micStrokePaint)
     }
 
     /**

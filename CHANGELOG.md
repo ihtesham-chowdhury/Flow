@@ -1,0 +1,110 @@
+# Changelog
+
+All notable changes to the Flow voice dictation app for Android will be documented in this file.
+
+---
+
+## [5.0.0] - 2026-11-20 (Build 26)
+### Added
+- **Top-Ranked Bangla Cloud ASR Engines**:
+  - Integrated Sarvam AI `saaras:v3` with native `mode = "codemix"` (#1 benchmarked Bengali-English code-mixed speech recognition, 6.9% CER).
+  - Integrated Soniox `stt-async-v5` / `stt-rt-v5` with custom vocabulary support.
+- **Model Registry & Circuit Breaker**:
+  - `models_registry.json` bundled offline fallback with dynamic remote refresh.
+  - `ProviderHealthTracker` with 3-failure 2-minute circuit breaker, 24-hour dead-model blacklist on 404/410, and HTTP 429 `Retry-After` cooldown.
+  - JVM unit test (`ModelRegistryTest`) preventing retired models from entering production builds.
+- **Strict Language-Gated ASR Waterfall**:
+  - Dedicated `SpeechLang` modes (`MIXED`, `BANGLA`, `ENGLISH`).
+  - Strict rule: Groq Whisper Large V3 Turbo is restricted to English only (never routed to Bangla or Mixed).
+- **HTTP/2 TLS & DNS Pre-Warming**:
+  - `TlsPrewarmer` primes top active provider socket on physical keyboard open (`onStartInputView`), saving 300–800ms on 4G networks.
+- **UI & UX Polish**:
+  - Compact 1-line **Health Card** under Hero block with 1-tap universal connectivity diagnostics.
+  - Top-level **Quality** segmented control (`Best` | `Fast` | `Offline`).
+  - Top-level **Speech Language** selector (`Mixed` | `বাংলা` | `English`).
+  - Re-transcription provider picker in History on Voice Vault audio.
+  - Configurable Voice Vault retention (`Last 3` | `24 hours` | `Never`).
+  - Privacy Mode toggle (skips Gemini free tier and cloud model training data logging).
+  - Minimal Ivory Disc style toggle for the idle floating button.
+  - Bengali typography line-height style with `1.75x` spacing and zero edge clipping (`FlowBengaliLineHeightStyle`).
+- **Security**:
+  - EncryptedSharedPreferences for API keys.
+  - Key masking in UI (last 4 characters only).
+  - Key prefix validation on paste (`AIza...`, `gsk_...`, `csk-...`, `sk-or-...`, `sk_...`).
+  - `android:allowBackup="false"` in `AndroidManifest.xml` preventing dictation history from cloud backups.
+
+### Removed
+- Purged all retired Groq and Cerebras models (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `llama-3.3-70b`, `llama3.1-8b`).
+- Deleted background cloud-slice HTTP polling loop during recording (saved ~33 requests/min of quota).
+- Removed 6-color accent selector in favor of clean Ink & Danda semantics.
+
+---
+
+## [4.5.0] - 2026-11-18 (Build 25)
+- Pure rounded stadium pill for keyboard suggestion bar (`46dp x 34dp`, zero square backgrounds).
+- Smart language router checking cursor text for Bengali Unicode block `[\u0980-\u09FF]`.
+- OpenRouter audio endpoint integration.
+
+---
+
+## [4.4.0] - 2026-11-17 (Build 24)
+- Multi-provider toggles and independent API key entry for Gemini, Groq, Cerebras, OpenRouter, ElevenLabs, Deepgram.
+- Voice Vault zero-loss audio persistence (`filesDir/voice_vault/`).
+- Removed vermilion dot from idle mic button.
+
+---
+
+## [4.3.0] - 2026-11-15 (Build 23)
+- Anti-hallucination validation in `FormatValidator`.
+- Luxury tactile Obsidian & Brushed Titanium Danda-Mic geometry.
+- Live audio preview waveform with 60fps dynamic breathing aura.
+
+---
+
+## [4.2.0] - 2026-11-14 (Build 22)
+- Multi-provider key sheets and connectivity lab runner.
+- Smart provider routing based on audio duration thresholds.
+
+---
+
+## [4.1.0] - 2026-11-12 (Build 21)
+- 6-tier verified text injection (`AccessibilityInputConnection.commitText` -> `ACTION_PASTE` -> `SET_TEXT`).
+- Pure vector canvas paths for UI buttons and icons.
+
+---
+
+## [4.0.0] - 2026-11-09 (Build 20)
+- Studio inline suggestion bar for Gboard and Samsung Keyboard.
+- Live audio amplitude bar animation.
+
+---
+
+## [3.3.1] - 2026-11-09 (Build 18)
+- Dynamic model catalog discovery via `/v1beta/models` with 24h caching.
+- Resilient IME window top coordinate tracking on portrait and landscape.
+
+---
+
+## [3.1.0] - 2026-10-17
+- Decoupled ASR from formatting in Cloud Audio.
+- Audio magic byte inspection (`AudioFileInspector.kt`).
+- Gemini interactions adapter supporting inline Base64 and resumable Files API.
+
+---
+
+## [2.2.0] - 2026-10-17
+- Decoupled speech recognition from document-type layout formatting.
+- Added `DocumentType` taxonomy and JSON response envelope.
+- Zero data loss guarantee: formatting failure falls back to injecting raw transcript.
+
+---
+
+## [2.0.0] - 2026-10-17
+- Re-branded to "Flow".
+- 4-engine architecture (Cloud Audio, Hybrid Turbo, Offline Lightweight, Offline Local LLM).
+- Hardware-accelerated vector canvas mic overlay.
+
+---
+
+## [1.0.0] - 2026-10-17
+- Initial proof-of-concept floating bubble service on Android.

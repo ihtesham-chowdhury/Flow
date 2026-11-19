@@ -14,13 +14,13 @@ val DarkInkMuted      = Color(0xFF9EA3AB)
 val DarkInkOnAccent   = Color(0xFF0D0E10)
 
 // ---- Light theme ---------------------------------------------------------
-val LightCanvas        = Color(0xFFECEDE9)
-val LightSurface       = Color(0xFFF7F7F4)
+val LightCanvas        = Color(0xFFF5F2EA) // Warm Light Paper per Flow v5.0
+val LightSurface       = Color(0xFFFAF8F2)
 val LightSurfaceRaised = Color(0xFFFFFFFF)
-val LightSurfaceSunken = Color(0xFFE2E4DF)
-val LightHairline      = Color(0xFFD3D6D0)
-val LightInk           = Color(0xFF1B1E22)
-val LightInkMuted      = Color(0xFF5B6068)
+val LightSurfaceSunken = Color(0xFFEBE7DD)
+val LightHairline      = Color(0xFFD6D2C4)
+val LightInk           = Color(0xFF17181B)
+val LightInkMuted      = Color(0xFF6B6E75)
 val LightInkOnAccent   = Color(0xFFFFFFFF)
 
 // ---- Shared state colours (same meaning in both themes) -----------------

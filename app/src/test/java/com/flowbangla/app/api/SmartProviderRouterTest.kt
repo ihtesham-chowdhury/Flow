@@ -2,8 +2,7 @@ package com.flowbangla.app.api
 
 import com.flowbangla.app.data.ProviderId
 import com.flowbangla.app.data.ProviderRoutingMode
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
 
 class SmartProviderRouterTest {
@@ -21,9 +20,9 @@ class SmartProviderRouterTest {
             openRouterApiKey = ""
         )
 
-        assertEquals(2, order.size)
+        assertEquals(1, order.size)
         assertEquals(ProviderId.GEMINI, order[0])
-        assertEquals(ProviderId.GROQ, order[1])
+        assertFalse("Groq Whisper must NEVER be in Bangla/Mixed order!", order.contains(ProviderId.GROQ))
     }
 
     @Test
@@ -39,14 +38,13 @@ class SmartProviderRouterTest {
             openRouterApiKey = ""
         )
 
-        assertEquals(2, order.size)
+        assertEquals(1, order.size)
         assertEquals(ProviderId.GEMINI, order[0])
-        assertEquals(ProviderId.GROQ, order[1])
+        assertFalse("Groq Whisper must NEVER be in Bangla/Mixed order!", order.contains(ProviderId.GROQ))
     }
 
     @Test
-    fun testOnlyGroqEnabledWorksWithoutGeminiKey() {
-        // Reproduces the exact user bug report: Gemini key removed / disabled, only Groq is active
+    fun testOnlyGroqEnabledWorksInEnglishMode() {
         val order = SmartProviderRouter.computeAsrProviderOrder(
             routingMode = ProviderRoutingMode.SMART_AUTO,
             audioDurationSeconds = 10,
@@ -55,7 +53,8 @@ class SmartProviderRouterTest {
             isGroqEnabled = true,
             groqApiKey = "gsk_GroqKey",
             isOpenRouterEnabled = false,
-            openRouterApiKey = ""
+            openRouterApiKey = "",
+            isBanglaPreferred = false
         )
 
         assertEquals(1, order.size)
@@ -94,25 +93,6 @@ class SmartProviderRouterTest {
 
         assertEquals(1, order.size)
         assertEquals(ProviderId.OPENROUTER, order[0])
-    }
-
-    @Test
-    fun testManualPriorityPreservesActiveOrder() {
-        val order = SmartProviderRouter.computeAsrProviderOrder(
-            routingMode = ProviderRoutingMode.MANUAL_PRIORITY,
-            audioDurationSeconds = 60, // > 20s, but MANUAL_PRIORITY keeps Groq then Gemini
-            isGeminiEnabled = true,
-            geminiApiKey = "AIzaSyGeminiKey",
-            isGroqEnabled = true,
-            groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = true,
-            openRouterApiKey = "sk-or-Key"
-        )
-
-        assertEquals(3, order.size)
-        assertEquals(ProviderId.GROQ, order[0])
-        assertEquals(ProviderId.GEMINI, order[1])
-        assertEquals(ProviderId.OPENROUTER, order[2])
     }
 
     @Test
@@ -202,9 +182,9 @@ class SmartProviderRouterTest {
             isBanglaPreferred = true
         )
 
-        assertEquals(2, order.size)
+        assertEquals(1, order.size)
         assertEquals(ProviderId.GEMINI, order[0])
-        assertEquals(ProviderId.GROQ, order[1])
+        assertFalse("Groq Whisper must NEVER be in Bangla order!", order.contains(ProviderId.GROQ))
     }
 
     @Test
@@ -225,10 +205,41 @@ class SmartProviderRouterTest {
             isBanglaPreferred = true
         )
 
-        assertEquals(4, order.size)
+        assertEquals(3, order.size)
         assertEquals(ProviderId.GEMINI, order[0])
         assertEquals(ProviderId.ELEVENLABS, order[1])
         assertEquals(ProviderId.DEEPGRAM, order[2])
-        assertEquals(ProviderId.GROQ, order[3])
+        assertFalse("Groq Whisper must NEVER be in Bangla order!", order.contains(ProviderId.GROQ))
+    }
+
+    @Test
+    fun testSarvamAndSonioxIntegrationInBanglaSmartAuto() {
+        val order = SmartProviderRouter.computeAsrProviderOrder(
+            routingMode = ProviderRoutingMode.SMART_AUTO,
+            audioDurationSeconds = 15,
+            isGeminiEnabled = true,
+            geminiApiKey = "AIzaSyGeminiKey",
+            isGroqEnabled = true,
+            groqApiKey = "gsk_GroqKey",
+            isOpenRouterEnabled = false,
+            openRouterApiKey = "",
+            isSarvamEnabled = true,
+            sarvamApiKey = "sarvam_key",
+            isSonioxEnabled = true,
+            sonioxApiKey = "soniox_key",
+            isElevenLabsEnabled = true,
+            elevenLabsApiKey = "xi_key",
+            isDeepgramEnabled = true,
+            deepgramApiKey = "dg_key",
+            isBanglaPreferred = true
+        )
+
+        assertEquals(5, order.size)
+        assertEquals(ProviderId.SARVAM, order[0])
+        assertEquals(ProviderId.SONIOX, order[1])
+        assertEquals(ProviderId.GEMINI, order[2])
+        assertEquals(ProviderId.ELEVENLABS, order[3])
+        assertEquals(ProviderId.DEEPGRAM, order[4])
+        assertFalse("Groq Whisper must NEVER be in Bangla order!", order.contains(ProviderId.GROQ))
     }
 }

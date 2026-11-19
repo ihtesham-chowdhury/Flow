@@ -171,6 +171,13 @@ class KeyboardStripOverlayController(
             return
         }
 
+        // Auto-disable in landscape mode per Flow v5.0 spec
+        val isLandscape = a11yService.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        if (isLandscape) {
+            view.visibility = View.GONE
+            return
+        }
+
         if (!isKeyboardCurrentlyOpen) {
             view.visibility = View.GONE
             return

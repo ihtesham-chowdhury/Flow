@@ -12,8 +12,8 @@ android {
         applicationId = "com.flowbangla.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "4.5.0"
+        versionCode = 26
+        versionName = "5.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -4,6 +4,8 @@ enum class RecognitionSource(val label: String) {
     GEMINI_LIVE_STREAM("Gemini Live Stream"),
     GEMINI_TRANSCRIBE("Gemini Transcribe"),
     GROQ_WHISPER("Groq Whisper Large V3"),
+    SARVAM_SAARAS("Sarvam Saaras"),
+    SONIOX_STT("Soniox STT"),
     ELEVENLABS_SCRIBE("ElevenLabs Scribe"),
     DEEPGRAM_NOVA("Deepgram Nova-3"),
     OPENROUTER_AUDIO("OpenRouter Audio"),

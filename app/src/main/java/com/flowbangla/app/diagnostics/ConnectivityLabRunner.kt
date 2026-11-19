@@ -130,6 +130,8 @@ object ConnectivityLabRunner {
         val logBuilder = StringBuilder()
 
         val activeList = mutableListOf<String>()
+        if (prefs.isSarvamEnabled && prefs.sarvamApiKey.isNotBlank()) activeList.add("Sarvam")
+        if (prefs.isSonioxEnabled && prefs.sonioxApiKey.isNotBlank()) activeList.add("Soniox")
         if (prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) activeList.add("Groq")
         if (prefs.isCerebrasEnabled && prefs.cerebrasApiKey.isNotBlank()) activeList.add("Cerebras")
         if (prefs.isOpenRouterEnabled && prefs.openRouterApiKey.isNotBlank()) activeList.add("OpenRouter")

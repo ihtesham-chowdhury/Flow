@@ -53,7 +53,9 @@ class OpenAiCompatibleTextFormatter(
         }
 
         val candidateModels = if (endpointUrl.contains("cerebras", ignoreCase = true)) {
-            listOf(model, "llama-3.3-70b", "llama3.1-8b").distinct()
+            listOf(model, "gpt-oss-120b").distinct()
+        } else if (endpointUrl.contains("groq", ignoreCase = true)) {
+            listOf(model, "openai/gpt-oss-20b", "openai/gpt-oss-120b").distinct()
         } else {
             listOf(model)
         }
@@ -64,6 +66,10 @@ class OpenAiCompatibleTextFormatter(
                 put("messages", messages)
                 put("temperature", 0.1)
                 put("max_tokens", 2048)
+                // CRITICAL for GPT-OSS reasoning models: minimize reasoning overhead for sub-300ms polish!
+                if ("gpt-oss" in targetModel.lowercase()) {
+                    put("reasoning_effort", "low")
+                }
                 put("response_format", JSONObject().put("type", "json_object"))
             }
 

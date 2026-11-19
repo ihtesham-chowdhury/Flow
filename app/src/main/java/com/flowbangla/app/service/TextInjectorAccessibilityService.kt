@@ -1035,6 +1035,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         if (!isPhysicalOpen || isSlidingDown) {
             keyboardStripController?.hideImmediatelyOnKeyboardClose()
         } else {
+            com.flowbangla.app.api.TlsPrewarmer.prewarm(FlowBanglaApp.instance.preferencesManager)
             keyboardStripController?.updateKeyboardVisibilityAndPosition(
                 isKeyboardOpen = true,
                 keyboardTopY = snapshot.keyboardTopY,

@@ -1182,47 +1182,11 @@ class FloatingBubbleService : Service() {
             return
         }
 
+        // Flow v5.0.0 Zero-Quota-Burn Architecture:
+        // Background HTTP slice polling is eliminated during recording.
+        // Live partial streaming text is powered exclusively by true streaming engines (WebSocket / On-Device STT).
         val anchorY = getCurrentRecordingSurfaceTopY()
         livePreviewController?.updateLiveText("", anchorY)
-
-        val liveBuilder = StringBuilder()
-        livePreviewJob = serviceScope.launch(Dispatchers.IO) {
-            while (isActive && currentState is TranscriptionState.Recording) {
-                delay(1_800L)
-                if (!isActive || currentState !is TranscriptionState.Recording) break
-
-                val sliceFile = audioRecorder.drainLatestLiveSliceWavFile() ?: continue
-                try {
-                    val rawPiece = withTimeoutOrNull(3_200L) {
-                        smartProviderRouter.transcribeAudioSmart(
-                            audioFile = sliceFile,
-                            audioDurationSeconds = 2,
-                            customVocab = emptyList()
-                        ).transcript
-                    }.orEmpty().trim()
-
-                    val safePiece = com.flowbangla.app.format.GibberishAndHallucinationGuard.sanitizeCorruptedTokens(rawPiece)
-                    if (safePiece.isNotEmpty() && !com.flowbangla.app.format.GibberishAndHallucinationGuard.isHallucinatedOrCorrupted(safePiece)) {
-                        if (liveBuilder.isNotEmpty() && !liveBuilder.endsWith(" ")) {
-                            liveBuilder.append(" ")
-                        }
-                        liveBuilder.append(safePiece)
-                        val currentLiveText = liveBuilder.toString()
-                        withContext(Dispatchers.Main) {
-                            if (currentState is TranscriptionState.Recording) {
-                                livePreviewController?.updateLiveText(
-                                    partialTranscript = currentLiveText,
-                                    anchorTopY = getCurrentRecordingSurfaceTopY()
-                                )
-                            }
-                        }
-                    }
-                } catch (_: Throwable) {
-                } finally {
-                    try { sliceFile.delete() } catch (_: Throwable) {}
-                }
-            }
-        }
     }
 
     private fun startAmplitudePoller() {

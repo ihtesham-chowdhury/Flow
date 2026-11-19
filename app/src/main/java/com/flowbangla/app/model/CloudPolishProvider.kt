@@ -16,17 +16,17 @@ enum class CloudPolishProvider(
     ),
     GROQ(
         id = "groq",
-        displayName = "GroqCloud (Llama 3.3 70B / 3.1 8B)",
-        defaultModel = "llama-3.3-70b-versatile",
+        displayName = "GroqCloud (GPT-OSS 20B / 120B)",
+        defaultModel = "openai/gpt-oss-20b",
         endpointUrl = "https://api.groq.com/openai/v1/chat/completions",
-        freeQuotaSummary = "30 RPM; 1,000 RPD on Llama 3.3 70B or 14,400 RPD on Llama 3.1 8B"
+        freeQuotaSummary = "Fast OpenAI-compatible inference with gpt-oss-20b and 120b"
     ),
     CEREBRAS(
         id = "cerebras",
-        displayName = "Cerebras Inference (Ultra-Fast Llama 3.3 70B)",
-        defaultModel = "llama-3.3-70b",
+        displayName = "Cerebras Inference (Ultra-Fast GPT-OSS 120B)",
+        defaultModel = "gpt-oss-120b",
         endpointUrl = "https://api.cerebras.ai/v1/chat/completions",
-        freeQuotaSummary = "~2,000 tokens/sec instant response; generous free developer tier"
+        freeQuotaSummary = "~2,000 tokens/sec instant response with gpt-oss-120b"
     ),
     OPENROUTER(
         id = "openrouter",

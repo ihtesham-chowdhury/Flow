@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -45,11 +46,12 @@ fun HistoryScreen(
     isBn: Boolean,
     onCopy: (String) -> Unit,
     onClear: () -> Unit,
-    onRegenerate: ((DictationRecord) -> Unit)? = null,
+    onRegenerate: ((DictationRecord, String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val dateFormat = remember { SimpleDateFormat("hh:mm a, dd MMM", Locale.getDefault()) }
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var selectedRecordForRegen by remember { mutableStateOf<DictationRecord?>(null) }
     var copiedRecordId by remember { mutableStateOf<String?>(null) }
     var expandedRecordIds by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
@@ -212,12 +214,7 @@ fun HistoryScreen(
                                 val regenColor = if (item.isFailed || !item.isSuccess) OchreDark else DarkInk
                                 TextButton(
                                     onClick = {
-                                        isRegeneratingThis = true
-                                        onRegenerate(item)
-                                        scope.launch {
-                                            delay(3000L)
-                                            isRegeneratingThis = false
-                                        }
+                                        selectedRecordForRegen = item
                                     },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
@@ -355,6 +352,72 @@ fun HistoryScreen(
                 }
             },
             containerColor = DarkSurface
+        )
+    }
+    // Regenerate With Provider Picker Dialog (§Flow v5.0)
+    selectedRecordForRegen?.let { record ->
+        AlertDialog(
+            onDismissRequest = { selectedRecordForRegen = null },
+            title = {
+                Text(
+                    text = if (isBn) "প্রোভাইডার নির্বাচন করুন" else "Regenerate with...",
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 20.sp,
+                    color = DarkInk
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (isBn) "ভয়েস ভল্টের অডিও দিয়ে পুনরায় টেক্সট তৈরি করুন:" else "Re-transcribe using Voice Vault recording:",
+                        fontSize = 13.sp,
+                        color = DarkInkMuted
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val options = listOf(
+                        "Auto" to (if (isBn) "অটো (স্মার্ট রাউটার)" else "Auto (Smart Router)"),
+                        "Sarvam" to "Sarvam AI (saaras:v3)",
+                        "Soniox" to "Soniox (stt-async-v5)",
+                        "Gemini" to "Gemini 3.5 Transcribe",
+                        "Groq" to "Groq Whisper Turbo (English)",
+                        "ElevenLabs" to "ElevenLabs (scribe_v3)",
+                        "Deepgram" to "Deepgram (nova-3)"
+                    )
+                    options.forEach { (key, label) ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    val prov = if (key == "Auto") null else key
+                                    selectedRecordForRegen = null
+                                    onRegenerate?.invoke(record, prov)
+                                },
+                            color = DarkSurfaceSunken,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = DarkInk,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { selectedRecordForRegen = null }) {
+                    Text(text = if (isBn) "বাতিল" else "Cancel", color = DarkInkMuted)
+                }
+            },
+            containerColor = DarkSurface,
+            shape = RoundedCornerShape(24.dp)
         )
     }
 }

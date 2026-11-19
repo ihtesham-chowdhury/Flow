@@ -386,6 +386,14 @@ fun MainScreen(
     var isOpenRouterEnabled by remember { mutableStateOf(prefs.isOpenRouterEnabled) }
     var isElevenLabsEnabled by remember { mutableStateOf(prefs.isElevenLabsEnabled) }
     var isDeepgramEnabled by remember { mutableStateOf(prefs.isDeepgramEnabled) }
+    var sarvamKeyText by remember { mutableStateOf(prefs.sarvamApiKey) }
+    var sonioxKeyText by remember { mutableStateOf(prefs.sonioxApiKey) }
+    var isSarvamEnabled by remember { mutableStateOf(prefs.isSarvamEnabled) }
+    var isSonioxEnabled by remember { mutableStateOf(prefs.isSonioxEnabled) }
+    var currentSpeechLang by remember { mutableStateOf(prefs.speechLang) }
+    var isPrivacyMode by remember { mutableStateOf(prefs.isPrivacyModeEnabled) }
+    var voiceVaultRetention by remember { mutableStateOf(prefs.voiceVaultRetention) }
+    var idleMicStyle by remember { mutableStateOf(prefs.idleMicStyle) }
     var providerRoutingMode by remember { mutableStateOf(prefs.providerRoutingMode) }
 
     var isTestingConnection by remember { mutableStateOf(false) }
@@ -1136,6 +1144,16 @@ fun MainScreen(
                         )
 
                         val providers = listOf(
+                            ProviderItem("Sarvam", sarvamKeyText.isNotBlank(), isSarvamEnabled) {
+                                isSarvamEnabled = it
+                                prefs.isSarvamEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            },
+                            ProviderItem("Soniox", sonioxKeyText.isNotBlank(), isSonioxEnabled) {
+                                isSonioxEnabled = it
+                                prefs.isSonioxEnabled = it
+                                notifyServiceSettingsChanged(context)
+                            },
                             ProviderItem("Gemini", geminiKeyText.isNotBlank(), isGeminiEnabled) {
                                 isGeminiEnabled = it
                                 prefs.isGeminiEnabled = it
@@ -1184,12 +1202,30 @@ fun MainScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column {
+                                        val pKey = when (p.name) {
+                                            "Sarvam" -> sarvamKeyText
+                                            "Soniox" -> sonioxKeyText
+                                            "Gemini" -> geminiKeyText
+                                            "Groq" -> groqKeyText
+                                            "ElevenLabs" -> elevenLabsKeyText
+                                            "Deepgram" -> deepgramKeyText
+                                            "Cerebras" -> cerebrasKeyText
+                                            else -> openRouterKeyText
+                                        }
                                         Text(
                                             text = p.name,
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = DarkInk
                                         )
+                                        if (p.isAdded && pKey.length >= 4) {
+                                            Text(
+                                                text = "•••• " + pKey.takeLast(4),
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = DarkInkMuted
+                                            )
+                                        }
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             if (p.isAdded) {
                                                 Icon(
@@ -1773,67 +1809,102 @@ fun MainScreen(
 
                         FlowHairline()
 
-                        // Accent Color Palette Selector (Issue 1)
+                        // Idle Mic Style Selector (§Flow v5.0)
                         Column(modifier = Modifier.padding(vertical = 12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Text(
+                                text = if (isBn) "আইডল মাইক স্টাইল" else "Floating Mic Style",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = DarkInk
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val micStyles = listOf(
+                                if (isBn) "টাইটানিয়াম অবসিডিয়ান" else "Titanium Obsidian",
+                                if (isBn) "মিনিমাল আইভরি" else "Minimal Ivory"
+                            )
+                            val styleIdx = if (idleMicStyle == "minimal_ivory") 1 else 0
+                            FlowSegmentedControl(
+                                items = micStyles,
+                                selectedIndex = styleIdx,
+                                onSelect = { idx ->
+                                    val newStyle = if (idx == 1) "minimal_ivory" else "titanium_obsidian"
+                                    idleMicStyle = newStyle
+                                    prefs.idleMicStyle = newStyle
+                                    notifyServiceSettingsChanged(context)
+                                }
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Privacy Mode (§Flow v5.0)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (isBn) "প্রিমিয়াম অ্যাকসেন্ট কালার" else "Accent Color",
+                                    text = if (isBn) "প্রাইভেসি মোড" else "Privacy Mode",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = DarkInk
                                 )
-                                val activeAccent = AvailableAccentOptions.firstOrNull { it.key == selectedAccentKey }
-                                val activeAccentName = if (activeAccent != null) {
-                                    if (isBn) activeAccent.nameBn else activeAccent.nameEn
-                                } else "Classic Ivory"
                                 Text(
-                                    text = activeAccentName,
+                                    text = if (isBn) "ফ্রি জেমিনি বাদ দিয়ে এন্টারপ্রাইজ এন্ডপয়েন্ট ব্যবহার করে" else "Skips Gemini free tier; uses zero-retention enterprise endpoints",
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = LocalAccentColor.current
+                                    color = DarkInkMuted
                                 )
                             }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                AvailableAccentOptions.forEach { opt ->
-                                    val isChosen = selectedAccentKey == opt.key
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(opt.color)
-                                            .border(
-                                                width = if (isChosen) 2.5.dp else 1.dp,
-                                                color = if (isChosen) DarkInk else DarkHairline,
-                                                shape = CircleShape
-                                            )
-                                            .clickable {
-                                                selectedAccentKey = opt.key
-                                                prefs.accentColorKey = opt.key
-                                                onAccentChange(opt.key)
-                                                notifyServiceSettingsChanged(context)
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isChosen) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = opt.nameEn,
-                                                tint = if (opt.key == "ivory") DarkCanvas else Color.White,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-                                }
+                            Switch(
+                                checked = isPrivacyMode,
+                                onCheckedChange = {
+                                    isPrivacyMode = it
+                                    prefs.isPrivacyModeEnabled = it
+                                    notifyServiceSettingsChanged(context)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkInkOnAccent,
+                                    checkedTrackColor = DarkInk,
+                                    uncheckedThumbColor = DarkInkMuted,
+                                    uncheckedTrackColor = DarkSurfaceSunken,
+                                    uncheckedBorderColor = DarkHairline
+                                )
+                            )
+                        }
+
+                        FlowHairline()
+
+                        // Voice Vault Retention (§Flow v5.0)
+                        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                            Text(
+                                text = if (isBn) "ভয়েস ভল্ট সংরক্ষণ" else "Voice Vault Retention",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = DarkInk
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val retentions = listOf("Last 3", "24 hours", "Never")
+                            val retIdx = when (voiceVaultRetention) {
+                                "24_hours" -> 1
+                                "never" -> 2
+                                else -> 0
                             }
+                            FlowSegmentedControl(
+                                items = retentions,
+                                selectedIndex = retIdx,
+                                onSelect = { idx ->
+                                    val newR = when (idx) {
+                                        1 -> "24_hours"
+                                        2 -> "never"
+                                        else -> "last_3"
+                                    }
+                                    voiceVaultRetention = newR
+                                    prefs.voiceVaultRetention = newR
+                                }
+                            )
                         }
 
                         FlowHairline()
@@ -1897,7 +1968,7 @@ fun MainScreen(
                     historyManager.clearHistory()
                     recentHistory = emptyList()
                 },
-                onRegenerate = { record ->
+                onRegenerate = { record, chosenProvider ->
                     val audioPath = record.audioFilePath
                     if (!audioPath.isNullOrBlank()) {
                         val audioFile = java.io.File(audioPath)
@@ -1912,7 +1983,34 @@ fun MainScreen(
                                         val router = com.flowbangla.app.api.SmartProviderRouter(okHttpClient, prefs, geminiAdapter, groqClient)
                                         val chain = com.flowbangla.app.format.FormattingChain(context, prefs)
 
-                                        val asr = router.transcribeAudioSmart(audioFile, record.durationSeconds.coerceAtLeast(1), emptyList())
+                                        val asr = when (chosenProvider?.lowercase()) {
+                                            "sarvam" -> {
+                                                val txt = com.flowbangla.app.api.SarvamSaarasClient(okHttpClient).transcribeAudio(audioFile, prefs.sarvamApiKey)
+                                                com.flowbangla.app.api.AsrExecutionResult(txt, com.flowbangla.app.format.RecognitionSource.SARVAM_SAARAS, false)
+                                            }
+                                            "soniox" -> {
+                                                val txt = com.flowbangla.app.api.SonioxSttClient(okHttpClient).transcribeAudio(audioFile, prefs.sonioxApiKey)
+                                                com.flowbangla.app.api.AsrExecutionResult(txt, com.flowbangla.app.format.RecognitionSource.SONIOX_STT, false)
+                                            }
+                                            "gemini" -> {
+                                                val res = geminiAdapter.transcribeAudioFile(audioFile, prefs.geminiApiKey)
+                                                com.flowbangla.app.api.AsrExecutionResult(res.text, com.flowbangla.app.format.RecognitionSource.GEMINI_TRANSCRIBE, true)
+                                            }
+                                            "groq" -> {
+                                                val res = groqClient.transcribeAudio(audioFile, prefs.groqApiKey)
+                                                com.flowbangla.app.api.AsrExecutionResult(res.text, com.flowbangla.app.format.RecognitionSource.GROQ_WHISPER, false)
+                                            }
+                                            "elevenlabs" -> {
+                                                val txt = com.flowbangla.app.api.ElevenLabsScribeClient(okHttpClient).transcribeAudio(audioFile, prefs.elevenLabsApiKey)
+                                                com.flowbangla.app.api.AsrExecutionResult(txt, com.flowbangla.app.format.RecognitionSource.ELEVENLABS_SCRIBE, false)
+                                            }
+                                            "deepgram" -> {
+                                                val txt = com.flowbangla.app.api.DeepgramNovaClient(okHttpClient).transcribeAudio(audioFile, prefs.deepgramApiKey)
+                                                com.flowbangla.app.api.AsrExecutionResult(txt, com.flowbangla.app.format.RecognitionSource.DEEPGRAM_NOVA, false)
+                                            }
+                                            else -> router.transcribeAudioSmart(audioFile, record.durationSeconds.coerceAtLeast(1), emptyList())
+                                        }
+
                                         if (asr.transcript.isBlank()) {
                                             throw RuntimeException("Audio transcription returned empty")
                                         }
@@ -1968,6 +2066,14 @@ fun MainScreen(
             initialKey = currentKey,
             onSave = { savedKey ->
                 when (provider) {
+                    "Sarvam" -> {
+                        sarvamKeyText = savedKey
+                        prefs.sarvamApiKey = savedKey
+                    }
+                    "Soniox" -> {
+                        sonioxKeyText = savedKey
+                        prefs.sonioxApiKey = savedKey
+                    }
                     "Gemini" -> {
                         geminiKeyText = savedKey
                         prefs.geminiApiKey = savedKey

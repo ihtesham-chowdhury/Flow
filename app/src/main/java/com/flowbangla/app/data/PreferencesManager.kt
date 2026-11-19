@@ -8,6 +8,7 @@ import androidx.security.crypto.MasterKey
 import com.flowbangla.app.model.CloudPolishProvider
 import com.flowbangla.app.model.EngineMode
 import com.flowbangla.app.model.InteractionMode
+import com.flowbangla.app.api.SpeechLang
 import com.flowbangla.app.model.SttLanguage
 
 enum class ProviderId {
@@ -16,7 +17,9 @@ enum class ProviderId {
     OPENROUTER,
     CEREBRAS,
     ELEVENLABS,
-    DEEPGRAM
+    DEEPGRAM,
+    SARVAM,
+    SONIOX
 }
 
 enum class ProviderRoutingMode {
@@ -134,7 +137,7 @@ class PreferencesManager(context: Context) {
         set(value) = prefs.edit().putString(KEY_OPENROUTER_API_KEY, value.trim()).apply()
 
     var groqModelName: String
-        get() = prefs.getString(KEY_GROQ_MODEL_NAME, "llama-3.3-70b-versatile") ?: "llama-3.3-70b-versatile"
+        get() = prefs.getString(KEY_GROQ_MODEL_NAME, "openai/gpt-oss-20b") ?: "openai/gpt-oss-20b"
         set(value) = prefs.edit().putString(KEY_GROQ_MODEL_NAME, value.trim()).apply()
 
     var sttLanguage: SttLanguage
@@ -247,6 +250,42 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean("provider_enabled_deepgram", true)
         set(value) = prefs.edit().putBoolean("provider_enabled_deepgram", value).apply()
 
+    var sarvamApiKey: String
+        get() = prefs.getString("sarvam_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("sarvam_api_key", value.trim()).apply()
+
+    var isSarvamEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_sarvam", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_sarvam", value).apply()
+
+    var sonioxApiKey: String
+        get() = prefs.getString("soniox_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("soniox_api_key", value.trim()).apply()
+
+    var isSonioxEnabled: Boolean
+        get() = prefs.getBoolean("provider_enabled_soniox", true)
+        set(value) = prefs.edit().putBoolean("provider_enabled_soniox", value).apply()
+
+    var speechLang: SpeechLang
+        get() = try {
+            SpeechLang.valueOf(prefs.getString("speech_lang_mode", SpeechLang.MIXED.name) ?: SpeechLang.MIXED.name)
+        } catch (_: Exception) {
+            SpeechLang.MIXED
+        }
+        set(value) = prefs.edit().putString("speech_lang_mode", value.name).apply()
+
+    var voiceVaultRetention: String
+        get() = prefs.getString("voice_vault_retention", "last_3") ?: "last_3"
+        set(value) = prefs.edit().putString("voice_vault_retention", value).apply()
+
+    var isPrivacyModeEnabled: Boolean
+        get() = prefs.getBoolean("privacy_mode_enabled", false)
+        set(value) = prefs.edit().putBoolean("privacy_mode_enabled", value).apply()
+
+    var idleMicStyle: String
+        get() = prefs.getString("idle_mic_style", "titanium_obsidian") ?: "titanium_obsidian"
+        set(value) = prefs.edit().putString("idle_mic_style", value).apply()
+
     var providerRoutingMode: ProviderRoutingMode
         get() = try {
             ProviderRoutingMode.valueOf(
@@ -261,25 +300,43 @@ class PreferencesManager(context: Context) {
      * Returns true if AT LEAST ONE cloud provider has a non-empty API key AND its toggle is ON!
      * Replaces the old hardcoded Gemini-only gatekeeper.
      */
+    fun isProviderEnabledAndConfigured(provider: ProviderId): Boolean {
+        if (provider == ProviderId.GEMINI && isPrivacyModeEnabled) return false
+        return when (provider) {
+            ProviderId.GEMINI -> isGeminiEnabled && geminiApiKey.isNotBlank()
+            ProviderId.GROQ -> isGroqEnabled && groqApiKey.isNotBlank()
+            ProviderId.OPENROUTER -> isOpenRouterEnabled && openRouterApiKey.isNotBlank()
+            ProviderId.CEREBRAS -> isCerebrasEnabled && cerebrasApiKey.isNotBlank()
+            ProviderId.ELEVENLABS -> isElevenLabsEnabled && elevenLabsApiKey.isNotBlank()
+            ProviderId.DEEPGRAM -> isDeepgramEnabled && deepgramApiKey.isNotBlank()
+            ProviderId.SARVAM -> isSarvamEnabled && sarvamApiKey.isNotBlank()
+            ProviderId.SONIOX -> isSonioxEnabled && sonioxApiKey.isNotBlank()
+        }
+    }
+
     fun hasAnyActiveCloudProvider(): Boolean {
         return (isGeminiEnabled && geminiApiKey.trim().isNotEmpty()) ||
             (isGroqEnabled && groqApiKey.trim().isNotEmpty()) ||
             (isOpenRouterEnabled && openRouterApiKey.trim().isNotEmpty()) ||
             (isCerebrasEnabled && cerebrasApiKey.trim().isNotEmpty()) ||
             (isElevenLabsEnabled && elevenLabsApiKey.trim().isNotEmpty()) ||
-            (isDeepgramEnabled && deepgramApiKey.trim().isNotEmpty())
+            (isDeepgramEnabled && deepgramApiKey.trim().isNotEmpty()) ||
+            (isSarvamEnabled && sarvamApiKey.trim().isNotEmpty()) ||
+            (isSonioxEnabled && sonioxApiKey.trim().isNotEmpty())
     }
 
     /**
      * Returns true if at least one cloud provider with dedicated speech-to-text audio support
-     * (Gemini, Groq, OpenRouter, ElevenLabs, Deepgram) is enabled with a valid key.
+     * (Gemini, Groq, OpenRouter, ElevenLabs, Deepgram, Sarvam, Soniox) is enabled with a valid key.
      */
     fun hasAnyCloudAudioAsrProvider(): Boolean {
         return (isGeminiEnabled && geminiApiKey.isNotBlank()) ||
             (isGroqEnabled && groqApiKey.isNotBlank()) ||
             (isOpenRouterEnabled && openRouterApiKey.isNotBlank()) ||
             (isElevenLabsEnabled && elevenLabsApiKey.isNotBlank()) ||
-            (isDeepgramEnabled && deepgramApiKey.isNotBlank())
+            (isDeepgramEnabled && deepgramApiKey.isNotBlank()) ||
+            (isSarvamEnabled && sarvamApiKey.isNotBlank()) ||
+            (isSonioxEnabled && sonioxApiKey.isNotBlank())
     }
 
     /**

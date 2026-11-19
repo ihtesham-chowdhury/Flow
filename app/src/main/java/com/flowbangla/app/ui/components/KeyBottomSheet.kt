@@ -135,6 +135,24 @@ fun KeyBottomSheet(
                 singleLine = true
             )
 
+            val expectedPrefix = when (providerName) {
+                "Gemini" -> "AIza"
+                "Groq" -> "gsk_"
+                "Cerebras" -> "csk-"
+                "OpenRouter" -> "sk-or-"
+                "ElevenLabs" -> "sk_"
+                else -> null
+            }
+
+            if (expectedPrefix != null && keyText.trim().isNotEmpty() && !keyText.trim().startsWith(expectedPrefix)) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (isBn) "সতর্কতা: $providerName কী সাধারণত '$expectedPrefix' দিয়ে শুরু হয়।" else "Note: $providerName keys typically start with '$expectedPrefix'",
+                    fontSize = 12.sp,
+                    color = OchreDark
+                )
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // Action Buttons

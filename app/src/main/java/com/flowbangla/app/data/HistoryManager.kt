@@ -20,18 +20,31 @@ class HistoryManager(private val context: Context) {
         val vaultDir = File(context.filesDir, "voice_vault").apply { mkdirs() }
         val recordId = "rec_${System.currentTimeMillis()}"
         val ext = audioFile.extension.ifEmpty { "wav" }
-        val vaultFile = File(vaultDir, "$recordId.$ext")
-        try {
-            audioFile.copyTo(vaultFile, overwrite = true)
-        } catch (_: Throwable) {}
+        val prefsManager = PreferencesManager(context)
+        val retention = prefsManager.voiceVaultRetention
+        val shouldSaveAudio = retention != "never"
+        val vaultFile = if (shouldSaveAudio) File(vaultDir, "$recordId.$ext") else null
 
-        // Prune older audio files so ONLY the latest 3 voice recordings are kept on disk (~10-15 MB cap)
-        try {
-            val allVaultFiles = vaultDir.listFiles()?.sortedByDescending { it.lastModified() }.orEmpty()
-            allVaultFiles.drop(3).forEach { oldFile ->
-                try { oldFile.delete() } catch (_: Throwable) {}
-            }
-        } catch (_: Throwable) {}
+        if (shouldSaveAudio && vaultFile != null) {
+            try {
+                audioFile.copyTo(vaultFile, overwrite = true)
+            } catch (_: Throwable) {}
+
+            try {
+                val allVaultFiles = vaultDir.listFiles()?.sortedByDescending { it.lastModified() }.orEmpty()
+                if (retention == "24_hours") {
+                    val oneDayAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
+                    allVaultFiles.filter { it.lastModified() < oneDayAgo }.forEach {
+                        try { it.delete() } catch (_: Throwable) {}
+                    }
+                } else {
+                    // Default "last_3"
+                    allVaultFiles.drop(3).forEach { oldFile ->
+                        try { oldFile.delete() } catch (_: Throwable) {}
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
 
         val pendingRecord = DictationRecord(
             id = recordId,
@@ -41,7 +54,7 @@ class HistoryManager(private val context: Context) {
             isSuccess = true,
             rawTranscript = "",
             provenance = "In Progress",
-            audioFilePath = vaultFile.absolutePath,
+            audioFilePath = vaultFile?.absolutePath,
             isFailed = false
         )
         addRecord(pendingRecord)
@@ -149,6 +162,17 @@ class HistoryManager(private val context: Context) {
         }
         val remaining = list.filter { it.id != id }
         saveList(remaining)
+    }
+
+    fun getTodayCount(): Int {
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val midnightMs = cal.timeInMillis
+        return getRecentRecords().count { it.timestamp >= midnightMs }
     }
 
     private fun saveList(list: List<DictationRecord>) {
