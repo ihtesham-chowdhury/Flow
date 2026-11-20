@@ -18,7 +18,7 @@ enum class EngineMode(
         id = "hybrid_cloud_polish",
         titleEn = "Hybrid Turbo (On-Device STT + Cloud Polish)",
         titleBn = "হাইব্রিড টার্বো (ফোন STT + ক্লাউড পলিশ)",
-        descEn = "Transcribes speech on your phone using Gboard's engine, then formats text in ~250ms via Cloud LLM (Gemini, Groq, Cerebras, or OpenRouter).",
+        descEn = "Transcribes speech on your phone using Gboard's engine, then formats text in ~250ms via Cloud LLM (Gemini or Groq).",
         descBn = "ফোনের ভেতরেই কথা টেক্সটে রূপান্তর করে এবং ক্লাউড LLM দিয়ে দ্রুত দাড়ি-কমা ও ফরম্যাটিং ঠিক করে।"
     ),
     OFFLINE_LIGHTWEIGHT(

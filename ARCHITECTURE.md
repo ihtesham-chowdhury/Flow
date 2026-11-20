@@ -1,6 +1,6 @@
-# Flow v5.0.0 — System Architecture & Technical Specifications
+# Flow v5.1.0 — System Architecture & Technical Specifications
 
-> **Target Version**: Flow v5.0.0 (Build 26)  
+> **Target Version**: Flow v5.1.0 (Build 27)  
 > **Status**: Production Architecture  
 > **Operating System**: Android 8.0+ (API 26–35)
 
@@ -29,7 +29,6 @@ app/src/main/java/com/flowbangla/app/
 │   ├── SonioxSttClient.kt            # Soniox stt-async-v5 / stt-rt-v5
 │   ├── GeminiInteractionsAdapter.kt  # Google Gemini /v1beta/interactions adapter
 │   ├── GroqWhisperClient.kt          # Groq Whisper Large V3 Turbo (English-only)
-│   ├── ElevenLabsScribeClient.kt     # ElevenLabs scribe_v3 with scribe_v2 fallback
 │   └── DeepgramNovaClient.kt         # Deepgram Nova-3 Indic speech engine
 ├── data/
 │   ├── PreferencesManager.kt         # EncryptedSharedPreferences (Keystore backed AES256)
@@ -38,7 +37,7 @@ app/src/main/java/com/flowbangla/app/
 │   └── SnippetManager.kt             # User shortcut text expansions
 ├── format/
 │   ├── FormattingChain.kt            # Pipeline: Normalizer -> Dictionary -> Snippets -> LLM Polish -> Danda
-│   ├── OpenAiCompatibleTextFormatter.kt # Groq/Cerebras gpt-oss polish with reasoning_effort="low"
+│   ├── OpenAiCompatibleTextFormatter.kt # Groq gpt-oss polish with reasoning_effort="low"
 │   ├── FormatValidator.kt            # Anti-hallucination & brevity verification
 │   └── GibberishGuard.kt             # Noise & phantom token rejection
 ├── service/

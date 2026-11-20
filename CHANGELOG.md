@@ -4,6 +4,26 @@ All notable changes to the Flow voice dictation app for Android will be document
 
 ---
 
+## [5.1.0] - 2026-11-21 (Build 27)
+### Added
+- **Crisp Superscript `PAID` Editorial Badges**:
+  - Visually distinguished free providers (Gemini, Groq, Deepgram) from paid providers (Sarvam `PAID`, Soniox `PAID`) using `ProviderTitleWithOptionalPaidTag` in the Keys card.
+  - Ink & Danda editorial aesthetic with 9.5sp semi-bold typography, subtle Ochre border, and superscript offset.
+- **Deepgram Nova-3 Live Dictation Fix**:
+  - Replaced filename-extension-based MIME detection with true magic byte inspection via `AudioFileInspector.inspectAndValidate(audioFile).verifiedMimeType`.
+  - Added explicit language routing (`language=en` for English, `language=bn` for Bangla, `language=multi` for Mixed) with `model=nova-3&smart_format=true&punctuate=true`, preventing 2-second short clips from hallucinating French/Spanish.
+  - Audio flush and disk synchronization (`fos.flush()` and `fos.fd.sync()`) in `AudioRecorder.stopRecordingSafelyIo()` prior to initiating upload.
+  - Unified HTTP/2 timeouts across both live recording and history regeneration: `connectTimeout = 8s`, `writeTimeout = 25s`, `readTimeout = 25s`, `callTimeout = 40s`, `retryOnConnectionFailure = true`.
+  - Dynamically scaled ASR timeout: `asrTimeoutMs = (14_000L + (durationSec * 600L)).coerceAtMost(90_000L)` and `watchdogMs = asrTimeoutMs + 8_000L`, giving 40s recordings a full 38-second upload and inference budget.
+
+### Removed
+- **Purged Clutter Providers**:
+  - Permanently cut OpenRouter, ElevenLabs, and Cerebras across entire codebase, UI, preference stores, model catalog, and network routing.
+  - Deleted `ElevenLabsScribeClient.kt`.
+  - Keys roster streamlined to the 5 verified high-value engines: Gemini, Groq, Deepgram, Sarvam, and Soniox.
+
+---
+
 ## [5.0.0] - 2026-11-20 (Build 26)
 ### Added
 - **Top-Ranked Bangla Cloud ASR Engines**:

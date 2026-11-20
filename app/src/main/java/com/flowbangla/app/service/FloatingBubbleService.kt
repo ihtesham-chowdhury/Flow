@@ -150,10 +150,11 @@ class FloatingBubbleService : Service() {
     private fun initializeEngines() {
         val prefs = FlowBanglaApp.instance.preferencesManager
         okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-            .callTimeout(7, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(40, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
         audioRecorder = AudioRecorder(this)
         geminiInteractionsAdapter = GeminiInteractionsAdapter(okHttpClient)
@@ -851,17 +852,18 @@ class FloatingBubbleService : Service() {
         livePreviewController?.hide()
 
         val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
-        val processingTimeoutMs = (12_000L + (durationSec * 650L)).coerceAtMost(90_000L)
+        val asrTimeoutMs = (14_000L + (durationSec * 600L)).coerceAtMost(90_000L)
+        val watchdogMs = asrTimeoutMs + 8_000L
 
         // Immediately switch UI to PROCESSING so user sees the Ochre spinner
         currentState = TranscriptionState.Processing
         updateUiState(currentState)
 
-        // Start dynamic watchdog scaled to recording duration (+10s buffer)
-        startProcessingWatchdog(processingTimeoutMs + 10_000L)
+        // Start dynamic watchdog scaled to recording duration
+        startProcessingWatchdog(watchdogMs)
 
         val prefs = FlowBanglaApp.instance.preferencesManager
-        if (prefs.engineMode == EngineMode.CLOUD_AUDIO && !prefs.isCerebrasOnlyActive()) {
+        if (prefs.engineMode == EngineMode.CLOUD_AUDIO) {
             activeDictationJob?.cancel()
             // Launch the heavy pipeline strictly on Dispatchers.IO (NEVER on Dispatchers.Main!)
             activeDictationJob = serviceScope.launch(Dispatchers.IO) {
@@ -1117,22 +1119,12 @@ class FloatingBubbleService : Service() {
 
         when (prefs.engineMode) {
             EngineMode.CLOUD_AUDIO -> {
-                if (prefs.isCerebrasOnlyActive()) {
-                    // Standalone Cerebras mode: capture speech via on-device recognizer
-                    onDeviceRecognizer.startListening(
-                        language = prefs.sttLanguage,
-                        preferOfflineOnly = false
-                    )
-                } else {
-                    // In v3.5.1, live WebSocket streamer & rolling chunker are disabled during recording
-                    // so AudioRecorder (24kHz 64kbps AAC) has 100% exclusive access to hardware mic without contention
-                    val result = audioRecorder.startRecording()
-                    if (result.isFailure) {
-                        Toast.makeText(this, "Microphone failed to start / মাইক্রোফোন চালু করা যায়নি", Toast.LENGTH_SHORT).show()
-                        currentState = TranscriptionState.Idle
-                        updateUiState(currentState)
-                        return
-                    }
+                val result = audioRecorder.startRecording()
+                if (result.isFailure) {
+                    Toast.makeText(this, "Microphone failed to start / মাইক্রোফোন চালু করা যায়নি", Toast.LENGTH_SHORT).show()
+                    currentState = TranscriptionState.Idle
+                    updateUiState(currentState)
+                    return
                 }
             }
             EngineMode.HYBRID_CLOUD_POLISH -> {
@@ -1240,7 +1232,7 @@ class FloatingBubbleService : Service() {
             }
 
             // STEP 3: Smart Cloud Audio ASR across enabled providers (Groq Turbo <= 20s, Gemini > 20s)
-            val asrTimeoutMs = (10_000L + (durationSec * 600L)).coerceAtMost(60_000L)
+            val asrTimeoutMs = (14_000L + (durationSec * 600L)).coerceAtMost(90_000L)
             val asrResult = withTimeoutOrNull(asrTimeoutMs) {
                 try {
                     smartProviderRouter.transcribeAudioSmart(

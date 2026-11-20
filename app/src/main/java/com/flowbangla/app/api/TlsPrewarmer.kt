@@ -35,9 +35,7 @@ object TlsPrewarmer {
                 prefs.isSonioxEnabled && prefs.sonioxApiKey.isNotBlank() -> "https://api.soniox.com"
                 prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank() && !prefs.isPrivacyModeEnabled -> "https://generativelanguage.googleapis.com"
                 prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank() -> "https://api.groq.com"
-                prefs.isElevenLabsEnabled && prefs.elevenLabsApiKey.isNotBlank() -> "https://api.elevenlabs.io"
                 prefs.isDeepgramEnabled && prefs.deepgramApiKey.isNotBlank() -> "https://api.deepgram.com"
-                prefs.isOpenRouterEnabled && prefs.openRouterApiKey.isNotBlank() -> "https://openrouter.ai"
                 else -> null
             } ?: return@launch
 

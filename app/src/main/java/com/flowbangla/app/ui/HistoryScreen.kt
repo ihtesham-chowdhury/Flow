@@ -383,7 +383,6 @@ fun HistoryScreen(
                         "Soniox" to "Soniox (stt-async-v5)",
                         "Gemini" to "Gemini 3.5 Transcribe",
                         "Groq" to "Groq Whisper Turbo (English)",
-                        "ElevenLabs" to "ElevenLabs (scribe_v3)",
                         "Deepgram" to "Deepgram (nova-3)"
                     )
                     options.forEach { (key, label) ->

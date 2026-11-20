@@ -106,4 +106,28 @@ class ModelRegistryTest {
         assertFalse("Groq ASR must NEVER support Bengali!", langs.contains("bn"))
         assertFalse("Groq ASR must NEVER support Mixed code-switching!", langs.contains("mixed"))
     }
+
+    @Test
+    fun testOnly5ActiveProvidersInRegistryAndProviderId() {
+        val json = JSONObject(ModelRegistry.BUNDLED_JSON)
+        val providersObj = json.getJSONObject("providers")
+        val providerKeys = mutableSetOf<String>()
+        val it = providersObj.keys()
+        while (it.hasNext()) {
+            providerKeys.add(it.next().lowercase())
+        }
+
+        val expectedProviders = setOf("gemini", "groq", "deepgram", "sarvam", "soniox")
+        assertEquals(expectedProviders, providerKeys)
+
+        val enumProviders = ProviderId.entries.map { it.name.lowercase() }.toSet()
+        assertEquals(expectedProviders, enumProviders)
+    }
+
+    @Test
+    fun testDeepgramNovaClientLanguageMapping() {
+        assertEquals("language=en", DeepgramNovaClient.buildLanguageQuery(SpeechLang.ENGLISH))
+        assertEquals("language=bn", DeepgramNovaClient.buildLanguageQuery(SpeechLang.BANGLA))
+        assertEquals("language=multi", DeepgramNovaClient.buildLanguageQuery(SpeechLang.MIXED))
+    }
 }

@@ -14,9 +14,6 @@ import com.flowbangla.app.model.SttLanguage
 enum class ProviderId {
     GEMINI,
     GROQ,
-    OPENROUTER,
-    CEREBRAS,
-    ELEVENLABS,
     DEEPGRAM,
     SARVAM,
     SONIOX
@@ -128,14 +125,6 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_GROQ_API_KEY, "") ?: ""
         set(value) = prefs.edit().putString(KEY_GROQ_API_KEY, value.trim()).apply()
 
-    var cerebrasApiKey: String
-        get() = prefs.getString(KEY_CEREBRAS_API_KEY, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_CEREBRAS_API_KEY, value.trim()).apply()
-
-    var openRouterApiKey: String
-        get() = prefs.getString(KEY_OPENROUTER_API_KEY, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_OPENROUTER_API_KEY, value.trim()).apply()
-
     var groqModelName: String
         get() = prefs.getString(KEY_GROQ_MODEL_NAME, "openai/gpt-oss-20b") ?: "openai/gpt-oss-20b"
         set(value) = prefs.edit().putString(KEY_GROQ_MODEL_NAME, value.trim()).apply()
@@ -226,22 +215,6 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean("provider_enabled_groq", true)
         set(value) = prefs.edit().putBoolean("provider_enabled_groq", value).apply()
 
-    var isOpenRouterEnabled: Boolean
-        get() = prefs.getBoolean("provider_enabled_openrouter", true)
-        set(value) = prefs.edit().putBoolean("provider_enabled_openrouter", value).apply()
-
-    var isCerebrasEnabled: Boolean
-        get() = prefs.getBoolean("provider_enabled_cerebras", true)
-        set(value) = prefs.edit().putBoolean("provider_enabled_cerebras", value).apply()
-
-    var elevenLabsApiKey: String
-        get() = prefs.getString("elevenlabs_api_key", "") ?: ""
-        set(value) = prefs.edit().putString("elevenlabs_api_key", value.trim()).apply()
-
-    var isElevenLabsEnabled: Boolean
-        get() = prefs.getBoolean("provider_enabled_elevenlabs", true)
-        set(value) = prefs.edit().putBoolean("provider_enabled_elevenlabs", value).apply()
-
     var deepgramApiKey: String
         get() = prefs.getString("deepgram_api_key", "") ?: ""
         set(value) = prefs.edit().putString("deepgram_api_key", value.trim()).apply()
@@ -305,9 +278,6 @@ class PreferencesManager(context: Context) {
         return when (provider) {
             ProviderId.GEMINI -> isGeminiEnabled && geminiApiKey.isNotBlank()
             ProviderId.GROQ -> isGroqEnabled && groqApiKey.isNotBlank()
-            ProviderId.OPENROUTER -> isOpenRouterEnabled && openRouterApiKey.isNotBlank()
-            ProviderId.CEREBRAS -> isCerebrasEnabled && cerebrasApiKey.isNotBlank()
-            ProviderId.ELEVENLABS -> isElevenLabsEnabled && elevenLabsApiKey.isNotBlank()
             ProviderId.DEEPGRAM -> isDeepgramEnabled && deepgramApiKey.isNotBlank()
             ProviderId.SARVAM -> isSarvamEnabled && sarvamApiKey.isNotBlank()
             ProviderId.SONIOX -> isSonioxEnabled && sonioxApiKey.isNotBlank()
@@ -317,9 +287,6 @@ class PreferencesManager(context: Context) {
     fun hasAnyActiveCloudProvider(): Boolean {
         return (isGeminiEnabled && geminiApiKey.trim().isNotEmpty()) ||
             (isGroqEnabled && groqApiKey.trim().isNotEmpty()) ||
-            (isOpenRouterEnabled && openRouterApiKey.trim().isNotEmpty()) ||
-            (isCerebrasEnabled && cerebrasApiKey.trim().isNotEmpty()) ||
-            (isElevenLabsEnabled && elevenLabsApiKey.trim().isNotEmpty()) ||
             (isDeepgramEnabled && deepgramApiKey.trim().isNotEmpty()) ||
             (isSarvamEnabled && sarvamApiKey.trim().isNotEmpty()) ||
             (isSonioxEnabled && sonioxApiKey.trim().isNotEmpty())
@@ -327,24 +294,10 @@ class PreferencesManager(context: Context) {
 
     /**
      * Returns true if at least one cloud provider with dedicated speech-to-text audio support
-     * (Gemini, Groq, OpenRouter, ElevenLabs, Deepgram, Sarvam, Soniox) is enabled with a valid key.
+     * (Gemini, Groq, Deepgram, Sarvam, Soniox) is enabled with a valid key.
      */
     fun hasAnyCloudAudioAsrProvider(): Boolean {
-        return (isGeminiEnabled && geminiApiKey.isNotBlank()) ||
-            (isGroqEnabled && groqApiKey.isNotBlank()) ||
-            (isOpenRouterEnabled && openRouterApiKey.isNotBlank()) ||
-            (isElevenLabsEnabled && elevenLabsApiKey.isNotBlank()) ||
-            (isDeepgramEnabled && deepgramApiKey.isNotBlank()) ||
-            (isSarvamEnabled && sarvamApiKey.isNotBlank()) ||
-            (isSonioxEnabled && sonioxApiKey.isNotBlank())
-    }
-
-    /**
-     * Returns true when Cerebras is active and is the ONLY enabled cloud provider.
-     * In this mode, speech is captured via on-device STT and formatted via Cerebras Llama 3.3 70B!
-     */
-    fun isCerebrasOnlyActive(): Boolean {
-        return !hasAnyCloudAudioAsrProvider() && (isCerebrasEnabled && cerebrasApiKey.isNotBlank())
+        return hasAnyActiveCloudProvider()
     }
 
     val isConfigured: Boolean
@@ -353,8 +306,6 @@ class PreferencesManager(context: Context) {
             EngineMode.HYBRID_CLOUD_POLISH -> when (cloudPolishProvider) {
                 CloudPolishProvider.GEMINI -> isGeminiEnabled && geminiApiKey.isNotBlank()
                 CloudPolishProvider.GROQ -> isGroqEnabled && groqApiKey.isNotBlank()
-                CloudPolishProvider.CEREBRAS -> isCerebrasEnabled && cerebrasApiKey.isNotBlank()
-                CloudPolishProvider.OPENROUTER -> isOpenRouterEnabled && openRouterApiKey.isNotBlank()
             }
             EngineMode.OFFLINE_LIGHTWEIGHT -> true
             EngineMode.OFFLINE_LOCAL_LLM -> !downloadedLocalModelPath.isNullOrBlank()
@@ -376,8 +327,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_ENGINE_MODE = "engine_mode"
         private const val KEY_CLOUD_POLISH_PROVIDER = "cloud_polish_provider"
         private const val KEY_GROQ_API_KEY = "groq_api_key"
-        private const val KEY_CEREBRAS_API_KEY = "cerebras_api_key"
-        private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
         private const val KEY_GROQ_MODEL_NAME = "groq_model_name"
         private const val KEY_STT_LANGUAGE = "stt_language"
         private const val KEY_DOUBLE_TAP_LANG_TOGGLE = "double_tap_lang_toggle"

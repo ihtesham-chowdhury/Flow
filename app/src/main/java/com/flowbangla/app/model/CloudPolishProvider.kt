@@ -20,20 +20,6 @@ enum class CloudPolishProvider(
         defaultModel = "openai/gpt-oss-20b",
         endpointUrl = "https://api.groq.com/openai/v1/chat/completions",
         freeQuotaSummary = "Fast OpenAI-compatible inference with gpt-oss-20b and 120b"
-    ),
-    CEREBRAS(
-        id = "cerebras",
-        displayName = "Cerebras Inference (Ultra-Fast GPT-OSS 120B)",
-        defaultModel = "gpt-oss-120b",
-        endpointUrl = "https://api.cerebras.ai/v1/chat/completions",
-        freeQuotaSummary = "~2,000 tokens/sec instant response with gpt-oss-120b"
-    ),
-    OPENROUTER(
-        id = "openrouter",
-        displayName = "OpenRouter (Unified Free Models Router)",
-        defaultModel = "openrouter/free",
-        endpointUrl = "https://openrouter.ai/api/v1/chat/completions",
-        freeQuotaSummary = "Routes automatically across free-tier community models"
     );
 
     companion object {

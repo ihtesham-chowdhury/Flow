@@ -193,7 +193,11 @@ class AudioRecorder(private val context: Context) {
         pruneOldRecordings()
         val wavBytes = wrapPcmInWavHeader(allPcm, SAMPLE_RATE)
         val outFile = File(recordingsDir, "dictation_${System.currentTimeMillis()}.wav")
-        FileOutputStream(outFile).use { it.write(wavBytes) }
+        FileOutputStream(outFile).use { fos ->
+            fos.write(wavBytes)
+            fos.flush()
+            try { fos.fd.sync() } catch (_: Throwable) {}
+        }
         outFile
     }
 

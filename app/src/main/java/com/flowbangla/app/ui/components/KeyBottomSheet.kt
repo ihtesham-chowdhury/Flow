@@ -138,9 +138,6 @@ fun KeyBottomSheet(
             val expectedPrefix = when (providerName) {
                 "Gemini" -> "AIza"
                 "Groq" -> "gsk_"
-                "Cerebras" -> "csk-"
-                "OpenRouter" -> "sk-or-"
-                "ElevenLabs" -> "sk_"
                 else -> null
             }
 

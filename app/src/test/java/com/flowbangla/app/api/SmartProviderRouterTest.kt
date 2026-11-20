@@ -15,9 +15,7 @@ class SmartProviderRouterTest {
             isGeminiEnabled = true,
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,
-            groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = ""
+            groqApiKey = "gsk_GroqKey"
         )
 
         assertEquals(1, order.size)
@@ -33,9 +31,7 @@ class SmartProviderRouterTest {
             isGeminiEnabled = true,
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,
-            groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = ""
+            groqApiKey = "gsk_GroqKey"
         )
 
         assertEquals(1, order.size)
@@ -52,8 +48,6 @@ class SmartProviderRouterTest {
             geminiApiKey = "",
             isGroqEnabled = true,
             groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = "",
             isBanglaPreferred = false
         )
 
@@ -69,9 +63,7 @@ class SmartProviderRouterTest {
             isGeminiEnabled = true,
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = false,
-            groqApiKey = "",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = ""
+            groqApiKey = ""
         )
 
         assertEquals(1, order.size)
@@ -79,40 +71,17 @@ class SmartProviderRouterTest {
     }
 
     @Test
-    fun testOpenRouterAudioIncludedWhenConfigured() {
-        val order = SmartProviderRouter.computeAsrProviderOrder(
-            routingMode = ProviderRoutingMode.SMART_AUTO,
-            audioDurationSeconds = 5,
-            isGeminiEnabled = false,
-            geminiApiKey = "",
-            isGroqEnabled = false,
-            groqApiKey = "",
-            isOpenRouterEnabled = true,
-            openRouterApiKey = "sk-or-v1-OpenRouterKey"
-        )
-
-        assertEquals(1, order.size)
-        assertEquals(ProviderId.OPENROUTER, order[0])
-    }
-
-    @Test
     fun testFormattingProviderPriority() {
         val order = SmartProviderRouter.computeFormattingProviderOrder(
             isGroqEnabled = true,
             groqApiKey = "gsk_Groq",
-            isCerebrasEnabled = true,
-            cerebrasApiKey = "csk_Cerebras",
             isGeminiEnabled = true,
-            geminiApiKey = "AIza_Gemini",
-            isOpenRouterEnabled = true,
-            openRouterApiKey = "sk-or_Key"
+            geminiApiKey = "AIza_Gemini"
         )
 
-        assertEquals(4, order.size)
+        assertEquals(2, order.size)
         assertEquals(ProviderId.GROQ, order[0])
-        assertEquals(ProviderId.CEREBRAS, order[1])
-        assertEquals(ProviderId.GEMINI, order[2])
-        assertEquals(ProviderId.OPENROUTER, order[3])
+        assertEquals(ProviderId.GEMINI, order[1])
     }
 
     @Test
@@ -120,17 +89,12 @@ class SmartProviderRouterTest {
         val order = SmartProviderRouter.computeFormattingProviderOrder(
             isGroqEnabled = false, // Disabled by user toggle
             groqApiKey = "gsk_Groq",
-            isCerebrasEnabled = true,
-            cerebrasApiKey = "csk_Cerebras",
-            isGeminiEnabled = false, // Disabled by user toggle
-            geminiApiKey = "AIza_Gemini",
-            isOpenRouterEnabled = true,
-            openRouterApiKey = "sk-or_Key"
+            isGeminiEnabled = true,
+            geminiApiKey = "AIza_Gemini"
         )
 
-        assertEquals(2, order.size)
-        assertEquals(ProviderId.CEREBRAS, order[0])
-        assertEquals(ProviderId.OPENROUTER, order[1])
+        assertEquals(1, order.size)
+        assertEquals(ProviderId.GEMINI, order[0])
     }
 
     @Test
@@ -141,9 +105,7 @@ class SmartProviderRouterTest {
             isGeminiEnabled = false,
             geminiApiKey = "",
             isGroqEnabled = false,
-            groqApiKey = "",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = ""
+            groqApiKey = ""
         )
 
         assertTrue(order.isEmpty())
@@ -158,8 +120,6 @@ class SmartProviderRouterTest {
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,
             groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = "",
             isBanglaPreferred = false
         )
 
@@ -177,8 +137,6 @@ class SmartProviderRouterTest {
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,
             groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = "",
             isBanglaPreferred = true
         )
 
@@ -188,7 +146,7 @@ class SmartProviderRouterTest {
     }
 
     @Test
-    fun testElevenLabsAndDeepgramIntegrationInSmartAuto() {
+    fun testDeepgramIntegrationInSmartAuto() {
         val order = SmartProviderRouter.computeAsrProviderOrder(
             routingMode = ProviderRoutingMode.SMART_AUTO,
             audioDurationSeconds = 15,
@@ -196,19 +154,14 @@ class SmartProviderRouterTest {
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,
             groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = "",
-            isElevenLabsEnabled = true,
-            elevenLabsApiKey = "xi_key",
             isDeepgramEnabled = true,
             deepgramApiKey = "dg_key",
             isBanglaPreferred = true
         )
 
-        assertEquals(3, order.size)
+        assertEquals(2, order.size)
         assertEquals(ProviderId.GEMINI, order[0])
-        assertEquals(ProviderId.ELEVENLABS, order[1])
-        assertEquals(ProviderId.DEEPGRAM, order[2])
+        assertEquals(ProviderId.DEEPGRAM, order[1])
         assertFalse("Groq Whisper must NEVER be in Bangla order!", order.contains(ProviderId.GROQ))
     }
 
@@ -221,25 +174,48 @@ class SmartProviderRouterTest {
             geminiApiKey = "AIzaSyGeminiKey",
             isGroqEnabled = true,
             groqApiKey = "gsk_GroqKey",
-            isOpenRouterEnabled = false,
-            openRouterApiKey = "",
             isSarvamEnabled = true,
             sarvamApiKey = "sarvam_key",
             isSonioxEnabled = true,
             sonioxApiKey = "soniox_key",
-            isElevenLabsEnabled = true,
-            elevenLabsApiKey = "xi_key",
             isDeepgramEnabled = true,
             deepgramApiKey = "dg_key",
             isBanglaPreferred = true
         )
 
-        assertEquals(5, order.size)
+        // Strict Invariant: Sarvam -> Soniox -> Gemini -> Deepgram (NEVER Groq)
+        assertEquals(4, order.size)
         assertEquals(ProviderId.SARVAM, order[0])
         assertEquals(ProviderId.SONIOX, order[1])
         assertEquals(ProviderId.GEMINI, order[2])
-        assertEquals(ProviderId.ELEVENLABS, order[3])
-        assertEquals(ProviderId.DEEPGRAM, order[4])
+        assertEquals(ProviderId.DEEPGRAM, order[3])
         assertFalse("Groq Whisper must NEVER be in Bangla order!", order.contains(ProviderId.GROQ))
+    }
+
+    @Test
+    fun testEnglishSmartAuto5ProviderOrder() {
+        val order = SmartProviderRouter.computeAsrProviderOrder(
+            routingMode = ProviderRoutingMode.SMART_AUTO,
+            audioDurationSeconds = 15,
+            isGeminiEnabled = true,
+            geminiApiKey = "AIzaSyGeminiKey",
+            isGroqEnabled = true,
+            groqApiKey = "gsk_GroqKey",
+            isSarvamEnabled = true,
+            sarvamApiKey = "sarvam_key",
+            isSonioxEnabled = true,
+            sonioxApiKey = "soniox_key",
+            isDeepgramEnabled = true,
+            deepgramApiKey = "dg_key",
+            isBanglaPreferred = false
+        )
+
+        // English Order: Groq -> Deepgram -> Soniox -> Gemini -> Sarvam
+        assertEquals(5, order.size)
+        assertEquals(ProviderId.GROQ, order[0])
+        assertEquals(ProviderId.DEEPGRAM, order[1])
+        assertEquals(ProviderId.SONIOX, order[2])
+        assertEquals(ProviderId.GEMINI, order[3])
+        assertEquals(ProviderId.SARVAM, order[4])
     }
 }

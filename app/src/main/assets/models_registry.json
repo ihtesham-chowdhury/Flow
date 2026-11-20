@@ -30,12 +30,6 @@
       "asr": [{ "id": "whisper-large-v3-turbo", "langs": ["en"], "limits": { "rpm": 20, "rpd": 2000, "audioSecPerHour": 7200 } }],
       "polish": [{ "id": "openai/gpt-oss-20b", "tier": "fast" }, { "id": "openai/gpt-oss-120b", "tier": "quality" }]
     },
-    "cerebras": {
-      "polish": [{ "id": "gpt-oss-120b", "ctxCap": 8000 }]
-    },
-    "elevenlabs": {
-      "asr": [{ "id": "scribe_v3", "fallbackId": "scribe_v2", "langs": ["bn", "en", "mixed"], "batchOnly": true }]
-    },
     "deepgram": {
       "asr": [{ "id": "nova-3", "langs": ["bn", "en", "mixed"] }]
     }

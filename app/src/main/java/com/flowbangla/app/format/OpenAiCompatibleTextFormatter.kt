@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Cloud text formatter using OpenAI-compatible APIs (Groq, Cerebras, OpenRouter).
+ * Cloud text formatter using OpenAI-compatible APIs (Groq).
  */
 class OpenAiCompatibleTextFormatter(
     private val endpointUrl: String,
@@ -52,9 +52,7 @@ class OpenAiCompatibleTextFormatter(
             put(JSONObject().put("role", "user").put("content", userPrompt))
         }
 
-        val candidateModels = if (endpointUrl.contains("cerebras", ignoreCase = true)) {
-            listOf(model, "gpt-oss-120b").distinct()
-        } else if (endpointUrl.contains("groq", ignoreCase = true)) {
+        val candidateModels = if (endpointUrl.contains("groq", ignoreCase = true)) {
             listOf(model, "openai/gpt-oss-20b", "openai/gpt-oss-120b").distinct()
         } else {
             listOf(model)

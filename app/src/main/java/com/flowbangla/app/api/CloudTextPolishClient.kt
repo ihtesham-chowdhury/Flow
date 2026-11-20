@@ -56,18 +56,6 @@ Strict Rules:
                     model = prefs.groqModelName.ifBlank { CloudPolishProvider.GROQ.defaultModel },
                     rawText = rawTranscript
                 )
-                CloudPolishProvider.CEREBRAS -> callOpenAiCompatibleApi(
-                    endpoint = CloudPolishProvider.CEREBRAS.endpointUrl,
-                    apiKey = prefs.cerebrasApiKey,
-                    model = CloudPolishProvider.CEREBRAS.defaultModel,
-                    rawText = rawTranscript
-                )
-                CloudPolishProvider.OPENROUTER -> callOpenAiCompatibleApi(
-                    endpoint = CloudPolishProvider.OPENROUTER.endpointUrl,
-                    apiKey = prefs.openRouterApiKey,
-                    model = CloudPolishProvider.OPENROUTER.defaultModel,
-                    rawText = rawTranscript
-                )
             }
         } catch (_: Exception) {
             // Instant zero-data-loss fallback if offline or rate-limited
@@ -150,10 +138,6 @@ Strict Rules:
             .addHeader("Content-Type", "application/json")
             .post(payload.toString().toRequestBody(jsonMediaType))
 
-        if (endpoint.contains("openrouter.ai")) {
-            requestBuilder.addHeader("HTTP-Referer", "https://github.com/flowbangla/app")
-            requestBuilder.addHeader("X-Title", "Flow Voice Dictation")
-        }
 
         httpClient.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) {

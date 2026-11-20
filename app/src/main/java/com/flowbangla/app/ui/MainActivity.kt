@@ -72,6 +72,39 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Composable
+fun ProviderTitleWithOptionalPaidTag(
+    name: String,
+    isPaid: Boolean
+) {
+    Row(verticalAlignment = Alignment.Top) {
+        Text(
+            text = name,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = DarkInk
+        )
+        if (isPaid) {
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = "PAID",
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.6.sp,
+                color = OchreDark,
+                modifier = Modifier
+                    .offset(y = (-1).dp)
+                    .border(
+                        width = 0.75.dp,
+                        color = OchreDark.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+            )
+        }
+    }
+}
+
 class MainActivity : ComponentActivity() {
 
     private val requestRecordAudioPermission =
@@ -376,18 +409,12 @@ fun MainScreen(
     var selectedEngineMode by remember { mutableStateOf(prefs.engineMode) }
     var geminiKeyText by remember { mutableStateOf(prefs.geminiApiKey) }
     var groqKeyText by remember { mutableStateOf(prefs.groqApiKey) }
-    var cerebrasKeyText by remember { mutableStateOf(prefs.cerebrasApiKey) }
-    var openRouterKeyText by remember { mutableStateOf(prefs.openRouterApiKey) }
-    var elevenLabsKeyText by remember { mutableStateOf(prefs.elevenLabsApiKey) }
     var deepgramKeyText by remember { mutableStateOf(prefs.deepgramApiKey) }
-    var isGeminiEnabled by remember { mutableStateOf(prefs.isGeminiEnabled) }
-    var isGroqEnabled by remember { mutableStateOf(prefs.isGroqEnabled) }
-    var isCerebrasEnabled by remember { mutableStateOf(prefs.isCerebrasEnabled) }
-    var isOpenRouterEnabled by remember { mutableStateOf(prefs.isOpenRouterEnabled) }
-    var isElevenLabsEnabled by remember { mutableStateOf(prefs.isElevenLabsEnabled) }
-    var isDeepgramEnabled by remember { mutableStateOf(prefs.isDeepgramEnabled) }
     var sarvamKeyText by remember { mutableStateOf(prefs.sarvamApiKey) }
     var sonioxKeyText by remember { mutableStateOf(prefs.sonioxApiKey) }
+    var isGeminiEnabled by remember { mutableStateOf(prefs.isGeminiEnabled) }
+    var isGroqEnabled by remember { mutableStateOf(prefs.isGroqEnabled) }
+    var isDeepgramEnabled by remember { mutableStateOf(prefs.isDeepgramEnabled) }
     var isSarvamEnabled by remember { mutableStateOf(prefs.isSarvamEnabled) }
     var isSonioxEnabled by remember { mutableStateOf(prefs.isSonioxEnabled) }
     var currentSpeechLang by remember { mutableStateOf(prefs.speechLang) }
@@ -1140,48 +1167,35 @@ fun MainScreen(
                             val name: String,
                             val isAdded: Boolean,
                             val isEnabled: Boolean,
+                            val isPaid: Boolean,
+                            val subtitle: String,
                             val onToggle: (Boolean) -> Unit
                         )
 
                         val providers = listOf(
-                            ProviderItem("Sarvam", sarvamKeyText.isNotBlank(), isSarvamEnabled) {
-                                isSarvamEnabled = it
-                                prefs.isSarvamEnabled = it
-                                notifyServiceSettingsChanged(context)
-                            },
-                            ProviderItem("Soniox", sonioxKeyText.isNotBlank(), isSonioxEnabled) {
-                                isSonioxEnabled = it
-                                prefs.isSonioxEnabled = it
-                                notifyServiceSettingsChanged(context)
-                            },
-                            ProviderItem("Gemini", geminiKeyText.isNotBlank(), isGeminiEnabled) {
+                            ProviderItem("Gemini", geminiKeyText.isNotBlank(), isGeminiEnabled, isPaid = false, subtitle = "Free Bangla & Mixed") {
                                 isGeminiEnabled = it
                                 prefs.isGeminiEnabled = it
                                 notifyServiceSettingsChanged(context)
                             },
-                            ProviderItem("Groq", groqKeyText.isNotBlank(), isGroqEnabled) {
+                            ProviderItem("Groq", groqKeyText.isNotBlank(), isGroqEnabled, isPaid = false, subtitle = "Free Fast English") {
                                 isGroqEnabled = it
                                 prefs.isGroqEnabled = it
                                 notifyServiceSettingsChanged(context)
                             },
-                            ProviderItem("ElevenLabs", elevenLabsKeyText.isNotBlank(), isElevenLabsEnabled) {
-                                isElevenLabsEnabled = it
-                                prefs.isElevenLabsEnabled = it
-                                notifyServiceSettingsChanged(context)
-                            },
-                            ProviderItem("Deepgram", deepgramKeyText.isNotBlank(), isDeepgramEnabled) {
+                            ProviderItem("Deepgram", deepgramKeyText.isNotBlank(), isDeepgramEnabled, isPaid = false, subtitle = "$200 Free Credit") {
                                 isDeepgramEnabled = it
                                 prefs.isDeepgramEnabled = it
                                 notifyServiceSettingsChanged(context)
                             },
-                            ProviderItem("Cerebras", cerebrasKeyText.isNotBlank(), isCerebrasEnabled) {
-                                isCerebrasEnabled = it
-                                prefs.isCerebrasEnabled = it
+                            ProviderItem("Sarvam", sarvamKeyText.isNotBlank(), isSarvamEnabled, isPaid = true, subtitle = "Top Bangla · ₹100 trial") {
+                                isSarvamEnabled = it
+                                prefs.isSarvamEnabled = it
                                 notifyServiceSettingsChanged(context)
                             },
-                            ProviderItem("OpenRouter", openRouterKeyText.isNotBlank(), isOpenRouterEnabled) {
-                                isOpenRouterEnabled = it
-                                prefs.isOpenRouterEnabled = it
+                            ProviderItem("Soniox", sonioxKeyText.isNotBlank(), isSonioxEnabled, isPaid = true, subtitle = "Streaming · $0.10/hr") {
+                                isSonioxEnabled = it
+                                prefs.isSonioxEnabled = it
                                 notifyServiceSettingsChanged(context)
                             }
                         )
@@ -1203,20 +1217,15 @@ fun MainScreen(
                                 ) {
                                     Column {
                                         val pKey = when (p.name) {
-                                            "Sarvam" -> sarvamKeyText
-                                            "Soniox" -> sonioxKeyText
                                             "Gemini" -> geminiKeyText
                                             "Groq" -> groqKeyText
-                                            "ElevenLabs" -> elevenLabsKeyText
                                             "Deepgram" -> deepgramKeyText
-                                            "Cerebras" -> cerebrasKeyText
-                                            else -> openRouterKeyText
+                                            "Sarvam" -> sarvamKeyText
+                                            else -> sonioxKeyText
                                         }
-                                        Text(
-                                            text = p.name,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = DarkInk
+                                        ProviderTitleWithOptionalPaidTag(
+                                            name = p.name,
+                                            isPaid = p.isPaid
                                         )
                                         if (p.isAdded && pKey.length >= 4) {
                                             Text(
@@ -1253,6 +1262,12 @@ fun MainScreen(
                                                 fontSize = 12.sp,
                                                 color = LocalAccentColor.current,
                                                 fontWeight = FontWeight.SemiBold
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "• " + p.subtitle,
+                                                fontSize = 11.sp,
+                                                color = DarkInkMuted
                                             )
                                         }
                                     }
@@ -1977,7 +1992,13 @@ fun MainScreen(
                             scope.launch {
                                 try {
                                     val (newText, rawText, prov) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                        val okHttpClient = okhttp3.OkHttpClient()
+                                        val okHttpClient = okhttp3.OkHttpClient.Builder()
+                                            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                                            .writeTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                                            .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                                            .callTimeout(40, java.util.concurrent.TimeUnit.SECONDS)
+                                            .retryOnConnectionFailure(true)
+                                            .build()
                                         val geminiAdapter = com.flowbangla.app.api.GeminiInteractionsAdapter(okHttpClient)
                                         val groqClient = com.flowbangla.app.api.GroqWhisperClient(okHttpClient)
                                         val router = com.flowbangla.app.api.SmartProviderRouter(okHttpClient, prefs, geminiAdapter, groqClient)
@@ -2000,13 +2021,9 @@ fun MainScreen(
                                                 val res = groqClient.transcribeAudio(audioFile, prefs.groqApiKey)
                                                 com.flowbangla.app.api.AsrExecutionResult(res.text, com.flowbangla.app.format.RecognitionSource.GROQ_WHISPER, false)
                                             }
-                                            "elevenlabs" -> {
-                                                val txt = com.flowbangla.app.api.ElevenLabsScribeClient(okHttpClient).transcribeAudio(audioFile, prefs.elevenLabsApiKey)
-                                                com.flowbangla.app.api.AsrExecutionResult(txt, com.flowbangla.app.format.RecognitionSource.ELEVENLABS_SCRIBE, false)
-                                            }
                                             "deepgram" -> {
-                                                val txt = com.flowbangla.app.api.DeepgramNovaClient(okHttpClient).transcribeAudio(audioFile, prefs.deepgramApiKey)
-                                                com.flowbangla.app.api.AsrExecutionResult(txt, com.flowbangla.app.format.RecognitionSource.DEEPGRAM_NOVA, false)
+                                                val txt = com.flowbangla.app.api.DeepgramNovaClient(okHttpClient).transcribeAudio(audioFile, prefs.deepgramApiKey, prefs.speechLang)
+                                                com.flowbangla.app.api.AsrExecutionResult(txt, com.flowbangla.app.format.RecognitionSource.DEEPGRAM_NOVA, true)
                                             }
                                             else -> router.transcribeAudioSmart(audioFile, record.durationSeconds.coerceAtLeast(1), emptyList())
                                         }
@@ -2055,10 +2072,10 @@ fun MainScreen(
         val currentKey = when (provider) {
             "Gemini" -> geminiKeyText
             "Groq" -> groqKeyText
-            "ElevenLabs" -> elevenLabsKeyText
             "Deepgram" -> deepgramKeyText
-            "Cerebras" -> cerebrasKeyText
-            else -> openRouterKeyText
+            "Sarvam" -> sarvamKeyText
+            "Soniox" -> sonioxKeyText
+            else -> ""
         }
 
         KeyBottomSheet(
@@ -2082,21 +2099,9 @@ fun MainScreen(
                         groqKeyText = savedKey
                         prefs.groqApiKey = savedKey
                     }
-                    "ElevenLabs" -> {
-                        elevenLabsKeyText = savedKey
-                        prefs.elevenLabsApiKey = savedKey
-                    }
                     "Deepgram" -> {
                         deepgramKeyText = savedKey
                         prefs.deepgramApiKey = savedKey
-                    }
-                    "Cerebras" -> {
-                        cerebrasKeyText = savedKey
-                        prefs.cerebrasApiKey = savedKey
-                    }
-                    "OpenRouter" -> {
-                        openRouterKeyText = savedKey
-                        prefs.openRouterApiKey = savedKey
                     }
                 }
                 notifyServiceSettingsChanged(context)

@@ -40,7 +40,9 @@ captures/
 .idea/
 .idea_modules/
 
-# Keystore files
+# Scratch directory
+scratch/
+
 *.jks
 *.keystore
 

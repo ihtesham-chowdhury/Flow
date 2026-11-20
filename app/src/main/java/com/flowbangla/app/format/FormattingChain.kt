@@ -24,16 +24,6 @@ class FormattingChain(
         apiKeyProvider = { prefs.groqApiKey },
         modelProvider = { prefs.groqModelName.ifBlank { CloudPolishProvider.GROQ.defaultModel } }
     )
-    private val cerebrasFormatter = OpenAiCompatibleTextFormatter(
-        endpointUrl = CloudPolishProvider.CEREBRAS.endpointUrl,
-        apiKeyProvider = { prefs.cerebrasApiKey },
-        modelProvider = { CloudPolishProvider.CEREBRAS.defaultModel }
-    )
-    private val openRouterFormatter = OpenAiCompatibleTextFormatter(
-        endpointUrl = CloudPolishProvider.OPENROUTER.endpointUrl,
-        apiKeyProvider = { prefs.openRouterApiKey },
-        modelProvider = { CloudPolishProvider.OPENROUTER.defaultModel }
-    )
 
     private val localLlmEngine = LocalLlmPolishEngine(context, prefs)
 
@@ -162,22 +152,14 @@ class FormattingChain(
         try {
             when (prefs.engineMode) {
                 EngineMode.CLOUD_AUDIO -> {
-                    // Try formatting across enabled providers in priority order: Groq (ultra-fast) -> Cerebras -> Gemini -> OpenRouter
+                    // Try formatting across enabled providers in priority order: Groq (ultra-fast) -> Gemini
                     if (prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) {
                         envelope = groqFormatter.formatText(workingTranscript, plan)
                         if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
                     }
-                    if (envelope == null && prefs.isCerebrasEnabled && prefs.cerebrasApiKey.isNotBlank()) {
-                        envelope = cerebrasFormatter.formatText(workingTranscript, plan)
-                        if (envelope != null) formattingSource = FormattingSource.CEREBRAS_CLOUD
-                    }
                     if (envelope == null && prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank()) {
                         envelope = geminiFormatter.formatText(workingTranscript, plan)
                         if (envelope != null) formattingSource = FormattingSource.GEMINI_CLOUD
-                    }
-                    if (envelope == null && prefs.isOpenRouterEnabled && prefs.openRouterApiKey.isNotBlank()) {
-                        envelope = openRouterFormatter.formatText(workingTranscript, plan)
-                        if (envelope != null) formattingSource = FormattingSource.OPENROUTER_CLOUD
                     }
                 }
                 EngineMode.HYBRID_CLOUD_POLISH -> {
@@ -189,14 +171,6 @@ class FormattingChain(
                         CloudPolishProvider.GROQ -> {
                             envelope = groqFormatter.formatText(workingTranscript, plan)
                             if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
-                        }
-                        CloudPolishProvider.CEREBRAS -> {
-                            envelope = cerebrasFormatter.formatText(workingTranscript, plan)
-                            if (envelope != null) formattingSource = FormattingSource.CEREBRAS_CLOUD
-                        }
-                        CloudPolishProvider.OPENROUTER -> {
-                            envelope = openRouterFormatter.formatText(workingTranscript, plan)
-                            if (envelope != null) formattingSource = FormattingSource.OPENROUTER_CLOUD
                         }
                     }
                 }
