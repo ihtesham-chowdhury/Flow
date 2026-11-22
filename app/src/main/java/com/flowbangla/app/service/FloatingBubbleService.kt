@@ -95,12 +95,14 @@ class FloatingBubbleService : Service() {
     private lateinit var okHttpClient: OkHttpClient
 
     private var liveTranscribeStreamer: com.flowbangla.app.api.GeminiLiveTranscribeStreamer? = null
+    private var deepgramLiveStreamer: com.flowbangla.app.api.DeepgramLiveStreamer? = null
     private var amplitudePollerJob: Job? = null
     private var livePreviewController: LiveTranscriptionPreviewController? = null
     private var activeDictationJob: Job? = null
     private var processingWatchdogJob: Job? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val prefs: PreferencesManager get() = FlowBanglaApp.instance.preferencesManager
     var currentState: TranscriptionState = TranscriptionState.Idle
         private set
@@ -282,6 +284,9 @@ class FloatingBubbleService : Service() {
         super.onDestroy()
         serviceScope.cancel()
         activeDictationJob?.cancel()
+        deepgramLiveStreamer?.close()
+        deepgramLiveStreamer = null
+        audioRecorder.onPcmFrame = null
         liveTranscribeStreamer?.cancelAndClose()
         TextInjectorAccessibilityService.instance?.onKeyboardVisibilityChanged = null
         livePreviewController?.detach()
@@ -849,6 +854,9 @@ class FloatingBubbleService : Service() {
         amplitudePollerJob = null
         livePreviewJob?.cancel()
         livePreviewJob = null
+        deepgramLiveStreamer?.close()
+        deepgramLiveStreamer = null
+        audioRecorder.onPcmFrame = null
         livePreviewController?.hide()
 
         val durationSec = ((SystemClock.elapsedRealtime() - recordingStartTimeMs) / 1000L).coerceAtLeast(1L)
@@ -924,6 +932,9 @@ class FloatingBubbleService : Service() {
         amplitudePollerJob = null
         livePreviewJob?.cancel()
         livePreviewJob = null
+        deepgramLiveStreamer?.close()
+        deepgramLiveStreamer = null
+        audioRecorder.onPcmFrame = null
         livePreviewController?.hide()
         processingWatchdogJob?.cancel()
         processingWatchdogJob = null
@@ -1169,16 +1180,55 @@ class FloatingBubbleService : Service() {
 
     private fun startLivePreviewIfEnabled() {
         livePreviewJob?.cancel()
+        deepgramLiveStreamer?.close()
+        deepgramLiveStreamer = null
+        audioRecorder.onPcmFrame = null
+
         if (!prefs.enableLiveTranscriptionPreview) {
             livePreviewController?.hide()
             return
         }
 
-        // Flow v5.0.0 Zero-Quota-Burn Architecture:
-        // Background HTTP slice polling is eliminated during recording.
-        // Live partial streaming text is powered exclusively by true streaming engines (WebSocket / On-Device STT).
+        // True zero-lag streaming: Deepgram Nova-3 WebSocket or On-Device STT
         val anchorY = getCurrentRecordingSurfaceTopY()
         livePreviewController?.updateLiveText("", anchorY)
+
+        val prefs = FlowBanglaApp.instance.preferencesManager
+        if (prefs.isDeepgramEnabled && prefs.deepgramApiKey.trim().isNotEmpty()) {
+            val previewLang = when (prefs.livePreviewLanguage) {
+                PreferencesManager.LivePreviewLanguage.ENGLISH -> com.flowbangla.app.api.SpeechLang.ENGLISH
+                PreferencesManager.LivePreviewLanguage.BANGLA -> com.flowbangla.app.api.SpeechLang.BANGLA
+                PreferencesManager.LivePreviewLanguage.AUTO -> {
+                    when (prefs.speechLang) {
+                        com.flowbangla.app.api.SpeechLang.ENGLISH -> com.flowbangla.app.api.SpeechLang.ENGLISH
+                        com.flowbangla.app.api.SpeechLang.BANGLA -> com.flowbangla.app.api.SpeechLang.BANGLA
+                        else -> com.flowbangla.app.api.SpeechLang.MIXED
+                    }
+                }
+            }
+
+            try {
+                deepgramLiveStreamer = com.flowbangla.app.api.DeepgramLiveStreamer(
+                    http = okHttpClient,
+                    rawApiKey = prefs.deepgramApiKey,
+                    onLiveTextUpdated = { liveText ->
+                        mainHandler.post {
+                            if (currentState is TranscriptionState.Recording) {
+                                val curAnchorY = getCurrentRecordingSurfaceTopY()
+                                livePreviewController?.updateLiveText(liveText, curAnchorY)
+                            }
+                        }
+                    }
+                ).also { streamer ->
+                    streamer.start(previewLang)
+                    audioRecorder.onPcmFrame = { bytes, len ->
+                        streamer.sendPcmFrame(bytes, len)
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Deepgram Live Streamer start error: ${t.message}")
+            }
+        }
     }
 
     private fun startAmplitudePoller() {

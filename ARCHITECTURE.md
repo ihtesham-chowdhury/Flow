@@ -1,6 +1,6 @@
-# Flow v5.1.0 — System Architecture & Technical Specifications
+# Flow v5.2.0 — System Architecture & Technical Specifications
 
-> **Target Version**: Flow v5.1.0 (Build 27)  
+> **Target Version**: Flow v5.2.0 (Build 28)  
 > **Status**: Production Architecture  
 > **Operating System**: Android 8.0+ (API 26–35)
 
@@ -29,7 +29,8 @@ app/src/main/java/com/flowbangla/app/
 │   ├── SonioxSttClient.kt            # Soniox stt-async-v5 / stt-rt-v5
 │   ├── GeminiInteractionsAdapter.kt  # Google Gemini /v1beta/interactions adapter
 │   ├── GroqWhisperClient.kt          # Groq Whisper Large V3 Turbo (English-only)
-│   └── DeepgramNovaClient.kt         # Deepgram Nova-3 Indic speech engine
+│   ├── DeepgramNovaClient.kt         # Deepgram Nova-3 Indic speech engine
+│   └── DeepgramLiveStreamer.kt       # Real-time WebSocket STT streamer (<150ms)
 ├── data/
 │   ├── PreferencesManager.kt         # EncryptedSharedPreferences (Keystore backed AES256)
 │   ├── HistoryManager.kt             # Dictation records & Voice Vault audio retention

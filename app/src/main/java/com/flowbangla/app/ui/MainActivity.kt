@@ -257,9 +257,13 @@ object L10n {
         "smart_polish" to "Smart polish",
         "smart_polish_desc" to "Removes fillers like um and uh, and adds punctuation.",
         "cleanup" to "Clean-up",
-        "cleanup_off_desc" to "Your words exactly as spoken.",
-        "cleanup_light_desc" to "Removes filler words and formats lists.",
-        "cleanup_full_desc" to "Also fixes changes of mind and smooths the wording.",
+        "cleanup_raw_desc" to "Your exact spoken words with basic punctuation only. Nothing is removed, reworded, or restructured.",
+        "cleanup_clean_desc" to "Removes fillers (um, uh, উম), fixes spoken self-corrections, structures lists, and automatically breaks long speech into clean paragraphs at topic shifts. Keeps your exact wording.",
+        "cleanup_polish_desc" to "Everything in Clean, PLUS fixes broken grammar, inserts missing helper words (is, are, the, এর, যে), replaces awkward or misheard words with the right word in context, and smooths bumpy half-sentences in both Bangla and English—without changing your meaning.",
+        "cleanup_off_desc" to "Your exact spoken words with basic punctuation only.",
+        "cleanup_light_desc" to "Removes fillers, structures lists, and adds smart paragraphs.",
+        "cleanup_full_desc" to "Fixes grammar, missing words, and awkward speech.",
+        "preview_language" to "Preview language",
         "drop_period" to "Drop the final full stop in chats",
         "drop_period_desc" to "Short messages in WhatsApp and Messenger finish without a full stop.",
         "live_transcription_preview" to "Live transcription preview",
@@ -287,7 +291,7 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 4.5.0 (25)",
+        "version" to "Version 5.2.0 (28)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first",
@@ -325,9 +329,13 @@ object L10n {
         "smart_polish" to "স্মার্ট পলিশ",
         "smart_polish_desc" to "উম, আহ জাতীয় শব্দ বাদ দিয়ে দাঁড়ি-কমা বসায়।",
         "cleanup" to "ক্লিন-আপ লেভেল",
-        "cleanup_off_desc" to "ঠিক যেমন বলা হয়েছে তেমন লেখা।",
-        "cleanup_light_desc" to "অপ্রয়োজনীয় ফিলার শব্দ বাদ দিয়ে তালিকা সাজায়।",
-        "cleanup_full_desc" to "মত বদলের কথা ঠিক করে ও বাক্য মসৃণ করে।",
+        "cleanup_raw_desc" to "আপনার মুখের হুবহু শব্দ কেবল মৌলিক যতিচিহ্নসহ লেখা হবে। কোনো শব্দ বাদ বা পরিবর্তন করা হবে না।",
+        "cleanup_clean_desc" to "উম, অ্যাঁ জাতীয় ফিলার এবং কথার ভুল সংশোধন বাদ দিয়ে স্বয়ংক্রিয়ভাবে অনুচ্ছেদ (প্যারাগ্রাফ) ও তালিকা তৈরি করে।",
+        "cleanup_polish_desc" to "ক্লিন মোডের সবকিছুসহ ব্যাকরণগত ভুল ঠিক করে, বাদ পড়া সহায়ক শব্দ যোগ করে এবং অপ্রাসঙ্গিক বা ভুল শোনা শব্দকে সঠিক শব্দ দিয়ে প্রতিস্থাপন করে বাক্য মসৃণ করে।",
+        "cleanup_off_desc" to "আপনার মুখের হুবহু শব্দ কেবল মৌলিক যতিচিহ্নসহ লেখা হবে।",
+        "cleanup_light_desc" to "ফিলার বাদ দিয়ে স্বয়ংক্রিয় অনুচ্ছেদ ও তালিকা তৈরি করে।",
+        "cleanup_full_desc" to "ব্যাকরণ ও ভুল শব্দ ঠিক করে বাক্য মসৃণ করে।",
+        "preview_language" to "প্রিভিউ ভাষা",
         "drop_period" to "মেসেজিংয়ে শেষ দাঁড়ি বাদ",
         "drop_period_desc" to "হোয়াটসঅ্যাপ ও মেসেঞ্জারের ছোট বার্তায় শেষের দাঁড়ি থাকে না।",
         "live_transcription_preview" to "লাইভ লেখা প্রিভিউ",
@@ -430,6 +438,7 @@ fun MainScreen(
     var autoCleanupLevel by remember { mutableStateOf(prefs.autoCleanupLevel) }
     var casualMessagingDropPeriod by remember { mutableStateOf(prefs.casualMessagingDropPeriod) }
     var enableLiveTranscriptionPreview by remember { mutableStateOf(prefs.enableLiveTranscriptionPreview) }
+    var livePreviewLanguage by remember { mutableStateOf(prefs.livePreviewLanguage) }
 
     var interactionMode by remember { mutableStateOf(prefs.interactionMode) }
     var bubbleSize by remember { mutableFloatStateOf(prefs.bubbleSizeDp.toFloat()) }
@@ -1383,11 +1392,11 @@ fun MainScreen(
                             Text(str("cleanup"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            val cleanupLevels = listOf("Off", "Light", "Full")
+                            val cleanupLevels = if (isBn) listOf("হুবহু", "পরিষ্কার", "নিখুঁত") else listOf("Raw", "Clean", "Polish")
                             val currentCleanupIdx = when (autoCleanupLevel) {
-                                AutoCleanupLevel.NONE -> 0
-                                AutoCleanupLevel.LIGHT -> 1
-                                AutoCleanupLevel.MEDIUM -> 2
+                                AutoCleanupLevel.RAW -> 0
+                                AutoCleanupLevel.CLEAN -> 1
+                                AutoCleanupLevel.POLISH -> 2
                             }
 
                             FlowSegmentedControl(
@@ -1395,22 +1404,34 @@ fun MainScreen(
                                 selectedIndex = currentCleanupIdx,
                                 onSelect = { idx ->
                                     val newLevel = when (idx) {
-                                        0 -> AutoCleanupLevel.NONE
-                                        1 -> AutoCleanupLevel.LIGHT
-                                        else -> AutoCleanupLevel.MEDIUM
+                                        0 -> AutoCleanupLevel.RAW
+                                        1 -> AutoCleanupLevel.CLEAN
+                                        else -> AutoCleanupLevel.POLISH
                                     }
                                     autoCleanupLevel = newLevel
                                     prefs.autoCleanupLevel = newLevel
                                 }
                             )
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             val cleanupDesc = when (autoCleanupLevel) {
-                                AutoCleanupLevel.NONE -> str("cleanup_off_desc")
-                                AutoCleanupLevel.LIGHT -> str("cleanup_light_desc")
-                                AutoCleanupLevel.MEDIUM -> str("cleanup_full_desc")
+                                AutoCleanupLevel.RAW -> str("cleanup_raw_desc")
+                                AutoCleanupLevel.CLEAN -> str("cleanup_clean_desc")
+                                AutoCleanupLevel.POLISH -> str("cleanup_polish_desc")
                             }
-                            Text(cleanupDesc, fontSize = 12.sp, color = DarkInkMuted)
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = DarkSurfaceSunken,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = cleanupDesc,
+                                    fontSize = 12.5.sp,
+                                    color = DarkInkMuted,
+                                    lineHeight = 17.sp,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                                )
+                            }
                         }
 
                         FlowHairline()
@@ -1447,32 +1468,63 @@ fun MainScreen(
                         FlowHairline()
 
                         // Row 4: Live Transcription Preview (§Gate 3)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(str("live_transcription_preview"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(str("live_transcription_preview_desc"), fontSize = 12.sp, color = DarkInkMuted, lineHeight = 16.sp)
-                            }
-                            Switch(
-                                checked = enableLiveTranscriptionPreview,
-                                onCheckedChange = {
-                                    enableLiveTranscriptionPreview = it
-                                    prefs.enableLiveTranscriptionPreview = it
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
+                        Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                    Text(str("live_transcription_preview"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = DarkInk)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(str("live_transcription_preview_desc"), fontSize = 12.sp, color = DarkInkMuted, lineHeight = 16.sp)
+                                }
+                                Switch(
+                                    checked = enableLiveTranscriptionPreview,
+                                    onCheckedChange = {
+                                        enableLiveTranscriptionPreview = it
+                                        prefs.enableLiveTranscriptionPreview = it
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = DarkInkOnAccent,
+                                        checkedTrackColor = DarkInk,
+                                        uncheckedThumbColor = DarkInkMuted,
+                                        uncheckedTrackColor = DarkSurfaceSunken,
+                                        uncheckedBorderColor = DarkHairline
+                                    )
                                 )
-                            )
+                            }
+
+                            if (enableLiveTranscriptionPreview) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = if (isBn) "প্রিভিউ ভাষা" else "Preview language",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = DarkInk
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                val previewLangLabels = if (isBn) listOf("ইংরেজি", "বাংলা", "অটো") else listOf("English", "বাংলা", "Auto")
+                                val currentPreviewLangIdx = when (livePreviewLanguage) {
+                                    PreferencesManager.LivePreviewLanguage.ENGLISH -> 0
+                                    PreferencesManager.LivePreviewLanguage.BANGLA -> 1
+                                    PreferencesManager.LivePreviewLanguage.AUTO -> 2
+                                }
+                                FlowSegmentedControl(
+                                    items = previewLangLabels,
+                                    selectedIndex = currentPreviewLangIdx,
+                                    onSelect = { idx ->
+                                        val newLang = when (idx) {
+                                            0 -> PreferencesManager.LivePreviewLanguage.ENGLISH
+                                            1 -> PreferencesManager.LivePreviewLanguage.BANGLA
+                                            else -> PreferencesManager.LivePreviewLanguage.AUTO
+                                        }
+                                        livePreviewLanguage = newLang
+                                        prefs.livePreviewLanguage = newLang
+                                        notifyServiceSettingsChanged(context)
+                                    }
+                                )
+                            }
                         }
                     }
                 }

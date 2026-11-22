@@ -1038,7 +1038,7 @@ class TextInjectorAccessibilityService : AccessibilityService() {
             com.flowbangla.app.api.TlsPrewarmer.prewarm(FlowBanglaApp.instance.preferencesManager)
             keyboardStripController?.updateKeyboardVisibilityAndPosition(
                 isKeyboardOpen = true,
-                keyboardTopY = snapshot.keyboardTopY,
+                keyboardTopY = snapshot.toolbarRowTopY,
                 isMeasuredIme = snapshot.isMeasuredImeWindow
             )
         }

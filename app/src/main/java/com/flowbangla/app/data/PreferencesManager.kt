@@ -152,14 +152,35 @@ class PreferencesManager(context: Context) {
 
     var autoCleanupLevel: com.flowbangla.app.format.AutoCleanupLevel
         get() {
-            val name = prefs.getString(KEY_AUTO_CLEANUP_LEVEL, com.flowbangla.app.format.AutoCleanupLevel.MEDIUM.name)
-            return try {
-                com.flowbangla.app.format.AutoCleanupLevel.valueOf(name ?: com.flowbangla.app.format.AutoCleanupLevel.MEDIUM.name)
-            } catch (_: Exception) {
-                com.flowbangla.app.format.AutoCleanupLevel.MEDIUM
-            }
+            val name = prefs.getString(KEY_AUTO_CLEANUP_LEVEL, com.flowbangla.app.format.AutoCleanupLevel.CLEAN.name)
+            return com.flowbangla.app.format.AutoCleanupLevel.fromString(name)
         }
         set(value) = prefs.edit().putString(KEY_AUTO_CLEANUP_LEVEL, value.name).apply()
+
+    var formattingLevel: com.flowbangla.app.format.AutoCleanupLevel
+        get() = autoCleanupLevel
+        set(value) { autoCleanupLevel = value }
+
+    enum class LivePreviewLanguage(val id: String) {
+        ENGLISH("en"),
+        BANGLA("bn"),
+        AUTO("auto");
+
+        companion object {
+            fun fromId(id: String?): LivePreviewLanguage = entries.find { it.id.equals(id, ignoreCase = true) || it.name.equals(id, ignoreCase = true) } ?: AUTO
+        }
+    }
+
+    var livePreviewLanguage: LivePreviewLanguage
+        get() {
+            val name = prefs.getString("live_preview_language", LivePreviewLanguage.AUTO.name)
+            return try {
+                LivePreviewLanguage.valueOf(name ?: LivePreviewLanguage.AUTO.name)
+            } catch (_: Exception) {
+                LivePreviewLanguage.AUTO
+            }
+        }
+        set(value) = prefs.edit().putString("live_preview_language", value.name).apply()
 
     var appearanceTheme: String
         get() = prefs.getString(KEY_APPEARANCE_THEME, "dark") ?: "dark"

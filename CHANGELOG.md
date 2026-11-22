@@ -4,6 +4,26 @@ All notable changes to the Flow voice dictation app for Android will be document
 
 ---
 
+## [5.2.0] - 2026-11-22 (Build 28)
+### Added
+- **Emoji-Bar Adaptive Inline Alignment**:
+  - Implemented 2-layer self-calibrating toolbar row anchor in `KeyboardVisibilityDetector.kt` and `TextInjectorAccessibilityService.kt`.
+  - Layer A: Direct lookup of Gboard's right-side voice/menu button inside `imeWindow.root` (`key_pos_header_voice_input` / `key_pos_header_access_points_menu`).
+  - Layer B: Automatic Emoji-Bar Height-Delta calibration (`baseline_std_ime_height_px`). When Gboard shows its ~44dp Emoji Quick Bar in WhatsApp, Facebook, or Messenger, Flow shifts `toolbarRowTopY` past the emoji row to dock dead-center onto Gboard's `[⊞ ... 🎤]` toolbar row!
+- **Smart Automatic Paragraphing (English & Bangla)**:
+  - Added `SMART_PARAGRAPH_RULE` to `CLEAN` and `POLISH` modes in `PromptBuilder.kt`. Any speech > 40 words (or 3+ sentences) automatically breaks into clean, scannable 2–4 sentence paragraphs at topic shifts and discourse transitions.
+  - In `FormattingChain.kt`, dictations > 30 words in `CLEAN` or `POLISH` mode run through the fast cloud text formatter (Gemini Flash Lite / Groq) to ensure paragraphs are generated for long speech.
+- **Human-Readable 3-Tier Formatting Modes**:
+  - Replaced ambiguous `Off / Light / Full` with `RAW` (`Raw` / `হুবহু`), `CLEAN` (`Clean` / `পরিষ্কার`, default), and `POLISH` (`Polish` / `নিখুঁত`).
+  - Added dynamic 2-line explainer card in `MainActivity.kt` under "Voice and polish" detailing what each level does.
+  - In `POLISH` mode, fixes broken grammar/tenses, inserts dropped helper words, and replaces contextually awkward or misheard words.
+- **True Zero-Lag Live Transcription**:
+  - Created `DeepgramLiveStreamer.kt` connecting directly to `wss://api.deepgram.com/v1/listen` via WebSocket.
+  - Added real-time PCM frame streaming callback in `AudioRecorder.kt` (`onPcmFrame`) feeding live binary frames with <150ms interim results without mic contention or extra HTTP polling.
+  - Added 3-way **Preview language** selector (`English` | `বাংলা` | `Auto`) directly under the Live Preview switch in `MainActivity.kt`.
+
+---
+
 ## [5.1.0] - 2026-11-21 (Build 27)
 ### Added
 - **Crisp Superscript `PAID` Editorial Badges**:

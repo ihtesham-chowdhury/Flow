@@ -403,4 +403,25 @@ class KeyboardVisibilityDetectorTest {
             )
         )
     }
+
+    @Test
+    fun testEmojiBarOffsetCalculation() {
+        val density = 2.0f
+        val baselineH = (300 * density).toInt() // 600px
+
+        // Case 1: Standard Gboard (Gemini, Keep) - same height -> 0px offset
+        val standardH = (300 * density).toInt()
+        assertEquals(0, KeyboardVisibilityDetector.calculateEmojiBarOffsetPx(standardH, baselineH, density))
+
+        // Case 2: Gboard with ~44dp Emoji Quick Bar (WhatsApp, Facebook) -> 44dp * 2.0 = 88px offset
+        val emojiBarH = (344 * density).toInt()
+        assertEquals(88, KeyboardVisibilityDetector.calculateEmojiBarOffsetPx(emojiBarH, baselineH, density))
+
+        // Case 3: Out of range delta (e.g. 100dp delta or 10dp delta) -> ignored (0px)
+        val giantDeltaH = (410 * density).toInt()
+        assertEquals(0, KeyboardVisibilityDetector.calculateEmojiBarOffsetPx(giantDeltaH, baselineH, density))
+
+        val tinyDeltaH = (310 * density).toInt()
+        assertEquals(0, KeyboardVisibilityDetector.calculateEmojiBarOffsetPx(tinyDeltaH, baselineH, density))
+    }
 }

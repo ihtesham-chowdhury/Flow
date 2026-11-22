@@ -36,7 +36,7 @@ class FormattingChain(
         )
 
         fun shouldUseInstantLocalFastPath(rawTranscript: String, cleanupLevel: AutoCleanupLevel): Boolean {
-            if (cleanupLevel == AutoCleanupLevel.NONE) return true
+            if (cleanupLevel == AutoCleanupLevel.RAW) return true
             val words = rawTranscript.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
             // Only use instant local fast-path for ultra-short (<= 3 words) utterances
             // that contain ZERO backtrack, negation, or list-building triggers!
@@ -122,7 +122,11 @@ class FormattingChain(
             prefs.engineMode == EngineMode.CLOUD_AUDIO
 
         val hasComplexBacktrack = BACKTRACK_OR_LIST_CUE_REGEX.containsMatchIn(workingTranscript)
-        val requiresSecondLlmPass = isSmartCandidate && (wordCount in 4..35) && hasComplexBacktrack && prefs.smartPolishEnabled
+        // In CLEAN or POLISH mode, dictations > 30 words MUST run through the LLM formatter
+        // so Smart Paragraphing (\n\n) and POLISH grammar repair execute on long speech!
+        val requiresSecondLlmPass = (prefs.autoCleanupLevel == AutoCleanupLevel.CLEAN || prefs.autoCleanupLevel == AutoCleanupLevel.POLISH) &&
+            prefs.smartPolishEnabled &&
+            (hasComplexBacktrack || wordCount > 30)
 
         if (isSmartCandidate && !requiresSecondLlmPass) {
             val resolvedBacktracks = LocalBacktrackResolver.resolveOfflineBacktracks(workingTranscript)

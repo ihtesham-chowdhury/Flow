@@ -13,7 +13,8 @@ data class KeyboardStateSnapshot(
     val isRestrictedFieldOrApp: Boolean,
     val matchedSignal: String = "NONE",
     val isMeasuredImeWindow: Boolean = false,
-    val isPhysicalKeyboardOnScreen: Boolean = false
+    val isPhysicalKeyboardOnScreen: Boolean = false,
+    val toolbarRowTopY: Int = keyboardTopY
 )
 
 object KeyboardVisibilityDetector {
@@ -169,6 +170,9 @@ object KeyboardVisibilityDetector {
         var hasKnownKeyboard = false
         var knownKeyboardHeight = 0
 
+        var matchedImeWindow: AccessibilityWindowInfo? = null
+        val matchedImeRect = Rect()
+
         val rect = Rect()
         for (window in windows) {
             if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
@@ -181,6 +185,8 @@ object KeyboardVisibilityDetector {
                     hasTypeInputMethod = true
                     typeInputMethodHeight = h
                     typeInputMethodBottom = rect.bottom
+                    matchedImeWindow = window
+                    matchedImeRect.set(rect)
                     break
                 }
             }
@@ -198,6 +204,8 @@ object KeyboardVisibilityDetector {
                     ) {
                         hasKnownKeyboard = true
                         knownKeyboardHeight = h
+                        matchedImeWindow = window
+                        matchedImeRect.set(rect)
                         break
                     }
                 }
@@ -256,16 +264,24 @@ object KeyboardVisibilityDetector {
             savedImeTopY = savedImeTopY
         )
 
-        if (snapshot.isPhysicalKeyboardOnScreen && snapshot.isMeasuredImeWindow &&
-            snapshot.keyboardTopY in (screenHeight / 4)..(screenHeight - minKeyboardHeightPx / 2)
+        val toolbarRowTopY = if (matchedImeWindow != null && snapshot.isPhysicalKeyboardOnScreen) {
+            computeToolbarRowTopY(context, matchedImeWindow, matchedImeRect, density)
+        } else {
+            snapshot.keyboardTopY
+        }
+
+        val finalSnapshot = snapshot.copy(toolbarRowTopY = toolbarRowTopY)
+
+        if (finalSnapshot.isPhysicalKeyboardOnScreen && finalSnapshot.isMeasuredImeWindow &&
+            finalSnapshot.keyboardTopY in (screenHeight / 4)..(screenHeight - minKeyboardHeightPx / 2)
         ) {
-            imePrefs.edit().putInt("verified_ime_top_y", snapshot.keyboardTopY).apply()
+            imePrefs.edit().putInt("verified_ime_top_y", finalSnapshot.keyboardTopY).apply()
             try {
-                com.flowbangla.app.FlowBanglaApp.instance.preferencesManager.verifiedImeTopYPortrait = snapshot.keyboardTopY
+                com.flowbangla.app.FlowBanglaApp.instance.preferencesManager.verifiedImeTopYPortrait = finalSnapshot.keyboardTopY
             } catch (_: Throwable) {}
         }
 
-        return snapshot
+        return finalSnapshot
     }
 
     fun isRestrictedPackage(packageName: String): Boolean {
@@ -309,5 +325,93 @@ object KeyboardVisibilityDetector {
         isKeyboardVisible: Boolean
     ): Boolean {
         return wasKeyboardVisible && !isKeyboardVisible
+    }
+
+    fun calculateEmojiBarOffsetPx(currentH: Int, baselineH: Int, density: Float): Int {
+        val deltaPx = currentH - baselineH
+        return if (deltaPx in (28f * density).toInt()..(64f * density).toInt()) {
+            deltaPx
+        } else {
+            0
+        }
+    }
+
+    fun findGboardToolbarAnchorNode(
+        root: AccessibilityNodeInfo,
+        maxNodes: Int = 25
+    ): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var count = 0
+
+        while (queue.isNotEmpty() && count < maxNodes) {
+            val node = queue.removeFirst()
+            count++
+
+            val viewId = try { node.viewIdResourceName.orEmpty() } catch (_: Throwable) { "" }
+            val desc = try { node.contentDescription?.toString().orEmpty() } catch (_: Throwable) { "" }
+
+            if (viewId.contains("key_pos_header_voice_input", ignoreCase = true) ||
+                viewId.contains("key_pos_header_access_points_menu", ignoreCase = true) ||
+                desc.contains("Voice typing", ignoreCase = true) ||
+                desc.contains("Open features menu", ignoreCase = true)
+            ) {
+                return node
+            }
+
+            for (i in 0 until node.childCount) {
+                val child = try { node.getChild(i) } catch (_: Throwable) { null }
+                if (child != null) {
+                    queue.add(child)
+                }
+            }
+        }
+        return null
+    }
+
+    fun computeToolbarRowTopY(
+        context: Context,
+        imeWindow: AccessibilityWindowInfo?,
+        imeRect: Rect,
+        density: Float
+    ): Int {
+        // Layer A: Direct Gboard Toolbar Node Lookup Inside imeWindow.root
+        if (imeWindow != null) {
+            try {
+                val root = imeWindow.root
+                if (root != null) {
+                    val toolbarNode = findGboardToolbarAnchorNode(root, maxNodes = 25)
+                    if (toolbarNode != null) {
+                        val r = Rect()
+                        toolbarNode.getBoundsInScreen(r)
+                        if (r.top >= imeRect.top && r.top <= imeRect.top + (70f * density).toInt()) {
+                            return r.top
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // Layer B: Automatic Emoji-Bar Height-Delta Calibration
+        val prefs = context.getSharedPreferences("flow_ime_geometry", Context.MODE_PRIVATE)
+        val currentH = imeRect.height()
+        val minValidH = (210f * density).toInt()
+        val savedBaselineH = prefs.getInt("baseline_std_ime_height_px", 0)
+
+        val baselineH = when {
+            savedBaselineH < minValidH -> {
+                prefs.edit().putInt("baseline_std_ime_height_px", currentH).apply()
+                currentH
+            }
+            currentH < savedBaselineH && currentH >= minValidH -> {
+                // Found true standard height (without Emoji bar!) -> update baseline
+                prefs.edit().putInt("baseline_std_ime_height_px", currentH).apply()
+                currentH
+            }
+            else -> savedBaselineH
+        }
+
+        val emojiBarOffsetPx = calculateEmojiBarOffsetPx(currentH, baselineH, density)
+        return imeRect.top + emojiBarOffsetPx
     }
 }

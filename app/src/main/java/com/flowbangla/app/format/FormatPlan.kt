@@ -10,6 +10,6 @@ data class FormatPlan(
     val outputScript: OutputScript = OutputScript.AS_SPOKEN,
     val protectedTokens: Set<String> = emptySet(),
     val isAutoDetected: Boolean = true,
-    val cleanupLevel: AutoCleanupLevel = AutoCleanupLevel.MEDIUM,
+    val cleanupLevel: AutoCleanupLevel = AutoCleanupLevel.CLEAN,
     val appCategory: String = "OTHER"
 )

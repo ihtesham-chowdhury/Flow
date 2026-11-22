@@ -7,10 +7,24 @@ package com.flowbangla.app.format
  * - MEDIUM: Full Wispr Flow magic: also strips spoken meta-scaffolding ("I'm saying that", "for example" when used as filler).
  */
 enum class AutoCleanupLevel {
-    NONE,
-    LIGHT,
-    MEDIUM
+    RAW,
+    CLEAN,
+    POLISH;
+
+    companion object {
+        val NONE = RAW
+        val LIGHT = CLEAN
+        val MEDIUM = POLISH
+
+        fun fromString(name: String?): AutoCleanupLevel = when (name?.uppercase()) {
+            "RAW", "NONE", "OFF" -> RAW
+            "POLISH", "FULL" -> POLISH
+            "CLEAN", "LIGHT", "MEDIUM" -> CLEAN
+            else -> CLEAN
+        }
+    }
 }
+typealias FormattingLevel = AutoCleanupLevel
 
 /**
  * PromptBuilder for Flow v3.3.0 Wispr Flow-grade text formatting & backtrack resolution.
@@ -72,12 +86,27 @@ object PromptBuilder {
            - Native Punctuation: Use '।' (danda) at the end of Bengali declarative sentences, and '.' at the end of English declarative sentences.
     """.trimIndent()
 
+    private val SMART_PARAGRAPH_RULE = """
+SMART PARAGRAPHING (MANDATORY FOR LONG SPEECH IN BOTH ENGLISH & BANGLA):
+- If the dictation is longer than ~40 words (or 3+ sentences), NEVER dump it as one giant block of text!
+- Insert a blank line (\n\n) whenever the speaker shifts to a new point, example, or sub-topic (e.g., "Another thing...", "Next...", "Also...", "Now...", "আরেকটা বিষয়...", "দ্বিতীয়ত...", "এখন...", "তাছাড়া...").
+- Aim for clean, scannable paragraphs of 2 to 4 sentences each, just like Wispr Flow.
+""".trimIndent()
+
+    private val POLISH_GRAMMAR_AND_WORD_REPAIR_RULE = """
+POLISH MODE — SMART GRAMMAR & CONTEXTUAL WORD REPAIR:
+- Fix broken grammar and verb tenses in both English and Bangla.
+- Insert missing small grammatical elements naturally (e.g., "is", "are", "was", "to", "the", "a" in English; natural vibhakti/postpositions in Bangla) when the speaker dropped them while speaking fast.
+- If a single word or short phrase clearly does not fit the sentence context (due to an acoustic mishearing or slip of the tongue), replace it with the exact intended word (e.g., "floor app" -> "Flow app", "G boot" -> "Gboard").
+- Smooth awkward half-sentences so they read cleanly and professionally, while strictly preserving 100% of the speaker's original meaning, intent, and language mix (do NOT translate between Bangla and English, do NOT summarize, and do NOT answer questions).
+""".trimIndent()
+
     fun buildSystemPrompt(
         numeralPreference: NumeralPreference = NumeralPreference.WESTERN,
         outputScript: OutputScript = OutputScript.AS_SPOKEN,
         explicitMode: FormattingMode = FormattingMode.AUTO,
         customVocabulary: Set<String> = emptySet(),
-        cleanupLevel: AutoCleanupLevel = AutoCleanupLevel.MEDIUM,
+        cleanupLevel: AutoCleanupLevel = AutoCleanupLevel.CLEAN,
         appCategory: String = "OTHER"
     ): String = buildString {
         appendLine(WISPR_FLOW_CORE_SYSTEM_PROMPT)
@@ -106,9 +135,21 @@ object PromptBuilder {
         appendLine()
 
         when (cleanupLevel) {
-            AutoCleanupLevel.NONE -> appendLine("CLEANUP LEVEL: NONE. Output the verbatim words with basic punctuation only.")
-            AutoCleanupLevel.LIGHT -> appendLine("CLEANUP LEVEL: LIGHT. Remove fillers, resolve all Backtrack self-corrections, and format lists/punctuation without rephrasing clauses.")
-            AutoCleanupLevel.MEDIUM -> appendLine("CLEANUP LEVEL: MEDIUM. Remove fillers, resolve all Backtrack topic/item self-corrections, strip redundant meta-chatter ('I'm saying that', false starts), and format lists cleanly.")
+            AutoCleanupLevel.RAW -> {
+                appendLine("FORMATTING LEVEL: RAW. Output the verbatim words with basic punctuation only. Do not remove fillers, do not reword, and do not break into paragraphs.")
+            }
+            AutoCleanupLevel.CLEAN -> {
+                appendLine("FORMATTING LEVEL: CLEAN (DEFAULT). Remove fillers (um, uh, উম), resolve all Backtrack self-corrections, structure lists, and break long speech into clean paragraphs at topic transitions. Keep the speaker's exact wording.")
+                appendLine()
+                appendLine(SMART_PARAGRAPH_RULE)
+            }
+            AutoCleanupLevel.POLISH -> {
+                appendLine("FORMATTING LEVEL: POLISH (HIGHEST LEVEL). Everything in Clean, PLUS fix broken grammar, insert missing helper words (is, are, the, to, Bangla vibhakti), replace contextually awkward/misheard words, and smooth bumpy half-sentences.")
+                appendLine()
+                appendLine(SMART_PARAGRAPH_RULE)
+                appendLine()
+                appendLine(POLISH_GRAMMAR_AND_WORD_REPAIR_RULE)
+            }
         }
         appendLine("ACTIVE APP CONTEXT: $appCategory")
 

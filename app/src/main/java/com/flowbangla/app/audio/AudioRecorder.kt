@@ -48,6 +48,7 @@ class AudioRecorder(private val context: Context) {
     private var startTimeMillis: Long = 0L
 
     var onAmplitudeChanged: ((amplitude: Float, durationMs: Long) -> Unit)? = null
+    var onPcmFrame: ((pcmBytes: ByteArray, length: Int) -> Unit)? = null
 
     @SuppressLint("MissingPermission")
     @Synchronized
@@ -133,6 +134,9 @@ class AudioRecorder(private val context: Context) {
                     synchronized(liveSlicePcmStream) {
                         liveSlicePcmStream.write(byteBuf, 0, bytesCount)
                     }
+                    try {
+                        onPcmFrame?.invoke(byteBuf, bytesCount)
+                    } catch (_: Throwable) {}
                 }
             }
         }
