@@ -83,6 +83,9 @@ class TextInjectorAccessibilityService : AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private var wasPhysicalKeyboardOpen = false
+    private var settleResyncRunnable: Runnable? = null
+
     var onKeyboardVisibilityChanged: ((isKeyboardVisible: Boolean) -> Unit)? = null
 
     @Volatile
@@ -1026,6 +1029,18 @@ class TextInjectorAccessibilityService : AccessibilityService() {
         val isPhysicalOpen = snapshot.isPhysicalKeyboardOnScreen && !snapshot.isRestrictedFieldOrApp
         val verifiedTopY = FlowBanglaApp.instance.preferencesManager.verifiedImeTopYPortrait
         val isSlidingDown = verifiedTopY > 0 && snapshot.keyboardTopY > (verifiedTopY + (15f * resources.displayMetrics.density).toInt())
+
+        val justOpened = !wasPhysicalKeyboardOpen && isPhysicalOpen
+        wasPhysicalKeyboardOpen = isPhysicalOpen
+
+        if (justOpened) {
+            settleResyncRunnable?.let { mainHandler.removeCallbacks(it) }
+            val runnable = Runnable {
+                syncKeyboardVisibilityWithBubble()
+            }
+            settleResyncRunnable = runnable
+            mainHandler.postDelayed(runnable, 240L)
+        }
 
         FloatingBubbleService.instance?.onKeyboardVisibilityChanged(
             keyboardVisible = snapshot.isKeyboardVisible && !isSlidingDown,

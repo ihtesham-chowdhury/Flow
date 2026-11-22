@@ -1,6 +1,6 @@
-# Flow v5.2.0 — System Architecture & Technical Specifications
+# Flow v5.3.0 — System Architecture & Technical Specifications
 
-> **Target Version**: Flow v5.2.0 (Build 28)  
+> **Target Version**: Flow v5.3.0 (Build 29)  
 > **Status**: Production Architecture  
 > **Operating System**: Android 8.0+ (API 26–35)
 

@@ -156,14 +156,29 @@ class FormattingChain(
         try {
             when (prefs.engineMode) {
                 EngineMode.CLOUD_AUDIO -> {
-                    // Try formatting across enabled providers in priority order: Groq (ultra-fast) -> Gemini
-                    if (prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) {
-                        envelope = groqFormatter.formatText(workingTranscript, plan)
-                        if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
-                    }
-                    if (envelope == null && prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank()) {
-                        envelope = geminiFormatter.formatText(workingTranscript, plan)
-                        if (envelope != null) formattingSource = FormattingSource.GEMINI_CLOUD
+                    val hasBengali = workingTranscript.any { it in '\u0980'..'\u09FF' }
+                    val preferGeminiFirst = hasBengali || recognitionSource == RecognitionSource.GEMINI_TRANSCRIBE
+
+                    if (preferGeminiFirst) {
+                        // For Bangla or Gemini transcripts, prioritize Gemini for formatting accuracy
+                        if (prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank()) {
+                            envelope = geminiFormatter.formatText(workingTranscript, plan)
+                            if (envelope != null) formattingSource = FormattingSource.GEMINI_CLOUD
+                        }
+                        if (envelope == null && prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) {
+                            envelope = groqFormatter.formatText(workingTranscript, plan)
+                            if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
+                        }
+                    } else {
+                        // For pure English, prioritize Groq for ultra-fast formatting
+                        if (prefs.isGroqEnabled && prefs.groqApiKey.isNotBlank()) {
+                            envelope = groqFormatter.formatText(workingTranscript, plan)
+                            if (envelope != null) formattingSource = FormattingSource.GROQ_CLOUD
+                        }
+                        if (envelope == null && prefs.isGeminiEnabled && prefs.geminiApiKey.isNotBlank()) {
+                            envelope = geminiFormatter.formatText(workingTranscript, plan)
+                            if (envelope != null) formattingSource = FormattingSource.GEMINI_CLOUD
+                        }
                     }
                 }
                 EngineMode.HYBRID_CLOUD_POLISH -> {

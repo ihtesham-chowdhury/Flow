@@ -1180,6 +1180,7 @@ class FloatingBubbleService : Service() {
 
     private fun startLivePreviewIfEnabled() {
         livePreviewJob?.cancel()
+        livePreviewJob = null
         deepgramLiveStreamer?.close()
         deepgramLiveStreamer = null
         audioRecorder.onPcmFrame = null
@@ -1194,7 +1195,10 @@ class FloatingBubbleService : Service() {
         livePreviewController?.updateLiveText("", anchorY)
 
         val prefs = FlowBanglaApp.instance.preferencesManager
-        if (prefs.isDeepgramEnabled && prefs.deepgramApiKey.trim().isNotEmpty()) {
+        val cleanDeepgramKey = prefs.deepgramApiKey.trim()
+
+        // PRIORITY 1: Deepgram Nova-3 Live WebSocket (Whenever API key is saved, zero mic conflict)
+        if (cleanDeepgramKey.isNotEmpty()) {
             val previewLang = when (prefs.livePreviewLanguage) {
                 PreferencesManager.LivePreviewLanguage.ENGLISH -> com.flowbangla.app.api.SpeechLang.ENGLISH
                 PreferencesManager.LivePreviewLanguage.BANGLA -> com.flowbangla.app.api.SpeechLang.BANGLA
@@ -1210,7 +1214,7 @@ class FloatingBubbleService : Service() {
             try {
                 deepgramLiveStreamer = com.flowbangla.app.api.DeepgramLiveStreamer(
                     http = okHttpClient,
-                    rawApiKey = prefs.deepgramApiKey,
+                    rawApiKey = cleanDeepgramKey,
                     onLiveTextUpdated = { liveText ->
                         mainHandler.post {
                             if (currentState is TranscriptionState.Recording) {
@@ -1227,6 +1231,49 @@ class FloatingBubbleService : Service() {
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Deepgram Live Streamer start error: ${t.message}")
+            }
+        } else if (prefs.groqApiKey.isNotBlank() || prefs.geminiApiKey.isNotBlank()) {
+            // PRIORITY 2: Paced 3.2-second cloud PCM slice preview (No Deepgram key saved)
+            val previewLang = prefs.livePreviewLanguage
+            val accumulated = StringBuilder()
+            livePreviewJob = serviceScope.launch(Dispatchers.IO) {
+                while (isActive && currentState is TranscriptionState.Recording) {
+                    delay(3_200L)
+                    if (!isActive || currentState !is TranscriptionState.Recording) break
+                    val sliceFile = try { audioRecorder.drainLatestLiveSliceWavFile() } catch (_: Throwable) { null } ?: continue
+                    try {
+                        val piece = when (previewLang) {
+                            PreferencesManager.LivePreviewLanguage.ENGLISH -> {
+                                if (prefs.groqApiKey.isNotBlank()) {
+                                    groqWhisperClient.transcribeAudio(sliceFile, prefs.groqApiKey.trim()).text
+                                } else if (prefs.geminiApiKey.isNotBlank()) {
+                                    geminiInteractionsAdapter.transcribeAudioFile(sliceFile, prefs.geminiApiKey.trim()).text
+                                } else ""
+                            }
+                            PreferencesManager.LivePreviewLanguage.BANGLA, PreferencesManager.LivePreviewLanguage.AUTO -> {
+                                if (prefs.geminiApiKey.isNotBlank()) {
+                                    geminiInteractionsAdapter.transcribeAudioFile(sliceFile, prefs.geminiApiKey.trim()).text
+                                } else if (prefs.groqApiKey.isNotBlank()) {
+                                    groqWhisperClient.transcribeAudio(sliceFile, prefs.groqApiKey.trim()).text
+                                } else ""
+                            }
+                        }
+                        if (piece.isNotBlank()) {
+                            if (accumulated.isNotEmpty() && !accumulated.endsWith(" ")) accumulated.append(" ")
+                            accumulated.append(piece.trim())
+                            val currentText = accumulated.toString()
+                            withContext(Dispatchers.Main) {
+                                if (currentState is TranscriptionState.Recording) {
+                                    val curAnchorY = getCurrentRecordingSurfaceTopY()
+                                    livePreviewController?.updateLiveText(currentText, curAnchorY)
+                                }
+                            }
+                        }
+                    } catch (_: Throwable) {
+                    } finally {
+                        try { sliceFile.delete() } catch (_: Throwable) {}
+                    }
+                }
             }
         }
     }

@@ -90,6 +90,14 @@ class SmartProviderRouter(
             if (isGeminiEnabled && geminiApiKey.trim().isNotEmpty()) list.add(ProviderId.GEMINI)
             return list
         }
+
+        fun shouldRerouteToGemini(groqRes: GroqVerboseResult): Boolean {
+            val bengaliChars = groqRes.text.count { it in '\u0980'..'\u09FF' }
+            return (groqRes.detectedLanguage != "english" && groqRes.detectedLanguage.isNotBlank() && groqRes.detectedLanguage != "unknown") ||
+                (bengaliChars >= 2) ||
+                (groqRes.avgLogProb < -0.68) ||
+                com.flowbangla.app.format.GibberishAndHallucinationGuard.isHallucinatedOrCorrupted(groqRes.text)
+        }
     }
 
     fun getSpeechLangFromContext(surroundingTextBeforeCursor: String = ""): SpeechLang {
@@ -175,15 +183,46 @@ class SmartProviderRouter(
 
                     ProviderId.GROQ -> {
                         val key = prefs.groqApiKey.trim()
-                        val res = groqWhisperClient.transcribeAudio(
-                            audioFile = audioFile,
-                            apiKey = key,
-                            customVocabulary = customVocab
-                        )
-                        val text = res.text.trim()
-                        if (text.isNotEmpty()) {
+                        val geminiReady = prefs.isGeminiEnabled && prefs.geminiApiKey.trim().isNotEmpty()
+
+                        val groqRes = try {
+                            groqWhisperClient.transcribeAudioVerbose(
+                                audioFile = audioFile,
+                                apiKey = key,
+                                customVocabulary = customVocab
+                            )
+                        } catch (t: Throwable) {
+                            null
+                        }
+
+                        if (groqRes != null) {
+                            val needsGeminiForBangla = shouldRerouteToGemini(groqRes)
+                            if (needsGeminiForBangla && geminiReady) {
+                                Log.i(TAG, "Smart Switch: Groq detected lang='${groqRes.detectedLanguage}', logprob=${groqRes.avgLogProb} -> routing to Gemini for Bangla/Mixed accuracy!")
+                                try {
+                                    val geminiKey = prefs.geminiApiKey.trim()
+                                    val geminiRes = geminiAdapter.transcribeAudioFile(
+                                        audioFile = audioFile,
+                                        rawApiKey = geminiKey,
+                                        customVocabulary = customVocab,
+                                        useVerbatimMode = false
+                                    )
+                                    if (geminiRes.text.isNotBlank()) {
+                                        healthTracker.recordSuccess("gemini", audioDurationSeconds)
+                                        return@withContext AsrExecutionResult(
+                                            transcript = geminiRes.text.trim(),
+                                            source = RecognitionSource.GEMINI_TRANSCRIBE,
+                                            alreadySmartFormatted = true
+                                        )
+                                    }
+                                } catch (e: Throwable) {
+                                    Log.w(TAG, "Gemini fallback failed after Groq Bangla detection: ${e.message}")
+                                }
+                            }
+
+                            val text = groqRes.text.trim()
                             val sanitized = com.flowbangla.app.format.GibberishAndHallucinationGuard.sanitizeCorruptedTokens(text)
-                            if (sanitized.isNotEmpty()) {
+                            if (sanitized.isNotEmpty() && !com.flowbangla.app.format.GibberishAndHallucinationGuard.isHallucinatedOrCorrupted(sanitized)) {
                                 healthTracker.recordSuccess(providerKey, audioDurationSeconds)
                                 return@withContext AsrExecutionResult(
                                     transcript = sanitized,

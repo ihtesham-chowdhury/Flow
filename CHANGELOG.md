@@ -4,6 +4,25 @@ All notable changes to the Flow voice dictation app for Android will be document
 
 ---
 
+## [5.3.0] - 2026-11-23 (Build 29)
+### Added
+- **Bottom-Anchored Invariant Inline Fix for Facebook & WhatsApp**:
+  - Replaced top-down calibration in `KeyboardVisibilityDetector.kt` with a 2-Tier Invariant Anchor.
+  - Tier 1: Direct BFS tree search (max 45 nodes) for Gboard's Voice button or the '1'/'১' number key (`toolbarRowTopY = key1Top - 44dp`).
+  - Tier 2: Bottom-Up Invariant Height Anchor measuring upward from `imeRect.bottom` (`(imeRect.bottom - stdBodyHeightPx)`). The distance from `imeRect.bottom` to the `[⊞ ... 🎤]` toolbar row is identical across all apps, guaranteeing that opening Facebook's comment sheet or WhatsApp with an Emoji Fast-Access Bar never shifts the inline mic button onto emojis!
+  - Added a `+240ms` settle re-sync in `TextInjectorAccessibilityService.kt` to lock the button cleanly after Facebook bottom-sheet comment modal animations settle.
+- **Groq `verbose_json` Automatic Language Detection & Gemini Smart Re-Route**:
+  - Implemented `transcribeAudioVerbose` in `GroqWhisperClient.kt` returning detected language, acoustic confidence (`avg_logprob`), and segments in ~180ms.
+  - In `SmartProviderRouter.kt`, when speaking Bangla with Smart Model Switching active, Groq detects non-English or low logprob, immediately discards Groq's transcript, and automatically re-transcribes with Gemini (`gemini-3.5-transcribe` / `gemini-3.5-flash-lite`) without requiring manual language toggles!
+  - In `FormattingChain.kt`, automatically prioritizes Gemini formatting for Bangla transcripts and Groq formatting for pure English.
+- **Zero-Conflict Live Transcription (English, Bangla & Auto)**:
+  - Fixed microphone handle contention: `OnDeviceSpeechRecognizer` is never run concurrently while `AudioRecorder` has the hardware microphone open.
+  - Priority 1: When a Deepgram API key is saved, live preview connects via `DeepgramLiveStreamer` (<150ms WebSocket streaming) regardless of whether Deepgram is toggled off for final dictation in the 5-provider roster.
+  - Priority 2: When no Deepgram key is saved, runs a paced 3.2-second rolling PCM slice loop routed to Groq Whisper Turbo for English or Gemini Flash Lite for Bangla/Auto.
+  - Instant 0ms cancellation on Confirm (`✓`) or Cancel (`✕`).
+
+---
+
 ## [5.2.0] - 2026-11-22 (Build 28)
 ### Added
 - **Emoji-Bar Adaptive Inline Alignment**:

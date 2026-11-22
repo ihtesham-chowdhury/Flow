@@ -336,6 +336,69 @@ object KeyboardVisibilityDetector {
         }
     }
 
+    fun computeBottomUpToolbarTop(
+        imeBottom: Int,
+        imeTop: Int,
+        stdBodyHeight: Int,
+        minValidHeight: Int
+    ): Int {
+        return (imeBottom - stdBodyHeight).coerceIn(imeTop, imeBottom - minValidHeight)
+    }
+
+    fun findExactToolbarTopFromImeTree(
+        root: AccessibilityNodeInfo,
+        imeRect: Rect,
+        density: Float,
+        maxNodes: Int = 45
+    ): Int? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        val r = Rect()
+        var numberOneKeyTop: Int? = null
+
+        while (queue.isNotEmpty() && visited < maxNodes) {
+            val node = queue.removeFirst()
+            visited++
+
+            val viewId = try { node.viewIdResourceName.orEmpty() } catch (_: Throwable) { "" }
+            val desc = try { node.contentDescription?.toString().orEmpty() } catch (_: Throwable) { "" }
+            val text = try { node.text?.toString().orEmpty() } catch (_: Throwable) { "" }
+
+            // 1. Exact match: Gboard's built-in Voice Typing button or Features Menu on the right end of the toolbar row!
+            if (viewId.contains("key_pos_header_voice", ignoreCase = true) ||
+                viewId.contains("key_pos_header_access_points_menu", ignoreCase = true) ||
+                desc.equals("Voice typing", ignoreCase = true) ||
+                desc.contains("Voice typing", ignoreCase = true) ||
+                desc.equals("Open features menu", ignoreCase = true)
+            ) {
+                try {
+                    node.getBoundsInScreen(r)
+                    if (r.top >= imeRect.top && r.height() in (20f * density).toInt()..(64f * density).toInt()) {
+                        return r.top
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            // 2. Backup exact match: The '1' key in the number row -> toolbar row is ALWAYS 44dp above it!
+            if (numberOneKeyTop == null && (text == "1" || text == "১") && node.isClickable) {
+                try {
+                    node.getBoundsInScreen(r)
+                    if (r.top > imeRect.top + (35f * density).toInt()) {
+                        numberOneKeyTop = r.top - (44f * density).toInt()
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            for (i in 0 until node.childCount) {
+                try {
+                    node.getChild(i)?.let { queue.add(it) }
+                } catch (_: Throwable) {}
+            }
+        }
+        return numberOneKeyTop
+    }
+
     fun findGboardToolbarAnchorNode(
         root: AccessibilityNodeInfo,
         maxNodes: Int = 25
@@ -375,43 +438,48 @@ object KeyboardVisibilityDetector {
         imeRect: Rect,
         density: Float
     ): Int {
-        // Layer A: Direct Gboard Toolbar Node Lookup Inside imeWindow.root
+        val prefs = context.getSharedPreferences("flow_ime_geometry", Context.MODE_PRIVATE)
+        val currentH = imeRect.height()
+        val minValidH = (220f * density).toInt()
+
+        // TIER 1: Direct lookup for Gboard's Voice button OR the '1' / 'Q' top key row
         if (imeWindow != null) {
             try {
                 val root = imeWindow.root
                 if (root != null) {
-                    val toolbarNode = findGboardToolbarAnchorNode(root, maxNodes = 25)
-                    if (toolbarNode != null) {
-                        val r = Rect()
-                        toolbarNode.getBoundsInScreen(r)
-                        if (r.top >= imeRect.top && r.top <= imeRect.top + (70f * density).toInt()) {
-                            return r.top
+                    val anchorY = findExactToolbarTopFromImeTree(root, imeRect, density, maxNodes = 45)
+                    if (anchorY != null) {
+                        val detectedBodyH = imeRect.bottom - anchorY
+                        if (detectedBodyH >= minValidH) {
+                            val savedH = prefs.getInt("std_kbd_body_height_px", 0)
+                            if (savedH < minValidH || detectedBodyH < savedH) {
+                                prefs.edit().putInt("std_kbd_body_height_px", detectedBodyH).apply()
+                            }
                         }
+                        return anchorY
                     }
                 }
             } catch (_: Throwable) {}
         }
 
-        // Layer B: Automatic Emoji-Bar Height-Delta Calibration
-        val prefs = context.getSharedPreferences("flow_ime_geometry", Context.MODE_PRIVATE)
-        val currentH = imeRect.height()
-        val minValidH = (210f * density).toInt()
-        val savedBaselineH = prefs.getInt("baseline_std_ime_height_px", 0)
+        // TIER 2: Bottom-Up Invariant Anchor from imeRect.bottom
+        // The distance from imeRect.bottom to the [⊞ ... 🎤] toolbar row NEVER changes,
+        // even when Facebook or WhatsApp adds a 44dp Emoji Fast-Access Bar on top!
+        val savedBodyH = prefs.getInt("std_kbd_body_height_px", 0)
 
-        val baselineH = when {
-            savedBaselineH < minValidH -> {
-                prefs.edit().putInt("baseline_std_ime_height_px", currentH).apply()
+        val stdBodyH = when {
+            savedBodyH < minValidH -> {
+                prefs.edit().putInt("std_kbd_body_height_px", currentH).apply()
                 currentH
             }
-            currentH < savedBaselineH && currentH >= minValidH -> {
-                // Found true standard height (without Emoji bar!) -> update baseline
-                prefs.edit().putInt("baseline_std_ime_height_px", currentH).apply()
+            currentH < savedBodyH && currentH >= minValidH -> {
+                // Discovered the true standard keyboard body height (without Emoji bar)
+                prefs.edit().putInt("std_kbd_body_height_px", currentH).apply()
                 currentH
             }
-            else -> savedBaselineH
+            else -> savedBodyH
         }
 
-        val emojiBarOffsetPx = calculateEmojiBarOffsetPx(currentH, baselineH, density)
-        return imeRect.top + emojiBarOffsetPx
+        return computeBottomUpToolbarTop(imeRect.bottom, imeRect.top, stdBodyH, minValidH)
     }
 }

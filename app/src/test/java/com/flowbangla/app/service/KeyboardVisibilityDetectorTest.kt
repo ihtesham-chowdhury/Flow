@@ -424,4 +424,37 @@ class KeyboardVisibilityDetectorTest {
         val tinyDeltaH = (310 * density).toInt()
         assertEquals(0, KeyboardVisibilityDetector.calculateEmojiBarOffsetPx(tinyDeltaH, baselineH, density))
     }
+
+    @Test
+    fun testBottomUpToolbarTopAnchor() {
+        val density = 2.0f
+        val minValidH = (220 * density).toInt() // 440px
+        val stdBodyH = (350 * density).toInt()  // 700px standard keyboard body
+
+        val imeBottom = 2000
+
+        // Case 1: Standard Gboard without emoji bar (e.g. Gemini, Keep)
+        // imeTop is 2000 - 700 = 1300px
+        val standardTop = imeBottom - stdBodyH
+        val targetTopStd = KeyboardVisibilityDetector.computeBottomUpToolbarTop(
+            imeBottom = imeBottom,
+            imeTop = standardTop,
+            stdBodyHeight = stdBodyH,
+            minValidHeight = minValidH
+        )
+        assertEquals(standardTop, targetTopStd)
+
+        // Case 2: Facebook / WhatsApp with 44dp (88px) Emoji Fast-Access Bar on top
+        // imeTop is 2000 - (700 + 88) = 1212px
+        val emojiBarTop = standardTop - (44 * density).toInt() // 1212px
+        val targetTopEmoji = KeyboardVisibilityDetector.computeBottomUpToolbarTop(
+            imeBottom = imeBottom,
+            imeTop = emojiBarTop,
+            stdBodyHeight = stdBodyH,
+            minValidHeight = minValidH
+        )
+        // Bottom-up anchor lands at 1300px (standardTop), which is exactly 44dp below emojiBarTop!
+        assertEquals(standardTop, targetTopEmoji)
+        assertEquals(emojiBarTop + (44 * density).toInt(), targetTopEmoji)
+    }
 }

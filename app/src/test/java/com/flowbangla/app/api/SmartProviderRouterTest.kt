@@ -218,4 +218,48 @@ class SmartProviderRouterTest {
         assertEquals(ProviderId.GEMINI, order[3])
         assertEquals(ProviderId.SARVAM, order[4])
     }
+
+    @Test
+    fun testGroqVerboseJsonReroutesBengaliToGemini() {
+        // Groq flags language as "bengali" -> must reroute
+        val result = GroqVerboseResult(
+            text = "Kemon achen bhai",
+            detectedLanguage = "bengali",
+            avgLogProb = -0.30
+        )
+        assertTrue(SmartProviderRouter.shouldRerouteToGemini(result))
+    }
+
+    @Test
+    fun testGroqVerboseJsonReroutesLowConfidenceToGemini() {
+        // Groq hallucinating or low acoustic confidence (avgLogProb < -0.68) -> must reroute
+        val result = GroqVerboseResult(
+            text = "something mumbled here",
+            detectedLanguage = "english",
+            avgLogProb = -0.85
+        )
+        assertTrue(SmartProviderRouter.shouldRerouteToGemini(result))
+    }
+
+    @Test
+    fun testGroqVerboseJsonReroutesBengaliScriptToGemini() {
+        // Bengali script in text -> must reroute to Gemini
+        val result = GroqVerboseResult(
+            text = "আমার সোনার বাংলা",
+            detectedLanguage = "english", // Even if misclassified as english
+            avgLogProb = -0.20
+        )
+        assertTrue(SmartProviderRouter.shouldRerouteToGemini(result))
+    }
+
+    @Test
+    fun testGroqVerboseJsonKeepsCleanEnglishOnGroq() {
+        // High confidence clean English -> keep on Groq
+        val result = GroqVerboseResult(
+            text = "Hello, this is a clean English dictation.",
+            detectedLanguage = "english",
+            avgLogProb = -0.15
+        )
+        assertFalse(SmartProviderRouter.shouldRerouteToGemini(result))
+    }
 }

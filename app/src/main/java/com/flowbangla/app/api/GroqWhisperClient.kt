@@ -19,6 +19,14 @@ data class GroqWhisperResult(
     val latencyMs: Long
 )
 
+data class GroqVerboseResult(
+    val text: String,
+    val detectedLanguage: String, // e.g., "english", "bengali", "hindi"
+    val avgLogProb: Double,       // e.g., -0.22 (confident) vs -0.85 (hallucinating/wrong language)
+    val modelId: String = "whisper-large-v3-turbo",
+    val latencyMs: Long = 0L
+)
+
 class GroqWhisperClient(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -118,5 +126,83 @@ class GroqWhisperClient(
         }
 
         throw lastException ?: FlowApiException(500, ErrorCategory.PROVIDER_SERVER_ERROR, "Groq transcription failed.")
+    }
+
+    suspend fun transcribeAudioVerbose(
+        audioFile: File,
+        apiKey: String,
+        customVocabulary: List<String> = emptyList()
+    ): GroqVerboseResult = withContext(Dispatchers.IO) {
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isBlank()) {
+            throw FlowApiException(400, ErrorCategory.AUTHENTICATION_FAILED, "Groq API key is empty.")
+        }
+
+        val meta = AudioFileInspector.inspectAndValidate(audioFile)
+        val model = MODEL_TURBO
+        val startMs = System.currentTimeMillis()
+
+        val asciiVocab = customVocabulary.filter { word ->
+            word.isNotBlank() && word.all { it.code < 128 }
+        }
+        val promptHint = if (asciiVocab.isNotEmpty()) {
+            asciiVocab.take(40).joinToString(", ").take(220)
+        } else ""
+
+        val fileBody = audioFile.asRequestBody(meta.verifiedMimeType.toMediaType())
+        val multipartBuilder = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", audioFile.name, fileBody)
+            .addFormDataPart("model", model)
+            .addFormDataPart("temperature", "0")
+            .addFormDataPart("response_format", "verbose_json")
+
+        if (promptHint.isNotBlank()) {
+            multipartBuilder.addFormDataPart("prompt", promptHint)
+        }
+
+        val request = Request.Builder()
+            .url(GROQ_TRANSCRIPTION_URL)
+            .header("Authorization", "Bearer $cleanKey")
+            .post(multipartBuilder.build())
+            .build()
+
+        try {
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful) {
+                    val root = JSONObject(body)
+                    val text = root.optString("text", "").trim()
+                    val lang = root.optString("language", "unknown").lowercase().trim()
+                    val segments = root.optJSONArray("segments")
+                    var avgLogProb = -0.20
+                    if (segments != null && segments.length() > 0) {
+                        var sum = 0.0
+                        for (i in 0 until segments.length()) {
+                            sum += segments.optJSONObject(i)?.optDouble("avg_logprob", -0.20) ?: -0.20
+                        }
+                        avgLogProb = sum / segments.length()
+                    }
+                    val latency = System.currentTimeMillis() - startMs
+                    Log.i(TAG, "Groq verbose transcription succeeded with $model in ${latency}ms (lang=$lang, avgLogProb=$avgLogProb)")
+                    return@withContext GroqVerboseResult(text, lang, avgLogProb, model, latency)
+                } else {
+                    val cat = when (response.code) {
+                        401, 403 -> ErrorCategory.AUTHENTICATION_FAILED
+                        429 -> ErrorCategory.QUOTA_EXCEEDED
+                        in 500..599 -> ErrorCategory.PROVIDER_SERVER_ERROR
+                        else -> ErrorCategory.REQUEST_REJECTED
+                    }
+                    val errMsg = try {
+                        JSONObject(body).optJSONObject("error")?.optString("message", "") ?: body.take(120)
+                    } catch (_: Exception) { body.take(120) }
+
+                    throw FlowApiException(response.code, cat, errMsg)
+                }
+            }
+        } catch (e: Exception) {
+            if (e is FlowApiException) throw e
+            throw FlowApiException(0, ErrorCategory.NETWORK_TIMEOUT, e.message ?: "Network error")
+        }
     }
 }
