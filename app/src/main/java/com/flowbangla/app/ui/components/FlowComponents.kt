@@ -2,7 +2,9 @@ package com.flowbangla.app.ui.components
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -13,18 +15,56 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowbangla.app.ui.theme.*
 
 /**
- * Premium Segmented Control according to FLOW_PREMIUM_REDESIGN_GUIDE.md §6.4:
- * - Track: DarkSurfaceSunken (#111316), 12dp radius, 4dp inner padding, 44dp height.
- * - Selected segment: DarkInk (#EEEBE3) fill, DarkInkOnAccent (#0D0E10) text, 10dp radius.
- * - Unselected segment: transparent, DarkInkMuted (#9EA3AB) text.
- * - Equal width segments, smooth 180ms sliding animation.
+ * Two-tone signature brand wordmark inspired by Dieter Rams / Widgets app ("Widg" + "ets"):
+ * "Fl" in inkPrimary (white in dark, black in light) + "ow" in vibrant Signal Red (#EA3829).
+ */
+@Composable
+fun FlowBrandWordmark(modifier: Modifier = Modifier) {
+    val colors = LocalFlowColors.current
+    Text(
+        text = buildAnnotatedString {
+            withStyle(
+                SpanStyle(
+                    color = colors.inkPrimary,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            ) {
+                append("Fl")
+            }
+            withStyle(
+                SpanStyle(
+                    color = colors.signalRed,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            ) {
+                append("ow")
+            }
+        },
+        fontFamily = FontFamily.SansSerif,
+        fontSize = 26.sp,
+        letterSpacing = (-0.8).sp,
+        modifier = modifier
+    )
+}
+
+/**
+ * Premium Segmented Control (Widgets App Inspired Full Capsule):
+ * - Track: surfaceSunken, full capsule (999dp), 1dp hairline border, 3dp padding.
+ * - Active indicator: signalRed pill with onSignalRed pure white text.
+ * - Inactive text: inkSecondary.
+ * - Non-wrapping 13sp medium text to prevent multi-line clipping on "Tap to start".
  */
 @Composable
 fun FlowSegmentedControl(
@@ -32,15 +72,17 @@ fun FlowSegmentedControl(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    height: Int = 44
+    height: Int = 42
 ) {
+    val colors = LocalFlowColors.current
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .height(height.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(DarkSurfaceSunken)
-            .padding(4.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(colors.surfaceSunken)
+            .border(1.dp, colors.hairline.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
+            .padding(3.dp)
     ) {
         val count = items.size.coerceAtLeast(1)
         val segmentWidth = maxWidth / count
@@ -51,14 +93,13 @@ fun FlowSegmentedControl(
         )
 
         // Animated sliding indicator pill
-        val accent = LocalAccentColor.current
         Box(
             modifier = Modifier
                 .offset(x = animatedOffset)
                 .width(segmentWidth)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(10.dp))
-                .background(accent)
+                .clip(RoundedCornerShape(999.dp))
+                .background(colors.signalRed)
         )
 
         // Segment labels
@@ -74,15 +115,19 @@ fun FlowSegmentedControl(
                             indication = null
                         ) {
                             onSelect(index)
-                        },
+                        }
+                        .padding(horizontal = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = title,
                         fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) DarkInkOnAccent else DarkInkMuted,
-                        textAlign = TextAlign.Center
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (isSelected) colors.onSignalRed else colors.inkSecondary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -100,13 +145,15 @@ fun FlowCompactSegmentedControl(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colors = LocalFlowColors.current
     BoxWithConstraints(
         modifier = modifier
-            .width(132.dp)
+            .width(136.dp)
             .height(34.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(DarkSurfaceSunken)
-            .padding(3.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(colors.surfaceSunken)
+            .border(1.dp, colors.hairline.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
+            .padding(2.5.dp)
     ) {
         val count = items.size.coerceAtLeast(1)
         val segmentWidth = maxWidth / count
@@ -121,8 +168,8 @@ fun FlowCompactSegmentedControl(
                 .offset(x = animatedOffset)
                 .width(segmentWidth)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(8.dp))
-                .background(DarkInk)
+                .clip(RoundedCornerShape(999.dp))
+                .background(colors.signalRed)
         )
 
         Row(modifier = Modifier.fillMaxSize()) {
@@ -143,9 +190,11 @@ fun FlowCompactSegmentedControl(
                     Text(
                         text = title,
                         fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) DarkInkOnAccent else DarkInkMuted,
-                        textAlign = TextAlign.Center
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) colors.onSignalRed else colors.inkSecondary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -154,18 +203,20 @@ fun FlowCompactSegmentedControl(
 }
 
 /**
- * Editorial Group Surface Container according to Spec §5.3:
- * - Level: Group (#16181B DarkSurface), rounded 20dp.
+ * Editorial Group Surface Container:
+ * Rounded 22dp, surface fill, and crisp 1dp hairline border.
  */
 @Composable
 fun FlowGroup(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val colors = LocalFlowColors.current
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = DarkSurface,
+        shape = RoundedCornerShape(22.dp),
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.hairline),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -177,19 +228,19 @@ fun FlowGroup(
 }
 
 /**
- * Hairline separator per Spec §3.3: 1dp DarkHairline.
+ * Hairline separator: 1dp hairline color.
  */
 @Composable
 fun FlowHairline(modifier: Modifier = Modifier) {
     HorizontalDivider(
         modifier = modifier.fillMaxWidth(),
         thickness = 1.dp,
-        color = DarkHairline
+        color = LocalFlowColors.current.hairline
     )
 }
 
 /**
- * Editorial primary action button with accent tint.
+ * Editorial primary action button with signature Signal Red styling.
  */
 @Composable
 fun FlowButton(
@@ -197,13 +248,13 @@ fun FlowButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    containerColor: Color = LocalAccentColor.current,
-    contentColor: Color = DarkInkOnAccent
+    containerColor: Color = LocalFlowColors.current.signalRed,
+    contentColor: Color = LocalFlowColors.current.onSignalRed
 ) {
     Button(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(999.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = contentColor
@@ -225,3 +276,16 @@ fun FlowButton(
         )
     }
 }
+
+/**
+ * Tactical hardware switch colors inspired by Widgets app:
+ * Bold Signal Red track with pure white thumb when checked!
+ */
+@Composable
+fun flowSwitchColors(): SwitchColors = SwitchDefaults.colors(
+    checkedThumbColor = LocalFlowColors.current.onSignalRed,
+    checkedTrackColor = LocalFlowColors.current.signalRed,
+    uncheckedThumbColor = LocalFlowColors.current.inkSecondary,
+    uncheckedTrackColor = LocalFlowColors.current.surfaceSunken,
+    uncheckedBorderColor = LocalFlowColors.current.hairline
+)

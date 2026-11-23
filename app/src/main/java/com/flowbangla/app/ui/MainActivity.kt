@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity() {
             var appLanguage by remember { mutableStateOf(prefs.appLanguage) }
 
             FlowBanglaTheme(
-                darkTheme = darkTheme,
+                appearanceMode = appearanceTheme,
                 isBangla = appLanguage == "bn",
                 accentColor = getAccentColor(accentColorKey)
             ) {
@@ -291,7 +291,7 @@ object L10n {
         "appearance" to "Appearance",
         "guide" to "Guide",
         "diagnostics" to "Diagnostics",
-        "version" to "Version 5.3.0 (29)",
+        "version" to "Version 5.4.0 (30)",
         "added" to "Added",
         "not_added" to "Not added",
         "save_key_first" to "Please save required API Key first",
@@ -363,7 +363,7 @@ object L10n {
         "appearance" to "থিম",
         "guide" to "সেটাপ নির্দেশিকা",
         "diagnostics" to "ডায়াগনস্টিক",
-        "version" to "ভার্সন ৫.৩.০ (২৯)",
+        "version" to "ভার্সন ৫.৪.০ (৩০)",
         "added" to "যুক্ত আছে",
         "not_added" to "যুক্ত নেই",
         "save_key_first" to "আগে প্রয়োজনীয় API Key সেভ করুন",
@@ -487,30 +487,24 @@ fun MainScreen(
 
     Scaffold(
         topBar = {
-            // Top Bar §5.1: Height 56dp, DarkCanvas background, "Flow" in Serif 22sp, 6dp Ochre dot when needed
+            // Top Bar: Two-Tone FlowBrandWordmark ("Fl" in inkPrimary + "ow" in Signal Red)
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Flow",
-                            fontFamily = FontFamily.Serif,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = DarkInk
-                        )
+                        FlowBrandWordmark()
                         if (!permissionState.allCriticalGranted) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Box(
                                 modifier = Modifier
                                     .size(6.dp)
                                     .clip(CircleShape)
-                                    .background(OchreDark)
+                                    .background(LocalFlowColors.current.statusPaid)
                             )
                         }
                     }
                 },
                 actions = {
-                    // Segmented Language Control [ EN | বাংলা ] §5.1
+                    // Segmented Language Control [ EN | বাংলা ]
                     FlowCompactSegmentedControl(
                         items = listOf("EN", "বাংলা"),
                         selectedIndex = if (isBn) 1 else 0,
@@ -522,17 +516,17 @@ fun MainScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DarkCanvas,
-                    titleContentColor = DarkInk
+                    containerColor = LocalFlowColors.current.canvas,
+                    titleContentColor = LocalFlowColors.current.inkPrimary
                 )
             )
         },
         bottomBar = {
-            val accent = LocalAccentColor.current
+            val colors = LocalFlowColors.current
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(DarkCanvas)
+                    .background(colors.canvas)
                     .navigationBarsPadding()
             ) {
                 FlowHairline()
@@ -544,20 +538,20 @@ fun MainScreen(
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Home Pill Tab (Issue 5 redesign)
+                    // Home Pill Tab (Widgets-inspired Signal Red capsule)
                     val isHome = selectedTab == 0
                     val homePillBg by animateColorAsState(
-                        targetValue = if (isHome) accent.copy(alpha = 0.15f) else Color.Transparent,
+                        targetValue = if (isHome) colors.signalRed.copy(alpha = 0.14f) else Color.Transparent,
                         label = "home_pill_bg"
                     )
                     val homeContentColor by animateColorAsState(
-                        targetValue = if (isHome) accent else DarkInkMuted,
+                        targetValue = if (isHome) colors.signalRed else colors.inkSecondary,
                         label = "home_pill_color"
                     )
 
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(999.dp))
                             .background(homePillBg)
                             .clickable { selectedTab = 0 }
                             .padding(horizontal = 22.dp, vertical = 10.dp),
@@ -579,20 +573,20 @@ fun MainScreen(
                         )
                     }
 
-                    // History Pill Tab (Issue 5 redesign)
+                    // History Pill Tab (Widgets-inspired Signal Red capsule)
                     val isHistory = selectedTab == 1
                     val historyPillBg by animateColorAsState(
-                        targetValue = if (isHistory) accent.copy(alpha = 0.15f) else Color.Transparent,
+                        targetValue = if (isHistory) colors.signalRed.copy(alpha = 0.14f) else Color.Transparent,
                         label = "hist_pill_bg"
                     )
                     val historyContentColor by animateColorAsState(
-                        targetValue = if (isHistory) accent else DarkInkMuted,
+                        targetValue = if (isHistory) colors.signalRed else colors.inkSecondary,
                         label = "hist_pill_color"
                     )
 
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(999.dp))
                             .background(historyPillBg)
                             .clickable {
                                 recentHistory = historyManager.getRecentRecords()
@@ -753,13 +747,7 @@ fun MainScreen(
                                         isMicDismissed = true
                                     }
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
-                                )
+                                colors = flowSwitchColors()
                             )
                         }
 
@@ -1160,13 +1148,7 @@ fun MainScreen(
                                     prefs.providerRoutingMode = newMode
                                     notifyServiceSettingsChanged(context)
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
-                                )
+                                colors = flowSwitchColors()
                             )
                         }
 
@@ -1285,13 +1267,7 @@ fun MainScreen(
                                 Switch(
                                     checked = p.isEnabled,
                                     onCheckedChange = { p.onToggle(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = DarkInkOnAccent,
-                                        checkedTrackColor = DarkInk,
-                                        uncheckedThumbColor = DarkInkMuted,
-                                        uncheckedTrackColor = DarkSurfaceSunken,
-                                        uncheckedBorderColor = DarkHairline
-                                    )
+                                    colors = flowSwitchColors()
                                 )
                             }
 
@@ -1375,13 +1351,7 @@ fun MainScreen(
                                     isSmartPolish = it
                                     prefs.smartPolishEnabled = it
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
-                                )
+                                colors = flowSwitchColors()
                             )
                         }
 
@@ -1455,13 +1425,7 @@ fun MainScreen(
                                     casualMessagingDropPeriod = it
                                     prefs.casualMessagingDropPeriod = it
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
-                                )
+                                colors = flowSwitchColors()
                             )
                         }
 
@@ -1485,13 +1449,7 @@ fun MainScreen(
                                         enableLiveTranscriptionPreview = it
                                         prefs.enableLiveTranscriptionPreview = it
                                     },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = DarkInkOnAccent,
-                                        checkedTrackColor = DarkInk,
-                                        uncheckedThumbColor = DarkInkMuted,
-                                        uncheckedTrackColor = DarkSurfaceSunken,
-                                        uncheckedBorderColor = DarkHairline
-                                    )
+                                    colors = flowSwitchColors()
                                 )
                             }
 
@@ -1548,8 +1506,10 @@ fun MainScreen(
                                 .padding(top = 10.dp, bottom = 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
+                            val previewDiscColor = DarkInk
+                            val previewGlyphColor = DarkInkOnAccent
                             Canvas(modifier = Modifier.size(bubbleSize.dp)) {
-                                drawDandaMic(disc = DarkInk.copy(alpha = bubbleOpacity), glyph = DarkInkOnAccent)
+                                drawDandaMic(disc = previewDiscColor.copy(alpha = bubbleOpacity), glyph = previewGlyphColor)
                             }
                             Text(
                                 text = "Preview",
@@ -1581,60 +1541,61 @@ fun MainScreen(
 
                         FlowHairline()
 
-                        // Row 2: Size Slider (48..84dp, step 4dp per §6.5)
+                        // Row 2: Size Slider (48..84dp, step 4dp)
                         Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                            val snappedSize = ((bubbleSize / 4f).let { kotlin.math.round(it) } * 4).toInt().coerceIn(48, 84)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(str("size"), fontSize = 14.sp, color = DarkInk)
-                                Text("${bubbleSize.toInt()} dp", fontSize = 13.sp, color = DarkInkMuted)
+                                Text("$snappedSize dp", fontSize = 13.sp, color = DarkInkMuted)
                             }
                             Slider(
-                                value = bubbleSize,
+                                value = snappedSize.toFloat(),
                                 onValueChange = { raw ->
-                                    // Snap to 4dp step grid: 48, 52, 56, 60, 64, 68, 72, 76, 80, 84
-                                    val stepped = (Math.round((raw - 48f) / 4f) * 4f) + 48f
-                                    bubbleSize = stepped.coerceIn(48f, 84f)
-                                    prefs.bubbleSizeDp = bubbleSize.toInt()
+                                    val stepped = ((raw / 4f).let { kotlin.math.round(it) } * 4).toInt().coerceIn(48, 84)
+                                    bubbleSize = stepped.toFloat()
+                                    prefs.bubbleSizeDp = stepped
                                     notifyServiceSettingsChanged(context)
                                 },
                                 valueRange = 48f..84f,
-                                steps = 8, // (84 - 48) / 4 - 1 = 8 steps
+                                steps = 8,
                                 colors = SliderDefaults.colors(
-                                    thumbColor = DarkInk,
-                                    activeTrackColor = DarkInk,
-                                    inactiveTrackColor = DarkSurfaceSunken
+                                    thumbColor = LocalFlowColors.current.inkPrimary,
+                                    activeTrackColor = LocalFlowColors.current.signalRed,
+                                    inactiveTrackColor = LocalFlowColors.current.surfaceSunken
                                 )
                             )
                         }
 
                         FlowHairline()
 
-                        // Row 3: Opacity Slider (30..100%, step 5% per §6.5)
+                        // Row 3: Opacity Slider (30..100%, step 5%)
                         Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                            val snappedPercent = ((bubbleOpacity * 100f / 5f).let { kotlin.math.round(it) } * 5).toInt().coerceIn(30, 100)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(str("opacity"), fontSize = 14.sp, color = DarkInk)
-                                Text("${(bubbleOpacity * 100).toInt()}%", fontSize = 13.sp, color = DarkInkMuted)
+                                Text("$snappedPercent%", fontSize = 13.sp, color = DarkInkMuted)
                             }
                             Slider(
-                                value = bubbleOpacity,
+                                value = (snappedPercent / 100f),
                                 onValueChange = { raw ->
-                                    // Snap to 5% step grid
-                                    val percent = Math.round(raw * 100f / 5f) * 5f
-                                    bubbleOpacity = (percent / 100f).coerceIn(0.30f, 1.0f)
-                                    prefs.bubbleOpacity = bubbleOpacity
+                                    val percent = ((raw * 100f / 5f).let { kotlin.math.round(it) } * 5).toInt().coerceIn(30, 100)
+                                    val newOp = percent / 100f
+                                    bubbleOpacity = newOp
+                                    prefs.bubbleOpacity = newOp
                                     notifyServiceSettingsChanged(context)
                                 },
                                 valueRange = 0.30f..1.0f,
-                                steps = 13, // (100 - 30) / 5 - 1 = 13 steps
+                                steps = 13,
                                 colors = SliderDefaults.colors(
-                                    thumbColor = DarkInk,
-                                    activeTrackColor = DarkInk,
-                                    inactiveTrackColor = DarkSurfaceSunken
+                                    thumbColor = LocalFlowColors.current.inkPrimary,
+                                    activeTrackColor = LocalFlowColors.current.signalRed,
+                                    inactiveTrackColor = LocalFlowColors.current.surfaceSunken
                                 )
                             )
                         }
@@ -1660,13 +1621,7 @@ fun MainScreen(
                                     isHaptic = it
                                     prefs.hapticFeedbackEnabled = it
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
-                                )
+                                colors = flowSwitchColors()
                             )
                         }
 
@@ -1692,13 +1647,7 @@ fun MainScreen(
                                     prefs.showOnlyWithKeyboard = it
                                     FloatingBubbleService.instance?.applyVisibilityRule()
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
-                                )
+                                colors = flowSwitchColors()
                             )
                         }
 
@@ -1932,13 +1881,7 @@ fun MainScreen(
                                     prefs.isPrivacyModeEnabled = it
                                     notifyServiceSettingsChanged(context)
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = DarkInkOnAccent,
-                                    checkedTrackColor = DarkInk,
-                                    uncheckedThumbColor = DarkInkMuted,
-                                    uncheckedTrackColor = DarkSurfaceSunken,
-                                    uncheckedBorderColor = DarkHairline
-                                )
+                                colors = flowSwitchColors()
                             )
                         }
 

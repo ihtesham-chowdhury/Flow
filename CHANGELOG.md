@@ -4,6 +4,22 @@ All notable changes to the Flow voice dictation app for Android will be document
 
 ---
 
+## [5.4.0] - 2026-11-23 (Build 30)
+### Added
+- **Final Design Overhaul ("Signal & Graphite" Inspired by Widgets App)**:
+  - Signature Two-Tone Brand Wordmark in TopAppBar: `"Fl"` in crisp `inkPrimary` + `"ow"` in vibrant Signal Red (`#EA3829`) in bold geometric grotesque typography (`26.sp`, `FontWeight.ExtraBold`).
+  - Full-Capsule (`RoundedCornerShape(999.dp)`) Segmented Controls: Styled with `surfaceSunken` track, `1dp` hairline border, Signal Red active pill, and pure white bold text.
+  - Eliminated Multi-Line Text Wrapping: Set single-line ellipsis formatting (`maxLines = 1`, `softWrap = false`) with compact padding on `FlowSegmentedControl` so `"Tap to start"` and `"Hold to talk"` never clip at the bottom.
+  - Precision Slider Snapping: Size slider strictly snaps to 4dp increments (`48, 52, 56, 60, 64, 68, 72, 76, 80, 84 dp`), completely eliminating float rounding artifacts (e.g. `"63 dp"`). Opacity slider snaps to 5% increments. Both styled with Signal Red active tracks.
+  - Hardware Tactile Switches: Styled with Signal Red active track and crisp pure white thumb.
+  - Bottom Navigation Dock: Clean capsule tab design with Signal Red active tint and icon.
+- **True Reactive Dual-Theme Architecture (`FlowTheme` & `FlowColors`)**:
+  - Implemented `FlowColors`, `DarkFlowColors` (Graphite `#0E1013` canvas, `#171A1F` surface, `#21252C` raised, `#EA3829` Signal Red), and `LightFlowColors` (Crisp Paper `#F3F4F6` canvas, `#FFFFFF` surface, `#D92D20` Signal Red).
+  - Fixed Light Theme across all screens and sheets: switching `Appearance -> Light` instantly renders the entire app in crisp Paper Light mode while keeping system status bar clock and battery icons in high-contrast black.
+  - Backward-compatible dynamic composable getters for all legacy color tokens.
+
+---
+
 ## [5.3.0] - 2026-11-23 (Build 29)
 ### Added
 - **Bottom-Anchored Invariant Inline Fix for Facebook & WhatsApp**:

@@ -1,46 +1,64 @@
 package com.flowbangla.app.ui.theme
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// ---- Dark theme (default) ------------------------------------------------
-// Warm neutral obsidian canvas. Deliberately not blue-slate.
-val DarkCanvas        = Color(0xFF0D0E10)
-val DarkSurface       = Color(0xFF16181B)
-val DarkSurfaceRaised = Color(0xFF1F2226)
-val DarkSurfaceSunken = Color(0xFF111316)
-val DarkHairline      = Color(0xFF2A2E33)
-val DarkInk           = Color(0xFFEEEBE3)   // ivory, primary text and primary buttons
-val DarkInkMuted      = Color(0xFF9EA3AB)
-val DarkInkOnAccent   = Color(0xFF0D0E10)
+// ---- Static Raw Palette Tokens ----
+val DarkCanvasStatic        = Color(0xFF0E1013)
+val DarkSurfaceStatic       = Color(0xFF171A1F)
+val DarkSurfaceRaisedStatic = Color(0xFF21252C)
+val DarkSurfaceSunkenStatic = Color(0xFF101216)
+val DarkHairlineStatic      = Color(0xFF272B33)
+val DarkInkStatic           = Color(0xFFF7F8FA)
+val DarkInkMutedStatic      = Color(0xFF959CA8)
 
-// ---- Light theme ---------------------------------------------------------
-val LightCanvas        = Color(0xFFF5F2EA) // Warm Light Paper per Flow v5.0
-val LightSurface       = Color(0xFFFAF8F2)
-val LightSurfaceRaised = Color(0xFFFFFFFF)
-val LightSurfaceSunken = Color(0xFFEBE7DD)
-val LightHairline      = Color(0xFFD6D2C4)
-val LightInk           = Color(0xFF17181B)
-val LightInkMuted      = Color(0xFF6B6E75)
-val LightInkOnAccent   = Color(0xFFFFFFFF)
+val LightCanvasStatic        = Color(0xFFF3F4F6)
+val LightSurfaceStatic       = Color(0xFFFFFFFF)
+val LightSurfaceRaisedStatic = Color(0xFFF8F9FA)
+val LightSurfaceSunkenStatic = Color(0xFFE7E9EE)
+val LightHairlineStatic      = Color(0xFFDDE1E8)
+val LightInkStatic           = Color(0xFF111317)
+val LightInkMutedStatic      = Color(0xFF5B6270)
 
-// ---- Shared state colours (same meaning in both themes) -----------------
-// Vermilion means LIVE recording only. Do not reuse it for destructive actions.
-val VermilionDark  = Color(0xFFE8473A)
-val VermilionLight = Color(0xFFC23A2D)
-// Ochre means working or needs attention. Graphic only in light theme.
-val OchreDark      = Color(0xFFE3B257)
-val OchreLight     = Color(0xFF9A6B12)
-// Sage means success.
-val SageDark       = Color(0xFF8FBF9F)
-val SageLight      = Color(0xFF36704D)
+val SignalRedDark  = Color(0xFFEA3829)
+val SignalRedLight = Color(0xFFD92D20)
 
-// ---- Selectable Accent Colors ----
-val AccentIvory   = Color(0xFFEEEBE3) // Ivory Classic (Default)
-val AccentOchre   = Color(0xFFE3B257) // Ochre Gold
-val AccentSage    = Color(0xFF8FBF9F) // Sage Emerald
-val AccentSky     = Color(0xFF38BDF8) // Nordic Sky Cyan
-val AccentRose    = Color(0xFFFB7185) // Terracotta Rose
-val AccentViolet  = Color(0xFFA78BFA) // Royal Amethyst
+// Dynamic Theme-Aware Getters for Composables:
+// Automatically transforms every composable across all screens when switching Light / Dark!
+val DarkCanvas: Color @Composable get() = LocalFlowColors.current.canvas
+val DarkSurface: Color @Composable get() = LocalFlowColors.current.surface
+val DarkSurfaceRaised: Color @Composable get() = LocalFlowColors.current.surfaceRaised
+val DarkSurfaceSunken: Color @Composable get() = LocalFlowColors.current.surfaceSunken
+val DarkHairline: Color @Composable get() = LocalFlowColors.current.hairline
+val DarkInk: Color @Composable get() = LocalFlowColors.current.inkPrimary
+val DarkInkMuted: Color @Composable get() = LocalFlowColors.current.inkSecondary
+val DarkInkOnAccent: Color @Composable get() = LocalFlowColors.current.onSignalRed
+
+val LightCanvas: Color @Composable get() = LocalFlowColors.current.canvas
+val LightSurface: Color @Composable get() = LocalFlowColors.current.surface
+val LightSurfaceRaised: Color @Composable get() = LocalFlowColors.current.surfaceRaised
+val LightSurfaceSunken: Color @Composable get() = LocalFlowColors.current.surfaceSunken
+val LightHairline: Color @Composable get() = LocalFlowColors.current.hairline
+val LightInk: Color @Composable get() = LocalFlowColors.current.inkPrimary
+val LightInkMuted: Color @Composable get() = LocalFlowColors.current.inkSecondary
+val LightInkOnAccent: Color @Composable get() = LocalFlowColors.current.onSignalRed
+
+// Shared status colors
+val VermilionDark  = Color(0xFFEA3829)
+val VermilionLight = Color(0xFFD92D20)
+val OchreDark      = Color(0xFFEAB308)
+val OchreLight     = Color(0xFFA16207)
+val SageDark       = Color(0xFF22C55E)
+val SageLight      = Color(0xFF15803D)
+
+// Selectable Accent Options (Signal Red is signature #1)
+val AccentSignalRed = Color(0xFFEA3829)
+val AccentIvory     = Color(0xFFF7F8FA)
+val AccentOchre     = Color(0xFFEAB308)
+val AccentSage      = Color(0xFF22C55E)
+val AccentSky       = Color(0xFF38BDF8)
+val AccentRose      = Color(0xFFEA3829) // Mapped to Signal Red for crisp industrial aesthetic
+val AccentViolet    = Color(0xFFA78BFA)
 
 data class FlowAccentOption(
     val key: String,
@@ -50,27 +68,30 @@ data class FlowAccentOption(
 )
 
 val AvailableAccentOptions = listOf(
+    FlowAccentOption("red", "Signal Red", "সিগন্যাল রেড", AccentSignalRed),
     FlowAccentOption("ivory", "Classic Ivory", "আইভরি ক্লাসিক", AccentIvory),
     FlowAccentOption("ochre", "Ochre Gold", "গোল্ড ওকর", AccentOchre),
     FlowAccentOption("sage", "Sage Emerald", "সেজ এমারেল্ড", AccentSage),
     FlowAccentOption("sky", "Nordic Sky", "নর্ডিক স্কাই", AccentSky),
-    FlowAccentOption("rose", "Terracotta Rose", "টেরাকোটা রোজ", AccentRose),
     FlowAccentOption("violet", "Amethyst", "অ্যামেথিস্ট ভায়োলেট", AccentViolet)
 )
 
 fun getAccentColor(key: String): Color {
-    return AvailableAccentOptions.firstOrNull { it.key == key }?.color ?: AccentIvory
+    return when (key.lowercase()) {
+        "red", "signal", "rose" -> AccentSignalRed
+        else -> AvailableAccentOptions.firstOrNull { it.key == key }?.color ?: AccentSignalRed
+    }
 }
 
 // Backward compatibility aliases mapping legacy names cleanly to the new palette
-val PrimaryBlue = DarkInk
-val PrimaryBlueVariant = DarkSurfaceRaised
-val AccentCyan = DarkInk
-val SuccessGreen = SageDark
-val RecordingRed = VermilionDark
-val ProcessingAmber = OchreDark
-val BackgroundDark = DarkCanvas
-val SurfaceDark = DarkSurface
-val SurfaceCard = DarkSurfaceRaised
-val TextPrimary = DarkInk
-val TextSecondary = DarkInkMuted
+val PrimaryBlue: Color @Composable get() = LocalFlowColors.current.inkPrimary
+val PrimaryBlueVariant: Color @Composable get() = LocalFlowColors.current.surfaceRaised
+val AccentCyan: Color @Composable get() = LocalFlowColors.current.signalRed
+val SuccessGreen: Color @Composable get() = LocalFlowColors.current.statusReady
+val RecordingRed: Color @Composable get() = LocalFlowColors.current.signalRed
+val ProcessingAmber: Color @Composable get() = LocalFlowColors.current.statusPaid
+val BackgroundDark: Color @Composable get() = LocalFlowColors.current.canvas
+val SurfaceDark: Color @Composable get() = LocalFlowColors.current.surface
+val SurfaceCard: Color @Composable get() = LocalFlowColors.current.surfaceRaised
+val TextPrimary: Color @Composable get() = LocalFlowColors.current.inkPrimary
+val TextSecondary: Color @Composable get() = LocalFlowColors.current.inkSecondary
